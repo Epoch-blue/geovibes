@@ -27,7 +27,7 @@ warnings.simplefilter("ignore", category=FutureWarning)
 initialize_ee_with_credentials()
 
 # Get API keys from environment variables
-MAPTILER_API_KEY = os.getenv('MAPTILER_API_KEY')
+MAPTILER_API_KEY = 'tBojLsXV1LWWhszN3ikf'
 if not MAPTILER_API_KEY:
     MAPTILER_API_KEY = 'YOUR_MAPTILER_API_KEY'
     warnings.warn("MAPTILER_API_KEY environment variable not set. Using placeholder. Please set it for full functionality.")
@@ -43,37 +43,6 @@ BASEMAP_TILES = {
     'GOOGLE_HYBRID': 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
     'MAPBOX': f"https://api.mapbox.com/v4/mapbox.satellite/{{z}}/{{x}}/{{y}}.png?access_token={MAPBOX_ACCESS_TOKEN}"
 }
-
-class EmbeddingMapper:
-    """Map between geographic points and georeferenced satellite image embeddings.
-    
-    Attributes:
-        gdf: A pandas GeoDataFrame whose columns are embedding feature values and a geometry
-        sindex: gdf.sindex
-    
-    Methods: 
-        map_points: Map geometric points to a nearest entry in the embedding dataframe.
-        get_vectors: Pull feature vectors from embedding dataframe.
-    """
-    
-    def __init__(self, gdf):
-        
-        self.gdf = gdf
-        self.gdf.index = np.arange(len(self.gdf))
-        self.sindex = self.gdf.sindex 
-        
-    def map_points(self, df):
-        """Map geometric points to a nearest entry in the embedding dataframe.
-        
-        Arguments:
-            df: A GeoDataFrame with Point entries
-        """
-        return pd.Index(self.sindex.nearest(df.geometry, return_all=False)[1])
-    
-    def get_vectors(self, idx):
-        """Pull feature vectors from embedding dataframe."""
-        return self.gdf.loc[idx].drop(columns=['geometry'])
-
 
 class GeoLabeler:
     """An interactive Leaflet map for labeling geographic features relative to satellite image embedding tiles.
@@ -91,11 +60,9 @@ class GeoLabeler:
     
     """
     def __init__(
-            self, gdf, geojson_path, mgrs_ids, start_date, end_date, imagery,
-            annoy_index, duckdb_connection, baselayer_url=BASEMAP_TILES['MAPTILER'], **kwargs):
+            self, geojson_path, mgrs_ids, start_date, end_date, imagery,
+            duckdb_connection, baselayer_url=BASEMAP_TILES['MAPTILER'], **kwargs):
         print("Initializing GeoLabeler...")
-        self.gdf = gdf.copy()
-        self.annoy_index = annoy_index
         self.duckdb_connection = duckdb_connection
         self.current_basemap = 'MAPTILER'
         self.basemap_layer = ipyl.TileLayer(url=baselayer_url, no_wrap=True, name='basemap', 
@@ -103,10 +70,20 @@ class GeoLabeler:
         self.ee_boundary = ee.Geometry(shapely.geometry.mapping(
             gpd.read_file(geojson_path).geometry.iloc[0]))
         
-        cen = gdf.geometry.unary_union.centroid
+        # Get map center from DuckDB
+        load_spatial_query = """
+        INSTALL spatial;
+        LOAD spatial;
+        """
+        self.duckdb_connection.execute(load_spatial_query)
+
+        # Get centroid of boundary from geopandas
+        boundary_gdf = gpd.read_file(geojson_path)
+        center_y, center_x = boundary_gdf.geometry.iloc[0].centroid.y, boundary_gdf.geometry.iloc[0].centroid.x
+        
         self.map = Map(
             basemap=self.basemap_layer,
-            center=(cen.y, cen.x), zoom=7, layout={'height':'600px'},
+            center=(center_y, center_x), zoom=7, layout={'height':'600px'},
             scroll_wheel_zoom=True)
 
         hsv_median = get_s2_hsv_median(
@@ -144,7 +121,7 @@ class GeoLabeler:
         self.google_maps_button.on_click(self.google_maps_click)
         self.toggle_mode_button.on_click(self.toggle_mode)
         self.toggle_basemap_button.on_click(self.toggle_basemap)
-        self.save_button.on_click(self.save_dataset)
+        #self.save_button.on_click(self.save_dataset)
         self.map.on_interaction(self.label_point)
         self.execute_label_point = True
         self.mgrs_ids = mgrs_ids
@@ -255,6 +232,10 @@ class GeoLabeler:
             ])
         ]))
         
+        self.query_vector = None
+        self.detection_ids = []
+        self.cached_embeddings = {}  # Add this to cache embeddings by point_id
+        
     def pos_click(self, b):
         self.select_val = 1
 
@@ -295,54 +276,100 @@ class GeoLabeler:
         self.basemap_layer.url = BASEMAP_TILES[self.current_basemap]
         self.toggle_basemap_button.description = f'Basemap: {self.current_basemap}'
 
-    def save_dataset(self, b):
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # def save_dataset(self, b):
+    #     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        # Save positive points
-        if self.pos_ids:
-            pos_gdf = self.gdf.loc[self.pos_ids][["geometry"]]
-            pos_gdf.to_file(f"positive_points_{timestamp}.geojson", driver="GeoJSON")
-            print(f"Saved positive points to positive_points_{timestamp}.geojson")
-        else:
-            print("No positive points to save")
+    #     # Save positive points
+    #     if self.pos_ids:
+    #         pos_gdf = self.gdf.loc[self.gdf['id'].isin(self.pos_ids)][["geometry"]]
+    #         pos_gdf.to_file(f"positive_points_{timestamp}.geojson", driver="GeoJSON")
+    #         print(f"Saved positive points to positive_points_{timestamp}.geojson")
+    #     else:
+    #         print("No positive points to save")
             
-        # Save negative points
-        if self.neg_ids:
-            neg_gdf = self.gdf.loc[self.neg_ids][["geometry"]]
-            neg_gdf.to_file(f"negative_points_{timestamp}.geojson", driver="GeoJSON")
-            print(f"Saved negative points to negative_points_{timestamp}.geojson")
-        else:
-            print("No negative points to save")
+    #     # Save negative points
+    #     if self.neg_ids:
+    #         neg_gdf = self.gdf.loc[self.gdf['id'].isin(self.neg_ids)][["geometry"]]
+    #         neg_gdf.to_file(f"negative_points_{timestamp}.geojson", driver="GeoJSON")
+    #         print(f"Saved negative points to negative_points_{timestamp}.geojson")
+    #     else:
+    #         print("No negative points to save")
 
     def handle_draw(self, target, action, geo_json):
         if action != 'created':
             return
-        self.polygon = gpd.GeoDataFrame.from_features([geo_json])
-
-        # Convert the GeoJSON layer data to a GeoDataFrame
-        self.points_gdf = gpd.GeoDataFrame.from_features(self.points.data['features'])
         
-        self.points_inside = self.detection_gdf[
-            self.detection_gdf.geometry.within(self.polygon.geometry.iloc[0])]
+        # Get the polygon geometry from the drawn shape
+        polygon_coords = geo_json['geometry']['coordinates'][0]
+        polygon_wkt = f"POLYGON(({', '.join([f'{coord[0]} {coord[1]}' for coord in polygon_coords])}))"
         
-        print(self.points_inside)
-        for idx in self.points_inside.index:
-            if idx in self.pos_ids:
-                self.pos_ids.remove(idx)
-            if idx in self.neg_ids:
-                self.neg_ids.remove(idx)
+        # Find points within the polygon using DuckDB and get their embeddings
+        points_in_polygon_query = """
+        SELECT id, embedding
+        FROM geo_embeddings
+        WHERE ST_Within(geometry, ST_GeomFromText(?))
+        """
+        
+        points_inside = self.duckdb_connection.execute(points_in_polygon_query, [polygon_wkt]).df()
+        
+        print(f"Found {len(points_inside)} points inside polygon")
+        for _, row in points_inside.iterrows():
+            point_id = row['id']
+            embedding = np.array(row['embedding'])
+            
+            # Cache the embedding
+            self.cached_embeddings[point_id] = embedding
+            
+            if point_id in self.pos_ids:
+                self.pos_ids.remove(point_id)
+            if point_id in self.neg_ids:
+                self.neg_ids.remove(point_id)
             
             if self.select_val == 1:
-                self.pos_ids.append(idx)
+                self.pos_ids.append(point_id)
             elif self.select_val == 0:
-                self.neg_ids.append(idx)
+                self.neg_ids.append(point_id)
         
         self.update_layers()
+        self.update_query_vector()
         self.draw_control.clear()
 
     def update_layers(self):
-        self.pos_layer.data = json.loads(self.gdf.loc[self.pos_ids][["geometry"]].to_json())
-        self.neg_layer.data = json.loads(self.gdf.loc[self.neg_ids][["geometry"]].to_json())
+        if self.pos_ids:
+            pos_query = """
+            SELECT ST_AsGeoJSON(geometry) as geometry
+            FROM geo_embeddings 
+            WHERE id IN ({})
+            """.format(','.join([f"'{pid}'" for pid in self.pos_ids]))
+            pos_results = self.duckdb_connection.execute(pos_query).df()
+            pos_geojson = {"type": "FeatureCollection", "features": []}
+            for _, row in pos_results.iterrows():
+                pos_geojson["features"].append({
+                    "type": "Feature", 
+                    "geometry": json.loads(row['geometry']),
+                    "properties": {}
+                })
+            self.pos_layer.data = pos_geojson
+        else:
+            self.pos_layer.data = {"type": "FeatureCollection", "features": []}
+        
+        if self.neg_ids:
+            neg_query = """
+            SELECT ST_AsGeoJSON(geometry) as geometry
+            FROM geo_embeddings 
+            WHERE id IN ({})
+            """.format(','.join([f"'{nid}'" for nid in self.neg_ids]))
+            neg_results = self.duckdb_connection.execute(neg_query).df()
+            neg_geojson = {"type": "FeatureCollection", "features": []}
+            for _, row in neg_results.iterrows():
+                neg_geojson["features"].append({
+                    "type": "Feature", 
+                    "geometry": json.loads(row['geometry']),
+                    "properties": {}
+                })
+            self.neg_layer.data = neg_geojson
+        else:
+            self.neg_layer.data = {"type": "FeatureCollection", "features": []}
 
     def label_point(self, **kwargs):
         """Assign a label and map layer to a clicked map point."""
@@ -353,32 +380,66 @@ class GeoLabeler:
         if action not in ['click']:
             return
                  
-        # find the closest point in the dataframe to the clicked point
         lat, lon = kwargs.get('coordinates')
         
         if self.select_val == 2:
             import webbrowser
             url = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
             webbrowser.open(url, new=2, autoraise=True)
-            # print(f"Please open this URL in your local browser: {url}")
             return
-        idx = self.gdf.sindex.nearest(Point(lon, lat))[1][0]
         
-        if idx in self.pos_ids:
-            self.pos_ids.remove(idx)
-        if idx in self.neg_ids:
-            self.neg_ids.remove(idx)
-                
+        # Pull both geometry info AND embedding in one query
+        sql = """
+        SELECT  g.id,
+                ST_AsText(g.geometry) AS wkt,
+                ST_Distance(geometry, ST_Point(?, ?)) AS dist_m,
+                g.embedding
+        FROM    geo_embeddings g
+        ORDER BY dist_m
+        LIMIT   1
+        """
+        
+        nearest_result = self.duckdb_connection.execute(sql, [lon, lat]).df()
+        
+        if nearest_result.empty:
+            return
+        
+        point_id = nearest_result.iloc[0]['id']
+        embedding = nearest_result.iloc[0]['embedding']
+        
+        # Cache the embedding for later use
+        self.cached_embeddings[point_id] = np.array(embedding)
+        
+        if point_id in self.pos_ids:
+            self.pos_ids.remove(point_id)
+        if point_id in self.neg_ids:
+            self.neg_ids.remove(point_id)
+            
         if self.select_val == 1:
-            self.pos_ids.append(idx)
-            self.pos_layer.data = json.loads(self.gdf.loc[self.pos_ids][["geometry"]].to_json())
+            self.pos_ids.append(point_id)
         elif self.select_val == 0:
-            self.neg_ids.append(idx)
-            self.neg_layer.data = json.loads(self.gdf.loc[self.neg_ids][["geometry"]].to_json())
+            self.neg_ids.append(point_id)
         else:
-            self.erase_layer.data = json.loads(self.gdf.loc[[idx]][["geometry"]].to_json())
-            self.pos_layer.data = json.loads(self.gdf.loc[self.pos_ids][["geometry"]].to_json())
-            self.neg_layer.data = json.loads(self.gdf.loc[self.neg_ids][["geometry"]].to_json())
+            # For erase mode, get the point geometry from DuckDB
+            erase_query = """
+            SELECT ST_AsGeoJSON(geometry) as geometry
+            FROM geo_embeddings 
+            WHERE id = ?
+            """
+            erase_result = self.duckdb_connection.execute(erase_query, [point_id]).fetchone()
+            if erase_result:
+                erase_geojson = {
+                    "type": "FeatureCollection", 
+                    "features": [{
+                        "type": "Feature", 
+                        "geometry": json.loads(erase_result[0]),
+                        "properties": {}
+                    }]
+                }
+                self.erase_layer.data = erase_geojson
+        
+        self.update_layers()
+        self.update_query_vector()  # This will now use cached embeddings
 
     def update_layer(self, layer, new_data):
         """Add points to the map for visualization, without changing labels."""
@@ -386,11 +447,71 @@ class GeoLabeler:
         layer.data = new_data
         self.execute_label_point = True
 
-    def get_embeddings_by_tile_ids(self, tile_ids):
-        """Get all embedding columns for given tile IDs from DuckDB."""
-        query = f"""
-        SELECT *
-        FROM embeddings 
-        WHERE tile_id IN ({','.join([f"'{tid}'" for tid in tile_ids])})
-        """
-        return self.duckdb_connection.execute(query).df()   
+    def update_query_vector(self):
+        """Update the query vector based on current positive and negative labels."""
+        if not self.pos_ids:
+            self.query_vector = None
+            return
+        
+        # Use cached embeddings instead of querying database
+        pos_embeddings = []
+        missing_pos_ids = []
+        
+        for pid in self.pos_ids:
+            if pid in self.cached_embeddings:
+                pos_embeddings.append(self.cached_embeddings[pid])
+            else:
+                missing_pos_ids.append(pid)
+        
+        # If we have missing embeddings, fetch them
+        if missing_pos_ids:
+            query = """
+            SELECT id, embedding
+            FROM geo_embeddings 
+            WHERE id IN ({})
+            """.format(','.join([f"'{pid}'" for pid in missing_pos_ids]))
+            
+            missing_results = self.duckdb_connection.execute(query).df()
+            for _, row in missing_results.iterrows():
+                embedding = np.array(row['embedding'])
+                self.cached_embeddings[row['id']] = embedding
+                pos_embeddings.append(embedding)
+        
+        if not pos_embeddings:
+            self.query_vector = None
+            return
+        
+        pos_vec = np.mean(pos_embeddings, axis=0)
+        
+        # Handle negative embeddings
+        neg_embeddings = []
+        missing_neg_ids = []
+        
+        for nid in self.neg_ids:
+            if nid in self.cached_embeddings:
+                neg_embeddings.append(self.cached_embeddings[nid])
+            else:
+                missing_neg_ids.append(nid)
+        
+        # If we have missing negative embeddings, fetch them
+        if missing_neg_ids:
+            query = """
+            SELECT id, embedding
+            FROM geo_embeddings 
+            WHERE id IN ({})
+            """.format(','.join([f"'{nid}'" for nid in missing_neg_ids]))
+            
+            missing_results = self.duckdb_connection.execute(query).df()
+            for _, row in missing_results.iterrows():
+                embedding = np.array(row['embedding'])
+                self.cached_embeddings[row['id']] = embedding
+                neg_embeddings.append(embedding)
+        
+        if neg_embeddings:
+            neg_vec = np.mean(neg_embeddings, axis=0)
+        else:
+            neg_vec = np.zeros_like(pos_vec)
+        
+        # Default query vector math
+        self.query_vector = 2 * pos_vec - neg_vec
+        print(f"Updated query vector from {len(self.pos_ids)} positive and {len(self.neg_ids)} negative labels")
