@@ -314,15 +314,6 @@ class GeoLabeler:
         display(HTML(style))
 
 
-    def _update_basemap_button_styles(self):
-        """Update basemap button styles to highlight current selection."""
-        for basemap_name, btn in self.basemap_buttons.items():
-            if basemap_name == self.current_basemap:
-                btn.button_style = 'info'  # Blue highlight for active
-            else:
-                btn.button_style = ''  # Default style
-
-
     def _add_map_layers(self, geojson_path):
         """Add all necessary layers to the map."""
         # Region boundary
@@ -475,6 +466,11 @@ class GeoLabeler:
         self.draw_control.clear()
 
 
+    def _on_search(self, change):
+        """Handle search submission."""
+        self.search_click(None)
+
+
     def _on_neighbors_change(self, change):
         """Handle neighbors slider change with debouncing."""
         # Simple debouncing - could be improved with actual timer
@@ -507,11 +503,6 @@ class GeoLabeler:
             self.panel_content.layout.display = 'none'
             self.collapse_btn.description = '▶'
             self.panel_collapsed = True
-
-
-    def _on_search(self, change):
-        """Handle search submission."""
-        self.search_click(None)
 
 
     def _on_map_interaction(self, **kwargs):
@@ -1018,3 +1009,16 @@ class GeoLabeler:
             print(f"❌ File not found: {filename}")
         except Exception as e:
             print(f"❌ Error loading dataset: {str(e)}")
+
+    def _update_basemap_button_styles(self):
+        """Update basemap button styles to highlight current selection."""
+        for basemap_name, btn in self.basemap_buttons.items():
+            if basemap_name == self.current_basemap:
+                btn.button_style = 'info'  # Blue highlight for active
+            else:
+                btn.button_style = ''  # Default style
+
+    # Remove the old basemap toggle method and replace with new one
+    def _on_basemap_toggle(self, b):
+        """Legacy method - now handled by _on_basemap_select."""
+        pass
