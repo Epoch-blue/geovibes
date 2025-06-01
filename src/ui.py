@@ -174,7 +174,7 @@ class GeoLabeler:
 
     def _build_side_panel(self):
         """Build the collapsible side panel with accordion sections."""
-        # --- SEARCH BUTTON AT TOP (Most Important) ---
+        # --- SEARCH SECTION (Always visible at top) ---
         self.search_btn = Button(
             description='🔍 Search Similar Points',
             layout=Layout(width='100%', height='40px'),
@@ -187,8 +187,7 @@ class GeoLabeler:
             min=10,
             max=10000,
             step=10,
-            description='Count:',
-            style={'description_width': '40px'},
+            description='',  # No description
             readout=True,
             layout=Layout(width='100%')
         )
@@ -196,7 +195,7 @@ class GeoLabeler:
         search_section = VBox([
             self.search_btn,
             self.neighbors_slider
-        ], layout=Layout(padding='5px'))
+        ], layout=Layout(padding='5px', margin='0 0 10px 0'))
         
         # --- Labeling section ---
         self.label_toggle = ToggleButtons(
@@ -207,10 +206,6 @@ class GeoLabeler:
         
         # Apply colors to toggle buttons
         self._update_toggle_button_styles()
-        
-        # --- Drawing/Selection section ---
-        self.lasso_btn = Button(description='Lasso', layout=Layout(width='100%'))
-        self.delete_shape_btn = Button(description='Clear Shapes', layout=Layout(width='100%'))
         
         # --- Basemap Selection ---
         self.basemap_buttons = {}
@@ -239,50 +234,48 @@ class GeoLabeler:
             button_style=''
         )
         
-        # Build accordion
+        # Build accordion (without Drawing Tools)
         accordion = Accordion(children=[
-            search_section,
             VBox([self.label_toggle], layout=Layout(padding='5px')),
-            VBox([self.lasso_btn, self.delete_shape_btn], layout=Layout(padding='5px')),
             VBox(basemap_section_widgets, layout=Layout(padding='5px')),
             VBox([self.save_btn, self.google_maps_btn], layout=Layout(padding='5px'))
         ])
         
         # Set titles
-        for i, title in enumerate(['🔍 Search', 'Label Mode', 'Drawing Tools', 'Basemaps', 'Export & Tools']):
+        for i, title in enumerate(['Label Mode', 'Basemaps', 'Export & Tools']):
             accordion.set_title(i, title)
         
-        # Open search section by default
+        # Open label mode by default
         accordion.selected_index = 0
         
         # Add collapse/expand functionality
         self.panel_collapsed = False
         self.collapse_btn = Button(
             description='◀',
-            layout=Layout(width='30px', height='30px'),
+            layout=Layout(width='25px', height='25px'),
             tooltip='Collapse/Expand Panel'
         )
-        
-        # Create collapsible panel
-        self.panel_content = VBox([accordion], layout=Layout(width='250px', padding='5px'))
         
         # Main panel with collapse button
         panel_header = HBox([
             Label('Controls', layout=Layout(flex='1')),
             self.collapse_btn
-        ], layout=Layout(width='250px', justify_content='space-between', padding='5px'))
+        ], layout=Layout(width='100%', justify_content='space-between', padding='2px'))
         
-        panel = VBox([
+        # Create accordion container that will be hidden/shown
+        self.accordion_container = VBox([accordion], layout=Layout(width='100%'))
+        
+        # Panel content includes search (always visible) and accordion (collapsible)
+        panel_content = VBox([
             panel_header,
-            self.panel_content
-        ])
+            search_section,  # Always visible
+            self.accordion_container  # This will be hidden/shown
+        ], layout=Layout(width='200px', padding='5px'))  # Narrower width
         
         # Return panel and widget references
         ui_widgets = {
             'search_btn': self.search_btn,
             'label_toggle': self.label_toggle,
-            'lasso_btn': self.lasso_btn,
-            'delete_shape_btn': self.delete_shape_btn,
             'neighbors_slider': self.neighbors_slider,
             'basemap_buttons': self.basemap_buttons,
             'save_btn': self.save_btn,
@@ -290,7 +283,7 @@ class GeoLabeler:
             'collapse_btn': self.collapse_btn
         }
         
-        return panel, ui_widgets
+        return panel_content, ui_widgets
 
 
     def _update_toggle_button_styles(self):
@@ -319,15 +312,15 @@ class GeoLabeler:
         # Region boundary
         with open(geojson_path) as f:
             region_layer = ipyl.GeoJSON(
-                name="region",
-                data=json.load(f),
-                style={
-                    'color': '#FAFAFA',
-                    'opacity': 1,
-                    'fillOpacity': 0,
-                    'weight': 1
-                }
-            )
+                    name="region",
+                    data=json.load(f),
+                    style={
+                        'color': '#FAFAFA',
+                        'opacity': 1,
+                        'fillOpacity': 0,
+                        'weight': 1
+                    }
+                )
         self.map.add_layer(region_layer)
 
         # Positive layer
@@ -389,7 +382,7 @@ class GeoLabeler:
             }
         )
         self.map.add_layer(self.points)
-
+        
 
     def _setup_draw_control(self):
         """Set up the draw control for lasso selection."""
@@ -413,10 +406,6 @@ class GeoLabeler:
         
         # Label toggle
         self.label_toggle.observe(self._on_label_change, 'value')
-        
-        # Drawing buttons
-        self.lasso_btn.on_click(self._on_lasso_click)
-        self.delete_shape_btn.on_click(self._on_delete_shape)
         
         # Neighbors slider
         self.neighbors_slider.observe(self._on_neighbors_change, 'value')
@@ -448,29 +437,6 @@ class GeoLabeler:
         self._update_status()
 
 
-    def _on_lasso_click(self, b):
-        """Toggle lasso mode."""
-        self.lasso_mode = not self.lasso_mode
-        if self.lasso_mode:
-            self.lasso_btn.description = 'Single Point'
-            self.draw_control.polygon = {"shapeOptions": {"color": "#6be5c3"}}
-        else:
-            self.lasso_btn.description = 'Lasso'
-            self.draw_control.polygon = {}
-        self.draw_control.clear()
-        self._update_status()
-
-
-    def _on_delete_shape(self, b):
-        """Clear all drawn shapes."""
-        self.draw_control.clear()
-
-
-    def _on_search(self, change):
-        """Handle search submission."""
-        self.search_click(None)
-
-
     def _on_neighbors_change(self, change):
         """Handle neighbors slider change with debouncing."""
         # Simple debouncing - could be improved with actual timer
@@ -495,12 +461,12 @@ class GeoLabeler:
         """Toggle panel collapse/expand."""
         if self.panel_collapsed:
             # Expand
-            self.panel_content.layout.display = 'block'
+            self.accordion_container.layout.display = 'flex'
             self.collapse_btn.description = '◀'
             self.panel_collapsed = False
         else:
             # Collapse
-            self.panel_content.layout.display = 'none'
+            self.accordion_container.layout.display = 'none'
             self.collapse_btn.description = '▶'
             self.panel_collapsed = True
 
@@ -512,8 +478,12 @@ class GeoLabeler:
         # Update status
         self._update_status(lat, lon)
         
-        # Handle shift-click for Google Maps
-        if kwargs.get('type') == 'click' and kwargs.get('modifiers', {}).get('shiftKey', False):
+        # Handle shift-click for polygon drawing hint
+        if kwargs.get('type') == 'mousemove' and kwargs.get('modifiers', {}).get('shiftKey', False):
+            self.status_bar.value += " | <b>Hold Shift + Draw to select multiple points</b>"
+        
+        # Handle ctrl-click for Google Maps
+        if kwargs.get('type') == 'click' and kwargs.get('modifiers', {}).get('ctrlKey', False):
             url = f"https://www.google.com/maps/@{lat},{lon},18z"
             webbrowser.open(url, new=2)
             return
@@ -522,18 +492,111 @@ class GeoLabeler:
         self.label_point(**kwargs)
 
 
+    def handle_draw(self, target, action, geo_json):
+        """Handle polygon drawing with automatic mode switching."""
+        if action == 'created' and geo_json['geometry']['type'] == 'Polygon':
+            # Switch to lasso mode when polygon is being drawn
+            self.lasso_mode = True
+            self._update_status()
+            
+            # Get the polygon geometry from the drawn shape and convert to shapely Polygon
+            polygon_coords = geo_json['geometry']['coordinates'][0]
+            polygon = shapely.geometry.Polygon(polygon_coords)
+            
+            points_to_label = []
+            
+            # First check cached detections
+            if self.detections_with_embeddings is not None and len(self.detections_with_embeddings) > 0:
+                # Find points within polygon from cached detections
+                within_mask = self.detections_with_embeddings.geometry.within(polygon)
+                cached_points = self.detections_with_embeddings[within_mask]
+                
+                for _, row in cached_points.iterrows():
+                    points_to_label.append({
+                        'id': row['id'],
+                        'embedding': row['embedding']
+                    })
+            
+            # If no cached results or need more points, query the database
+            if len(points_to_label) == 0:
+                polygon_wkt = polygon.wkt
+                
+                points_in_polygon_query = f"""
+                SELECT id, embedding
+                FROM geo_embeddings
+                WHERE ST_Within(geometry, ST_GeomFromText('{polygon_wkt}'))
+                """
+                
+                points_inside = self.duckdb_connection.execute(points_in_polygon_query).df()
+                
+                for _, row in points_inside.iterrows():
+                    points_to_label.append({
+                        'id': row['id'],
+                        'embedding': np.array(row['embedding'])
+                    })
+            
+            print(f"Found {len(points_to_label)} points inside polygon")
+            
+            # Label the points
+            for point in points_to_label:
+                point_id = point['id']
+                embedding = point['embedding']
+                
+                # Cache the embedding
+                self.cached_embeddings[point_id] = embedding
+                
+                if point_id in self.pos_ids:
+                    self.pos_ids.remove(point_id)
+                if point_id in self.neg_ids:
+                    self.neg_ids.remove(point_id)
+                
+                if self.select_val == 1:
+                    self.pos_ids.append(point_id)
+                elif self.select_val == 0:
+                    self.neg_ids.append(point_id)
+            
+            self.update_layers()
+            self.update_query_vector()
+            
+            # After processing, clear the polygon and switch back to single point mode
+            self.draw_control.clear()
+            self.lasso_mode = False
+            self._update_status()
+        
+        elif action == 'deleted':
+            # If shapes are deleted, switch back to single point mode
+            self.lasso_mode = False
+            self._update_status()
+        
+        elif action == 'drawstart' and target == 'polygon':
+            # When starting to draw a polygon, switch to lasso mode
+            self.lasso_mode = True
+            self._update_status()
+        
+        elif action == 'drawstop' and target == 'polygon':
+            # When stopping drawing (even if cancelled), switch back to single point mode
+            if len(self.draw_control.data) == 0:  # No polygon was actually created
+                self.lasso_mode = False
+                self._update_status()
+
+
     def _update_status(self, lat=None, lon=None):
         """Update the status bar."""
         if lat is None or lon is None:
             center = self.map.center
             lat, lon = center[0], center[1]
         
-        mode = "Lasso" if self.lasso_mode else "Single"
+        mode = "Polygon" if self.lasso_mode else "Point"
         label = self.current_label
         
+        status_text = f"Lat: {lat:.4f} | Lon: {lon:.4f} | Mode: {mode} | Label: {label}"
+        
+        if self.lasso_mode:
+            status_text += " | <b>Drawing polygon...</b>"
+        
         self.status_bar.value = f"""
-            <div style='background: white; padding: 5px; border-radius: 5px; opacity: 0.8;'>
-                Lat: {lat:.4f} | Lon: {lon:.4f} | Mode: {mode} | Label: {label}
+            <div style='background: white; padding: 5px; border-radius: 5px; opacity: 0.8; font-size: 12px;'>
+                {status_text}
             </div>
         """
 
@@ -598,6 +661,7 @@ class GeoLabeler:
 
     def label_point(self, **kwargs):
         """Assign a label and map layer to a clicked map point."""
+        # Don't process clicks when in lasso mode
         if not self.execute_label_point or self.lasso_mode:
             return
         
@@ -720,70 +784,6 @@ class GeoLabeler:
             self.neg_layer.data = {"type": "FeatureCollection", "features": []}
 
         self.update_query_vector()
-
-    def handle_draw(self, target, action, geo_json):
-        if action != 'created':
-            return
-        
-        # Get the polygon geometry from the drawn shape and convert to shapely Polygon
-        polygon_coords = geo_json['geometry']['coordinates'][0]
-        polygon = shapely.geometry.Polygon(polygon_coords)
-        
-        points_to_label = []
-        
-        # First check cached detections
-        if self.detections_with_embeddings is not None and len(self.detections_with_embeddings) > 0:
-            # Find points within polygon from cached detections
-            within_mask = self.detections_with_embeddings.geometry.within(polygon)
-            cached_points = self.detections_with_embeddings[within_mask]
-            
-            for _, row in cached_points.iterrows():
-                points_to_label.append({
-                    'id': row['id'],
-                    'embedding': row['embedding']
-                })
-        
-        # If no cached results or need more points, query the database
-        if len(points_to_label) == 0:
-            polygon_wkt = polygon.wkt
-            
-            points_in_polygon_query = f"""
-            SELECT id, embedding
-            FROM geo_embeddings
-            WHERE ST_Within(geometry, ST_GeomFromText('{polygon_wkt}'))
-            """
-            
-            points_inside = self.duckdb_connection.execute(points_in_polygon_query).df()
-            
-            for _, row in points_inside.iterrows():
-                points_to_label.append({
-                    'id': row['id'],
-                    'embedding': np.array(row['embedding'])
-                })
-        
-        print(f"Found {len(points_to_label)} points inside polygon")
-        
-        # Label the points
-        for point in points_to_label:
-            point_id = point['id']
-            embedding = point['embedding']
-            
-            # Cache the embedding
-            self.cached_embeddings[point_id] = embedding
-            
-            if point_id in self.pos_ids:
-                self.pos_ids.remove(point_id)
-            if point_id in self.neg_ids:
-                self.neg_ids.remove(point_id)
-            
-            if self.select_val == 1:
-                self.pos_ids.append(point_id)
-            elif self.select_val == 0:
-                self.neg_ids.append(point_id)
-        
-        self.update_layers()
-        self.update_query_vector()
-        self.draw_control.clear()
 
     def update_query_vector(self):
         """Update the query vector based on current positive and negative labels."""
@@ -1017,8 +1017,3 @@ class GeoLabeler:
                 btn.button_style = 'info'  # Blue highlight for active
             else:
                 btn.button_style = ''  # Default style
-
-    # Remove the old basemap toggle method and replace with new one
-    def _on_basemap_toggle(self, b):
-        """Legacy method - now handled by _on_basemap_select."""
-        pass
