@@ -39,7 +39,7 @@ if not MAPBOX_ACCESS_TOKEN:
 
 BASEMAP_TILES = {
     'MAPTILER': f"https://api.maptiler.com/tiles/satellite-v2/{{z}}/{{x}}/{{y}}.jpg?key={MAPTILER_API_KEY}",
-    # 'HUTCH_TILE': 'https://tiles.earthindex.ai/v1/tiles/sentinel2-temporal-mosaics/2023-01-01/2024-01-01/rgb/{z}/{x}/{y}.webp',
+    'HUTCH_TILE': 'https://tiles.earthindex.ai/v1/tiles/sentinel2-temporal-mosaics/2023-01-01/2024-01-01/rgb/{z}/{x}/{y}.webp',
     'GOOGLE_HYBRID': 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
     'MAPBOX': f"https://api.mapbox.com/v4/mapbox.satellite/{{z}}/{{x}}/{{y}}.png?access_token={MAPBOX_ACCESS_TOKEN}"
 }
@@ -299,18 +299,25 @@ class GeoLabeler:
         if action != 'created':
             return
         
-        # Get the polygon geometry from the drawn shape
+        # Get the polygon geometry from the drawn shape and convert to shapely Polygon
         polygon_coords = geo_json['geometry']['coordinates'][0]
-        polygon_wkt = f"POLYGON(({', '.join([f'{coord[0]} {coord[1]}' for coord in polygon_coords])}))"
+        polygon = shapely.geometry.Polygon(polygon_coords)
+        
+        # Get WKT string directly from shapely
+        polygon_wkt = polygon.wkt
+        
+        print(f"Polygon WKT: {polygon_wkt}")  # Debug line - can remove later
         
         # Find points within the polygon using DuckDB and get their embeddings
-        points_in_polygon_query = """
+        # Note: Using string formatting since DuckDB has issues with parameter substitution in ST_GeomFromText
+        points_in_polygon_query = f"""
         SELECT id, embedding
         FROM geo_embeddings
-        WHERE ST_Within(geometry, ST_GeomFromText(?))
+        WHERE ST_Within(geometry, ST_GeomFromText('{polygon_wkt}'))
         """
-        
-        points_inside = self.duckdb_connection.execute(points_in_polygon_query, [polygon_wkt]).df()
+
+        points_inside = self.duckdb_connection.execute(
+            points_in_polygon_query).df()
         
         print(f"Found {len(points_inside)} points inside polygon")
         for _, row in points_inside.iterrows():
