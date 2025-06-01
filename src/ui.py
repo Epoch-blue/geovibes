@@ -12,13 +12,14 @@ import geopandas as gpd
 import ipyleaflet as ipyl
 from ipyleaflet import Map, Marker, basemaps, CircleMarker, LayerGroup, GeoJSON, DrawControl
 from IPython.display import display
-from ipywidgets import Button, FloatSlider, VBox, HBox, IntSlider, Label, Layout, HTML
+from ipywidgets import Button, FloatSlider, VBox, HBox, IntSlider, Label, Layout, HTML, ToggleButtons, Text, Accordion, Checkbox
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import shapely
 from shapely.geometry import Point
 import sklearn.metrics as metrics
+import webbrowser
 
 from gee import get_s2_hsv_median, get_s2_rgb_median, get_ee_image_url, initialize_ee_with_credentials
 
@@ -38,6 +39,12 @@ BASEMAP_TILES = {
     'GOOGLE_HYBRID': 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
 }
 
+# Color-blind safe palette
+POS_COLOR = '#0072B2'  # Blue
+NEG_COLOR = '#D55E00'  # Orange
+NEUTRAL_COLOR = '#999999'  # Grey
+
+
 class GeoLabeler:
     """An interactive Leaflet map for labeling geographic features relative to satellite image embedding tiles.
     
@@ -46,7 +53,7 @@ class GeoLabeler:
         map: A Leaflet map
         pos_ids, neg_ids: Lists of dataframe indices associated to pos / neg labeled points
         pos_layer, neg_layer, erase_layer, points: Leaflet map layers 
-        select_val: 1/0/-100/2 to indicate pos/neg/erase/google maps label action
+        select_val: 1/0/-100 to indicate pos/neg/erase label action
         execute_lable_point: Boolean flag for label_point() execution on map interaction
     
     External method: 
@@ -75,11 +82,10 @@ class GeoLabeler:
         boundary_gdf = gpd.read_file(geojson_path)
         center_y, center_x = boundary_gdf.geometry.iloc[0].centroid.y, boundary_gdf.geometry.iloc[0].centroid.x
         
-        self.map = Map(
-            basemap=self.basemap_layer,
-            center=(center_y, center_x), zoom=7, layout={'height':'600px'},
-            scroll_wheel_zoom=True)
+        # Build map
+        self.map = self._build_map(center_y, center_x)
 
+        # Add basemap options
         hsv_median = get_s2_hsv_median(
             self.ee_boundary, start_date, end_date)
 
@@ -100,112 +106,282 @@ class GeoLabeler:
         })
         BASEMAP_TILES['RGB_MEDIAN'] = rgb_url
 
-
-        print("Adding controls...")
+        print("Building UI...")
         
-        # Button instances
-        self.pos_button = Button(description='Positive')
-        self.neg_button = Button(description='Negative')
-        self.erase_button = Button(description='Erase')
-        self.google_maps_button = Button(description='Maps')
-        self.toggle_mode_button = Button(description='Lasso')
-        self.toggle_basemap_button = Button(description=f'🛰 {self.current_basemap}')
-        self.search_button = Button(description='Search')
-        self.save_button = Button(description='💾')
-
-        # Initialize styles and layouts
-        self._initialize_button_styles_and_layouts()
-
-        # Neighbors slider
-        self.neighbors_slider = IntSlider(
-            value=1000,
-            min=100,
-            max=10000,
-            step=100,
-            description='Neighbors:',
-            style={'description_width': 'initial'},
-            layout=Layout(width='300px')
-        )
-        
-        # Set up click handlers
-        self.pos_button.on_click(self.pos_click)
-        self.neg_button.on_click(self.neg_click)
-        self.erase_button.on_click(self.erase_click)
-        self.google_maps_button.on_click(self.google_maps_click)
-        self.toggle_mode_button.on_click(self.toggle_mode)
-        self.toggle_basemap_button.on_click(self.toggle_basemap)
-        self.search_button.on_click(self.search_click)
-        self.save_button.on_click(self.save_dataset)
-        
-        self.map.on_interaction(self.label_point)
+        # Initialize state
+        self.current_label = 'Positive'
         self.execute_label_point = True
         self.mgrs_ids = mgrs_ids
-        self.select_val = -100 # Initialize to _erase_
+        self.select_val = 1  # Initialize to positive
         self.pos_ids = []
         self.neg_ids = []
         self.detection_gdf = None
         self.lasso_mode = False
-
-        # Update button styles to reflect initial state
-        self._update_active_button_styles()
+        self.query_vector = None
+        self.detection_ids = []
+        self.cached_embeddings = {}
+        self.detections_with_embeddings = None
         
+        # Build UI
+        self.side_panel, self.ui_widgets = self._build_side_panel()
+        
+        # Add layers to map
+        self._add_map_layers(geojson_path)
+        
+        # Add DrawControl
+        self._setup_draw_control()
+        
+        # Wire events
+        self._wire_events()
+        
+        # Add legend
+        self.legend = HTML(value="""
+            <div style='background: white; padding: 5px; border-radius: 5px; opacity: 0.8;'>
+                <span style='color: #0072B2; font-weight: bold;'>🔵 Positive</span> | 
+                <span style='color: #D55E00; font-weight: bold;'>🟠 Negative</span>
+            </div>
+        """)
+        
+        # Add status bar
+        self.status_bar = HTML(value="Ready")
+        
+        # Create main layout
+        map_with_overlays = VBox([
+            self.map,
+            HBox([self.legend, self.status_bar], 
+                 layout=Layout(justify_content='space-between', padding='5px'))
+        ], layout=Layout(flex='1 1 auto'))
+        
+        self.main_layout = HBox([
+            self.side_panel,
+            map_with_overlays
+        ], layout=Layout(height='700px', width='100%'))
+        
+        display(self.main_layout)
+
+
+    def _build_map(self, center_y, center_x):
+        """Build and return the map widget."""
+        map_widget = Map(
+            basemap=self.basemap_layer,
+            center=(center_y, center_x), 
+            zoom=7, 
+            layout=Layout(flex='1 1 auto', height='100%'),
+            scroll_wheel_zoom=True
+        )
+        return map_widget
+
+
+    def _build_side_panel(self):
+        """Build the collapsible side panel with accordion sections."""
+        # --- SEARCH BUTTON AT TOP (Most Important) ---
+        self.search_btn = Button(
+            description='🔍 Search Similar Points',
+            layout=Layout(width='100%', height='40px'),
+            button_style='success',  # Green to highlight importance
+            tooltip='Find points similar to your positive labels'
+        )
+        
+        self.neighbors_slider = IntSlider(
+            value=1000,
+            min=10,
+            max=10000,
+            step=10,
+            description='Count:',
+            style={'description_width': '40px'},
+            readout=True,
+            layout=Layout(width='100%')
+        )
+        
+        search_section = VBox([
+            self.search_btn,
+            self.neighbors_slider
+        ], layout=Layout(padding='5px'))
+        
+        # --- Labeling section ---
+        self.label_toggle = ToggleButtons(
+            options=[('Positive', 'Positive'), ('Negative', 'Negative'), ('Erase', 'Erase')],
+            value='Positive',
+            layout=Layout(width='100%')
+        )
+        
+        # Apply colors to toggle buttons
+        self._update_toggle_button_styles()
+        
+        # --- Drawing/Selection section ---
+        self.lasso_btn = Button(description='Lasso', layout=Layout(width='100%'))
+        self.delete_shape_btn = Button(description='Clear Shapes', layout=Layout(width='100%'))
+        
+        # --- Basemap Selection ---
+        self.basemap_buttons = {}
+        basemap_section_widgets = []
+        
+        for basemap_name in BASEMAP_TILES.keys():
+            btn = Button(
+                description=basemap_name.replace('_', ' ').title(),
+                layout=Layout(width='100%', margin='1px'),
+                button_style=''
+            )
+            btn.basemap_name = basemap_name  # Store basemap name for reference
+            self.basemap_buttons[basemap_name] = btn
+            basemap_section_widgets.append(btn)
+        
+        # Highlight current basemap
+        self._update_basemap_button_styles()
+        
+        # --- Export section ---
+        self.save_btn = Button(description='💾 Save Dataset', layout=Layout(width='100%'))
+        
+        # --- External Tools section ---
+        self.google_maps_btn = Button(
+            description='🌍 Google Maps ↗',
+            layout=Layout(width='100%'),
+            button_style=''
+        )
+        
+        # Build accordion
+        accordion = Accordion(children=[
+            search_section,
+            VBox([self.label_toggle], layout=Layout(padding='5px')),
+            VBox([self.lasso_btn, self.delete_shape_btn], layout=Layout(padding='5px')),
+            VBox(basemap_section_widgets, layout=Layout(padding='5px')),
+            VBox([self.save_btn, self.google_maps_btn], layout=Layout(padding='5px'))
+        ])
+        
+        # Set titles
+        for i, title in enumerate(['🔍 Search', 'Label Mode', 'Drawing Tools', 'Basemaps', 'Export & Tools']):
+            accordion.set_title(i, title)
+        
+        # Open search section by default
+        accordion.selected_index = 0
+        
+        # Add collapse/expand functionality
+        self.panel_collapsed = False
+        self.collapse_btn = Button(
+            description='◀',
+            layout=Layout(width='30px', height='30px'),
+            tooltip='Collapse/Expand Panel'
+        )
+        
+        # Create collapsible panel
+        self.panel_content = VBox([accordion], layout=Layout(width='250px', padding='5px'))
+        
+        # Main panel with collapse button
+        panel_header = HBox([
+            Label('Controls', layout=Layout(flex='1')),
+            self.collapse_btn
+        ], layout=Layout(width='250px', justify_content='space-between', padding='5px'))
+        
+        panel = VBox([
+            panel_header,
+            self.panel_content
+        ])
+        
+        # Return panel and widget references
+        ui_widgets = {
+            'search_btn': self.search_btn,
+            'label_toggle': self.label_toggle,
+            'lasso_btn': self.lasso_btn,
+            'delete_shape_btn': self.delete_shape_btn,
+            'neighbors_slider': self.neighbors_slider,
+            'basemap_buttons': self.basemap_buttons,
+            'save_btn': self.save_btn,
+            'google_maps_btn': self.google_maps_btn,
+            'collapse_btn': self.collapse_btn
+        }
+        
+        return panel, ui_widgets
+
+
+    def _update_toggle_button_styles(self):
+        """Update toggle button colors based on selection."""
+        style = """
+        <style>
+        .widget-toggle-buttons button:nth-child(1).mod-active {
+            background-color: %s !important;
+            color: white !important;
+        }
+        .widget-toggle-buttons button:nth-child(2).mod-active {
+            background-color: %s !important;
+            color: white !important;
+        }
+        .widget-toggle-buttons button:nth-child(3).mod-active {
+            background-color: %s !important;
+            color: white !important;
+        }
+        </style>
+        """ % (POS_COLOR, NEG_COLOR, NEUTRAL_COLOR)
+        display(HTML(style))
+
+
+    def _update_basemap_button_styles(self):
+        """Update basemap button styles to highlight current selection."""
+        for basemap_name, btn in self.basemap_buttons.items():
+            if basemap_name == self.current_basemap:
+                btn.button_style = 'info'  # Blue highlight for active
+            else:
+                btn.button_style = ''  # Default style
+
+
+    def _add_map_layers(self, geojson_path):
+        """Add all necessary layers to the map."""
+        # Region boundary
         with open(geojson_path) as f:
             region_layer = ipyl.GeoJSON(
-                    name="region",
-                    data=json.load(f),
-                    style={
-                        'color': '#FAFAFA',
-                        'opacity': 1,
-                        'fillOpacity': 0,
-                        'weight': 1
-                    }
-                )
+                name="region",
+                data=json.load(f),
+                style={
+                    'color': '#FAFAFA',
+                    'opacity': 1,
+                    'fillOpacity': 0,
+                    'weight': 1
+                }
+            )
         self.map.add_layer(region_layer)
 
-
-        # layer to contain positive labeled points
+        # Positive layer
         self.pos_layer = ipyl.GeoJSON(
             data=json.loads(gpd.GeoDataFrame(columns=['geometry']).to_json()),
             point_style={
-                'color': 'green',
-                'radius': 3,
-                'fillColor': '#00FF00',
+                'color': POS_COLOR,
+                'radius': 4,
+                'fillColor': POS_COLOR,
                 'opacity': 1,
                 'fillOpacity': 0.7,
-                'weight': 1
+                'weight': 2
             }
         )
         self.map.add_layer(self.pos_layer)
 
-        # layer to contain negative labeled points
+        # Negative layer
         self.neg_layer = ipyl.GeoJSON(
             data=json.loads(gpd.GeoDataFrame(columns=['geometry']).to_json()),
             point_style={
-                'color': 'red',
-                'radius': 3,
-                'fillColor': '#FF0000',
+                'color': NEG_COLOR,
+                'radius': 4,
+                'fillColor': NEG_COLOR,
                 'opacity': 1,
                 'fillOpacity': 0.7,
-                'weight': 1
+                'weight': 2
             }
         )
         self.map.add_layer(self.neg_layer)
 
-        # erased points
+        # Erase layer
         self.erase_layer = ipyl.GeoJSON(
             data=json.loads(gpd.GeoDataFrame(columns=['geometry']).to_json()),
             point_style={
                 'color': 'white',
-                'radius': 3,
+                'radius': 4,
                 'fillColor': '#000000',
                 'opacity': 1,
                 'fillOpacity': 0.7,
-                'weight': 1
+                'weight': 2
             }
         )
         self.map.add_layer(self.erase_layer)
         
-        # generic points layer for visualization
+        # Points layer for search results
         self.points = ipyl.GeoJSON(
             data=json.loads(gpd.GeoDataFrame(columns=['geometry']).to_json()),
             point_style={
@@ -222,8 +398,10 @@ class GeoLabeler:
             }
         )
         self.map.add_layer(self.points)
-        
-        # Add DrawControl for lasso selection
+
+
+    def _setup_draw_control(self):
+        """Set up the draw control for lasso selection."""
         self.draw_control = DrawControl(
             polygon={"shapeOptions": {"color": "#6be5c3", "fillOpacity": 0.5}},
             polyline={},
@@ -232,193 +410,141 @@ class GeoLabeler:
             marker={},
             circlemarker={},
         )
-        self.draw_control.polygon = {"shapeOptions": {"color": "#6be5c3"}}
         self.draw_control.on_draw(self.handle_draw)
         self.map.add_control(self.draw_control)
         self.draw_control.clear()
 
-        display(VBox([
-            self.map, 
-            HTML("<hr style='margin: 10px 0;'>"),
-            HBox([
-                VBox([
-                    Label("Labeling Controls:", style={'font_weight': 'bold'}),
-                    HBox([
-                        self.pos_button, 
-                        self.neg_button, 
-                        self.erase_button,
-                        self.google_maps_button
-                    ], layout=Layout(margin='5px 0'))
-                ]),
-                VBox([
-                    Label("Mode & View:", style={'font_weight': 'bold'}),
-                    HBox([
-                        self.toggle_mode_button,
-                        self.toggle_basemap_button
-                    ], layout=Layout(margin='5px 0'))
-                ]),
-                VBox([
-                    Label("Search & Save:", style={'font_weight': 'bold'}),
-                    HBox([
-                        self.search_button,
-                        self.save_button, # Save button is here
-                        self.neighbors_slider
-                    ], layout=Layout(margin='5px 0'))
-                ])
-            ], layout=Layout(justify_content='space-between', margin='10px'))
-        ]))
+
+    def _wire_events(self):
+        """Wire all event handlers."""
+        # Search button (main functionality)
+        self.search_btn.on_click(self.search_click)
         
-        self.query_vector = None
-        self.detection_ids = []
-        self.cached_embeddings = {}
-        self.detections_with_embeddings = None  # GeoDataFrame cache
+        # Label toggle
+        self.label_toggle.observe(self._on_label_change, 'value')
         
-    def _initialize_button_styles_and_layouts(self):
-        # Define base layouts and styles with rounded corners, shadow, and grey color
-        self.base_layout_config = {
-            'height': '35px', 
-            'border_radius': '8px', 
-            'margin': '0 3px', 
-            'padding': '0 8px', 
-            'border': '1px solid #cccccc', 
-            'width': '120px'  # Make buttons wider
-        }
-        self.active_layout_config = self.base_layout_config.copy()
-        self.active_layout_config['border'] = '2px solid #007bff'
+        # Drawing buttons
+        self.lasso_btn.on_click(self._on_lasso_click)
+        self.delete_shape_btn.on_click(self._on_delete_shape)
         
-        # Grey background with shadow
-        self.base_style = {
-            'button_color': '#f0f0f0', 
-            'font_weight': 'normal'
-        }
-        self.active_style = {
-            'button_color': '#e0e0e0', 
-            'font_weight': 'bold'
-        }
-
-        # Save button: keep icon only and smaller width
-        self.save_button_layout_config = self.base_layout_config.copy()
-        self.save_button_layout_config['width'] = '45px'
+        # Neighbors slider
+        self.neighbors_slider.observe(self._on_neighbors_change, 'value')
         
-        # Basemap button: keep current width (don't make wider)
-        self.basemap_button_layout_config = self.base_layout_config.copy()
-        self.basemap_button_layout_config['width'] = '140px'
-
-        self.all_buttons = [
-            self.pos_button, self.neg_button, self.erase_button, self.google_maps_button,
-            self.toggle_mode_button, self.toggle_basemap_button, self.search_button, self.save_button
-        ]
+        # Basemap buttons
+        for basemap_name, btn in self.basemap_buttons.items():
+            btn.on_click(lambda b, name=basemap_name: self._on_basemap_select(name))
         
-        for btn in self.all_buttons:
-            current_layout_config = self.base_layout_config.copy()
-            
-            if btn == self.save_button:
-                current_layout_config = self.save_button_layout_config.copy()
-            elif btn == self.toggle_basemap_button:
-                current_layout_config = self.basemap_button_layout_config.copy()
-            
-            btn.layout = Layout(**current_layout_config)
-            btn.style = self.base_style.copy()
-            
-            # Add CSS for shadow effect
-            btn.add_class('custom-button')
+        # Collapse button
+        self.collapse_btn.on_click(self._on_toggle_collapse)
         
-        # Add custom CSS for shadow effect
-        from IPython.display import HTML, display
-        custom_css = HTML("""
-        <style>
-        .custom-button {
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
-        }
-        .custom-button:hover {
-            box-shadow: 0 4px 8px rgba(0,0,0,0.15) !important;
-        }
-        </style>
-        """)
-        display(custom_css)
-
-    def _update_active_button_styles(self):
-        # Reset all potentially active buttons to base state first
-        label_buttons = [self.pos_button, self.neg_button, self.erase_button, self.google_maps_button]
+        # Export and external tools
+        self.save_btn.on_click(self.save_dataset)
+        self.google_maps_btn.on_click(self._on_google_maps_click)
         
-        for btn in label_buttons:
-            btn.layout.border = self.base_layout_config['border']
-            btn.style = self.base_style.copy()
+        # Map interactions
+        self.map.on_interaction(self._on_map_interaction)
 
-        self.toggle_mode_button.layout.border = self.base_layout_config['border']
-        self.toggle_mode_button.style = self.base_style.copy()
 
-        # Apply active state to the selected labeling button
-        active_button = None
-        if self.select_val == 1:
-            active_button = self.pos_button
-        elif self.select_val == 0:
-            active_button = self.neg_button
-        elif self.select_val == -100: 
-            active_button = self.erase_button
-        elif self.select_val == 2: 
-            active_button = self.google_maps_button
-        
-        if active_button:
-            active_button.layout.border = self.active_layout_config['border']
-            active_button.style = self.active_style.copy()
+    def _on_label_change(self, change):
+        """Handle label toggle change."""
+        self.current_label = change['new']
+        if self.current_label == 'Positive':
+            self.select_val = 1
+        elif self.current_label == 'Negative':
+            self.select_val = 0
+        else:  # Erase
+            self.select_val = -100
+        self._update_status()
 
-        # Apply active state to toggle_mode_button if lasso is active
-        if self.lasso_mode:
-            self.toggle_mode_button.layout.border = self.active_layout_config['border']
-            self.toggle_mode_button.style = self.active_style.copy()
-            self.toggle_mode_button.description = 'Single' 
-        else:
-            self.toggle_mode_button.description = 'Lasso'
-            # If single point is the default mode, it could also be highlighted.
-            # For now, only lasso mode gets the distinct highlight on the toggle button itself.
 
-    def pos_click(self, b):
-        self.select_val = 1
-        self._update_active_button_styles()
-
-    def neg_click(self, b):
-        self.select_val = 0
-        self._update_active_button_styles()
-
-    def erase_click(self, b):
-        self.select_val = -100
-        self._update_active_button_styles()
-        
-    def google_maps_click(self, b):
-        self.select_val = 2
-        if self.lasso_mode: # If currently in lasso mode, turn it off
-            self.lasso_mode = False
-            self.draw_control.polygon = {} 
-            self.draw_control.clear()
-        self._update_active_button_styles()
-
-    def toggle_mode(self, b):
-        prev_select_val = self.select_val 
+    def _on_lasso_click(self, b):
+        """Toggle lasso mode."""
         self.lasso_mode = not self.lasso_mode
-        
         if self.lasso_mode:
-            self.toggle_mode_button.description = 'Single'
+            self.lasso_btn.description = 'Single Point'
             self.draw_control.polygon = {"shapeOptions": {"color": "#6be5c3"}}
-            if self.select_val == 2: 
-                self.select_val = 1 
-        else: 
-            self.toggle_mode_button.description = 'Lasso'
+        else:
+            self.lasso_btn.description = 'Lasso'
             self.draw_control.polygon = {}
-        
         self.draw_control.clear()
-        self._update_active_button_styles()
+        self._update_status()
 
-    def toggle_basemap(self, b):
-        basemap_keys = list(BASEMAP_TILES.keys())
-        current_idx = basemap_keys.index(self.current_basemap)
-        next_idx = (current_idx + 1) % len(basemap_keys)
-        self.current_basemap = basemap_keys[next_idx]
+
+    def _on_delete_shape(self, b):
+        """Clear all drawn shapes."""
+        self.draw_control.clear()
+
+
+    def _on_neighbors_change(self, change):
+        """Handle neighbors slider change with debouncing."""
+        # Simple debouncing - could be improved with actual timer
+        pass
+
+
+    def _on_google_maps_click(self, b):
+        """Open current map center in Google Maps."""
+        center = self.map.center
+        url = f"https://www.google.com/maps/@{center[0]},{center[1]},15z"
+        webbrowser.open(url, new=2)
+
+
+    def _on_basemap_select(self, basemap_name):
+        """Handle basemap selection."""
+        self.current_basemap = basemap_name
+        self.basemap_layer.url = BASEMAP_TILES[basemap_name]
+        self._update_basemap_button_styles()
+
+
+    def _on_toggle_collapse(self, b):
+        """Toggle panel collapse/expand."""
+        if self.panel_collapsed:
+            # Expand
+            self.panel_content.layout.display = 'block'
+            self.collapse_btn.description = '◀'
+            self.panel_collapsed = False
+        else:
+            # Collapse
+            self.panel_content.layout.display = 'none'
+            self.collapse_btn.description = '▶'
+            self.panel_collapsed = True
+
+
+    def _on_search(self, change):
+        """Handle search submission."""
+        self.search_click(None)
+
+
+    def _on_map_interaction(self, **kwargs):
+        """Handle all map interactions."""
+        lat, lon = kwargs.get('coordinates', (0, 0))
         
-        # Update basemap layer
-        self.basemap_layer.url = BASEMAP_TILES[self.current_basemap]
-        self.toggle_basemap_button.description = f'🛰 {self.current_basemap}'
-        self._update_active_button_styles()
+        # Update status
+        self._update_status(lat, lon)
+        
+        # Handle shift-click for Google Maps
+        if kwargs.get('type') == 'click' and kwargs.get('modifiers', {}).get('shiftKey', False):
+            url = f"https://www.google.com/maps/@{lat},{lon},18z"
+            webbrowser.open(url, new=2)
+            return
+        
+        # Normal label point behavior
+        self.label_point(**kwargs)
+
+
+    def _update_status(self, lat=None, lon=None):
+        """Update the status bar."""
+        if lat is None or lon is None:
+            center = self.map.center
+            lat, lon = center[0], center[1]
+        
+        mode = "Lasso" if self.lasso_mode else "Single"
+        label = self.current_label
+        
+        self.status_bar.value = f"""
+            <div style='background: white; padding: 5px; border-radius: 5px; opacity: 0.8;'>
+                Lat: {lat:.4f} | Lon: {lon:.4f} | Mode: {mode} | Label: {label}
+            </div>
+        """
 
     def search_click(self, b):
         """Perform similarity search based on current query vector."""
@@ -489,12 +615,6 @@ class GeoLabeler:
             return
                  
         lat, lon = kwargs.get('coordinates')
-        
-        if self.select_val == 2:
-            import webbrowser
-            url = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
-            webbrowser.open(url, new=2, autoraise=True)
-            return
         
         clicked_point = Point(lon, lat)
         point_id = None
