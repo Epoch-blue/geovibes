@@ -2,7 +2,6 @@
 machine learning on top of satellite foundation model embeddings."""
 
 import json
-import os
 import warnings
 from datetime import datetime
 
@@ -10,15 +9,14 @@ from datetime import datetime
 import ee
 import geopandas as gpd
 import ipyleaflet as ipyl
-from ipyleaflet import Map, Marker, basemaps, CircleMarker, LayerGroup, GeoJSON, DrawControl
+from ipyleaflet import Map, DrawControl
 from IPython.display import display
-from ipywidgets import Button, FloatSlider, VBox, HBox, IntSlider, Label, Layout, HTML, ToggleButtons, Text, Accordion, Checkbox
+from ipywidgets import Button, VBox, HBox, IntSlider, Label, Layout, HTML, ToggleButtons, Accordion
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import shapely
 from shapely.geometry import Point
-import sklearn.metrics as metrics
 import webbrowser
 
 from gee import get_s2_hsv_median, get_s2_rgb_median, get_ee_image_url, initialize_ee_with_credentials
@@ -35,7 +33,7 @@ if not MAPTILER_API_KEY:
     
 BASEMAP_TILES = {
     'MAPTILER': f"https://api.maptiler.com/tiles/satellite-v2/{{z}}/{{x}}/{{y}}.jpg?key={MAPTILER_API_KEY}",
-    'HUTCH_TILE': 'https://tiles.earthindex.ai/v2/tiles/sentinel2-temporal-mosaics/2023-01-01/2024-01-01/rgb/{z}/{x}/{y}.webp',
+    'HUTCH_TILE': 'https://tiles.earthindex.ai/v1/tiles/sentinel2-temporal-mosaics/2023-01-01/2024-01-01/rgb/{z}/{x}/{y}.webp',
     'GOOGLE_HYBRID': 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
 }
 
@@ -176,7 +174,7 @@ class GeoLabeler:
         """Build the collapsible side panel with accordion sections."""
         # --- SEARCH SECTION (Always visible at top) ---
         self.search_btn = Button(
-            description='🔍 Search Similar Points',
+            description='Search',
             layout=Layout(width='100%', height='40px'),
             button_style='success',  # Green to highlight importance
             tooltip='Find points similar to your positive labels'
@@ -201,6 +199,13 @@ class GeoLabeler:
         self.label_toggle = ToggleButtons(
             options=[('Positive', 'Positive'), ('Negative', 'Negative'), ('Erase', 'Erase')],
             value='Positive',
+            layout=Layout(width='100%')
+        )
+        
+        # Add selection mode toggle
+        self.selection_mode = ToggleButtons(
+            options=[('Point', 'point'), ('Polygon', 'polygon')],
+            value='point',
             layout=Layout(width='100%')
         )
         
@@ -234,9 +239,14 @@ class GeoLabeler:
             button_style=''
         )
         
-        # Build accordion (without Drawing Tools)
+        # Build accordion
         accordion = Accordion(children=[
-            VBox([self.label_toggle], layout=Layout(padding='5px')),
+            VBox([
+                Label('Label Type:'),
+                self.label_toggle,
+                Label('Selection Mode:', layout=Layout(margin='10px 0 0 0')),
+                self.selection_mode
+            ], layout=Layout(padding='5px')),
             VBox(basemap_section_widgets, layout=Layout(padding='5px')),
             VBox([self.save_btn, self.google_maps_btn], layout=Layout(padding='5px'))
         ])
@@ -276,6 +286,7 @@ class GeoLabeler:
         ui_widgets = {
             'search_btn': self.search_btn,
             'label_toggle': self.label_toggle,
+            'selection_mode': self.selection_mode,
             'neighbors_slider': self.neighbors_slider,
             'basemap_buttons': self.basemap_buttons,
             'save_btn': self.save_btn,
@@ -398,6 +409,9 @@ class GeoLabeler:
         self.map.add_control(self.draw_control)
         self.draw_control.clear()
 
+        # Track polygon drawing state
+        self.polygon_drawing = False
+
 
     def _wire_events(self):
         """Wire all event handlers."""
@@ -406,6 +420,9 @@ class GeoLabeler:
         
         # Label toggle
         self.label_toggle.observe(self._on_label_change, 'value')
+        
+        # Selection mode toggle
+        self.selection_mode.observe(self._on_selection_mode_change, 'value')
         
         # Neighbors slider
         self.neighbors_slider.observe(self._on_neighbors_change, 'value')
@@ -492,12 +509,17 @@ class GeoLabeler:
         self.label_point(**kwargs)
 
 
+    def _on_selection_mode_change(self, change):
+        """Handle selection mode change."""
+        self.lasso_mode = (change['new'] == 'polygon')
+        self._update_status()
+
+
     def handle_draw(self, target, action, geo_json):
         """Handle polygon drawing with automatic mode switching."""
         if action == 'created' and geo_json['geometry']['type'] == 'Polygon':
-            # Switch to lasso mode when polygon is being drawn
-            self.lasso_mode = True
-            self._update_status()
+            # Mark that we're processing a polygon
+            self.polygon_drawing = False
             
             # Get the polygon geometry from the drawn shape and convert to shapely Polygon
             polygon_coords = geo_json['geometry']['coordinates'][0]
@@ -558,26 +580,20 @@ class GeoLabeler:
             self.update_layers()
             self.update_query_vector()
             
-            # After processing, clear the polygon and switch back to single point mode
+            # Clear the polygon after processing
             self.draw_control.clear()
-            self.lasso_mode = False
             self._update_status()
+        
+        elif action == 'drawstart':
+            # Mark that we're starting to draw a polygon
+            if self.lasso_mode:
+                self.polygon_drawing = True
+                self._update_status()
         
         elif action == 'deleted':
-            # If shapes are deleted, switch back to single point mode
-            self.lasso_mode = False
+            # Reset polygon drawing state
+            self.polygon_drawing = False
             self._update_status()
-        
-        elif action == 'drawstart' and target == 'polygon':
-            # When starting to draw a polygon, switch to lasso mode
-            self.lasso_mode = True
-            self._update_status()
-        
-        elif action == 'drawstop' and target == 'polygon':
-            # When stopping drawing (even if cancelled), switch back to single point mode
-            if len(self.draw_control.data) == 0:  # No polygon was actually created
-                self.lasso_mode = False
-                self._update_status()
 
 
     def _update_status(self, lat=None, lon=None):
@@ -592,7 +608,8 @@ class GeoLabeler:
         status_text = f"Lat: {lat:.4f} | Lon: {lon:.4f} | Mode: {mode} | Label: {label}"
         
         if self.lasso_mode:
-            status_text += " | <b>Drawing polygon...</b>"
+            if self.polygon_drawing:
+                status_text += " | <b>Drawing polygon...</b>"
         
         self.status_bar.value = f"""
             <div style='background: white; padding: 5px; border-radius: 5px; opacity: 0.8; font-size: 12px;'>
@@ -661,8 +678,8 @@ class GeoLabeler:
 
     def label_point(self, **kwargs):
         """Assign a label and map layer to a clicked map point."""
-        # Don't process clicks when in lasso mode
-        if not self.execute_label_point or self.lasso_mode:
+        # Don't process clicks when in polygon mode or actively drawing
+        if not self.execute_label_point or self.lasso_mode or self.polygon_drawing:
             return
         
         action = kwargs.get('type') 
