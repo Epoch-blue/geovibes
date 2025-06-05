@@ -48,16 +48,15 @@ import argparse
 import concurrent.futures as _cf
 import datetime as _dt
 import logging
-import os
 import pathlib
 import sys
-from typing import Iterable, Set
+from typing import Set
 
 import boto3
 import botocore
 import geopandas as gpd
-from shapely.geometry import box
 from shapely.ops import unary_union
+from tqdm import tqdm
 
 _LOG = logging.getLogger("region_to_embeddings")
 
@@ -86,6 +85,10 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--workers", type=int, default=DEFAULT_WORKERS, help="Parallel download threads")
     p.add_argument("--dry-run", action="store_true", help="List files but do not download")
     p.add_argument("--verbose", action="store_true", help="Verbose logging")
+    p.add_argument("--buffer-meters", type=float, default=200, 
+                   help="Buffer distance in meters to expand the input geometry")
+    p.add_argument("--filter-land-only", action="store_true", 
+                   help="Filter parquet files to only include data intersecting with (buffered) land geometries")
     return p.parse_args(argv)
 
 # -----------------------------------------------------------------------------
@@ -205,6 +208,106 @@ def _download_single(key_info: tuple[str, pathlib.Path, str, bool]):
 # Main
 # -----------------------------------------------------------------------------
 
+def _get_utm_crs(lon: float, lat: float) -> str:
+    """Get appropriate UTM CRS for a given longitude/latitude."""
+    zone = int((lon + 180) / 6) + 1
+    if lat >= 0:
+        epsg_code = 32600 + zone  # Northern hemisphere
+    else:
+        epsg_code = 32700 + zone  # Southern hemisphere
+    return f"EPSG:{epsg_code}"
+
+
+def _buffer_geometry(geom, buffer_meters: float):
+    """Buffer geometry by specified meters using appropriate UTM projection."""
+    if buffer_meters <= 0:
+        return geom
+    
+    # Get UTM CRS for accurate buffering
+    centroid = geom.centroid
+    utm_crs = _get_utm_crs(centroid.x, centroid.y)
+    
+    # Buffer in projected coordinates
+    gdf_orig = gpd.GeoDataFrame([geom], geometry=[geom], crs="EPSG:4326")
+    gdf_projected = gdf_orig.to_crs(utm_crs)
+    buffered_geom = gdf_projected.geometry.iloc[0].buffer(buffer_meters)
+    
+    # Convert back to WGS84
+    buffered_gdf = gpd.GeoDataFrame([buffered_geom], geometry=[buffered_geom], crs=utm_crs)
+    return buffered_gdf.to_crs(4326).geometry.iloc[0]
+
+
+def _filter_parquet_by_land(
+    parquet_path: pathlib.Path, 
+    land_geometry, 
+    output_path: pathlib.Path = None
+) -> bool:
+    """
+    Filter a parquet file to only include records that intersect with land geometry.
+    
+    Returns True if filtering was successful, False if file should be skipped.
+    """
+    try:
+        # Read parquet file
+        _LOG.info(f"Filtering {parquet_path.name}...")
+        gdf = gpd.read_parquet(parquet_path)
+        
+        if gdf.empty:
+            _LOG.warning(f"Empty parquet file: {parquet_path}")
+            return False
+        
+        # Ensure geometry column exists
+        if 'geometry' not in gdf.columns:
+            _LOG.error(f"No geometry column found in {parquet_path}")
+            return False
+        
+        # Ensure CRS compatibility
+        if gdf.crs is None:
+            _LOG.warning(f"No CRS defined for {parquet_path}, assuming EPSG:4326")
+            gdf.crs = "EPSG:4326"
+        elif gdf.crs.to_epsg() != 4326:
+            gdf = gdf.to_crs(4326)
+        
+        # Create land geometry GeoDataFrame for spatial join with string column name
+        land_gdf = gpd.GeoDataFrame({'land_flag': [1]}, geometry=[land_geometry], crs="EPSG:4326")
+        
+        # Perform spatial filter - keep only intersecting records
+        original_count = len(gdf)
+        filtered_gdf = gpd.sjoin(gdf, land_gdf, how="inner", predicate="intersects")
+        
+        # Remove the extra columns from sjoin
+        columns_to_drop = []
+        if 'index_right' in filtered_gdf.columns:
+            columns_to_drop.append('index_right')
+        if 'land_flag' in filtered_gdf.columns:
+            columns_to_drop.append('land_flag')
+        
+        if columns_to_drop:
+            filtered_gdf = filtered_gdf.drop(columns_to_drop, axis=1)
+        
+        # Ensure all column names are strings
+        filtered_gdf.columns = [str(col) for col in filtered_gdf.columns]
+        
+        filtered_count = len(filtered_gdf)
+        _LOG.info(f"Filtered {parquet_path.name}: {original_count} -> {filtered_count} records "
+                 f"({filtered_count/original_count*100:.1f}% retained)")
+        
+        if filtered_count == 0:
+            _LOG.warning(f"No land-intersecting data in {parquet_path.name}, skipping output")
+            return False
+        
+        # Save filtered result
+        output_file = output_path or parquet_path
+        filtered_gdf.to_parquet(output_file)
+        _LOG.info(f"Saved filtered data to {output_file}")
+        
+        return True
+        
+    except Exception as e:
+        _LOG.error(f"Error filtering {parquet_path}: {e}")
+        return False
+
+
 def main(argv: list[str] | None = None):
     args = _parse_args(argv or sys.argv[1:])
 
@@ -223,42 +326,118 @@ def main(argv: list[str] | None = None):
         _LOG.error("Invalid date: %s", e)
         sys.exit(1)
 
-    # Load region & compute tiles
-    logging.info(f"Loading region from {args.input_file}")
+    # Load region
+    _LOG.info(f"Loading region from {args.input_file}")
     region = _load_region(args.input_file)
-    logging.info(f"Region loaded: {region}")
+    original_geom = region.iloc[0]
     
-    # Use the new function to get MGRS tiles
+    # Buffer if requested
+    if args.buffer_meters > 0:
+        _LOG.info(f"Applying {args.buffer_meters}m buffer to land geometry")
+        buffered_geom = _buffer_geometry(original_geom, args.buffer_meters)
+        search_region = gpd.GeoSeries([buffered_geom], crs="EPSG:4326")
+    else:
+        search_region = region
+        buffered_geom = original_geom
+
+    # Get intersecting tiles
     tiles = _get_intersecting_mgrs_ids_from_reference(
-        region, 
+        search_region, 
         args.mgrs_reference_file, 
         args.mgrs_tile_id_column
     )
-    logging.info(f"Tiles: {tiles}")
     _LOG.info("Identified %d tile(s).", len(tiles))
 
     # Build S3 keys & local paths
-    logging.info(f"Building S3 keys")
     s3_keys = [f"{S3_PREFIX}{tile}_{start_date}_{end_date}.parquet" for tile in sorted(tiles)]
-    logging.info(f"S3 keys: {s3_keys}")
     out_dir = pathlib.Path(args.out_dir)
-    logging.info(f"Output directory: {out_dir}")
 
-    # Prepare work list
-    work: list[tuple[str, pathlib.Path, str, bool]] = []
+    # Check which files already exist locally
+    existing_files = []
+    files_to_download = []
+    
     for key in s3_keys:
         tile = pathlib.Path(key).stem.split("_")[0]
         dst_path = out_dir / f"{tile}_{start_date}_{end_date}.parquet"
-        work.append((key, dst_path, args.endpoint_url, args.dry_run))
+        
+        if dst_path.exists() and not args.dry_run:
+            existing_files.append(dst_path)
+            _LOG.info(f"File already exists: {dst_path.name}")
+        else:
+            files_to_download.append((key, dst_path, args.endpoint_url, args.dry_run))
 
-    # Parallel download
-    with _cf.ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futures = {ex.submit(_download_single, w): w[0] for w in work}
-        for fut in _cf.as_completed(futures):
-            msg = fut.result()
-            _LOG.info(msg)
+    print(f"Found {len(existing_files)} existing files, need to download {len(files_to_download)} files")
 
-    _LOG.info("Finished processing %d file(s).", len(work))
+    # Download only missing files
+    downloaded_files = list(existing_files)  # Start with existing files
+    
+    if files_to_download:
+        _LOG.info(f"Starting downloads of {len(files_to_download)} missing files...")
+        print(f"Downloading {len(files_to_download)} missing parquet files...")
+        
+        with _cf.ThreadPoolExecutor(max_workers=args.workers) as ex:
+            futures = {ex.submit(_download_single, w): w[0] for w in files_to_download}
+            
+            # Add progress bar for downloads
+            with tqdm(total=len(futures), desc="Downloading", unit="file") as pbar:
+                for fut in _cf.as_completed(futures):
+                    msg = fut.result()
+                    
+                    # Update progress bar description with current file
+                    if "Downloaded" in msg:
+                        filename = msg.split(" -> ")[-1].split("/")[-1]  # Get just filename
+                        pbar.set_description(f"Downloaded {filename}")
+                        if not args.dry_run:
+                            filepath = msg.split(" -> ")[-1]
+                            downloaded_files.append(pathlib.Path(filepath))
+                    elif "Missing" in msg:
+                        filename = msg.split(" ")[1].split("/")[-1].replace(".parquet", "")
+                        pbar.set_description(f"Missing {filename}")
+                    elif "dry-run" in msg:
+                        filename = msg.split(" ")[1].split("/")[-1].replace(".parquet", "")
+                        pbar.set_description(f"Dry-run {filename}")
+                    
+                    # Log verbose messages only if verbose is enabled
+                    if args.verbose:
+                        _LOG.info(msg)
+                    
+                    pbar.update(1)
+
+        print(f"Download complete: {len(downloaded_files) - len(existing_files)} new files downloaded")
+    else:
+        print("All files already exist locally, skipping downloads")
+
+    print(f"Total files available for processing: {len(downloaded_files)}")
+    # Filter parquet files if requested - also add progress bar
+    if args.filter_land_only and not args.dry_run:
+        _LOG.info("Starting land-only filtering...")
+        print(f"Filtering {len(downloaded_files)} files for land-only data...")
+        
+        filter_geom = buffered_geom
+        successful_filters = 0
+        
+        # Add progress bar for parallel filtering
+        with tqdm(total=len(downloaded_files), desc="Filtering", unit="file") as pbar:
+            with _cf.ThreadPoolExecutor(max_workers=args.workers) as ex:
+                futures = {}
+                for parquet_file in downloaded_files:
+                    if parquet_file.exists():
+                        futures[ex.submit(_filter_parquet_by_land, parquet_file, filter_geom)] = parquet_file
+                
+                for fut in _cf.as_completed(futures):
+                    parquet_file = futures[fut]
+                    filename = parquet_file.name
+                    pbar.set_description(f"Filtering {filename}")
+                    
+                    if fut.result():
+                        successful_filters += 1
+                    
+                    pbar.update(1)
+        
+        print(f"Filtering complete: {successful_filters}/{len(downloaded_files)} files retained data")
+        _LOG.info(f"Successfully filtered {successful_filters}/{len(downloaded_files)} parquet files")
+
+    _LOG.info("Finished processing.")
 
 
 if __name__ == "__main__":  # pragma: no cover

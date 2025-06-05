@@ -2,9 +2,10 @@
 machine learning on top of satellite foundation model embeddings."""
 
 import json
+import os
 import warnings
 from datetime import datetime
-
+from dotenv import load_dotenv
 
 import ee
 import geopandas as gpd
@@ -19,25 +20,25 @@ import shapely
 from shapely.geometry import Point
 import webbrowser
 
-from gee import get_s2_hsv_median, get_s2_rgb_median, get_ee_image_url, initialize_ee_with_credentials
+from gee import get_s2_ndvi_median, get_s2_ndwi_median, get_ee_image_url, initialize_ee_with_credentials 
 
 warnings.simplefilter("ignore", category=FutureWarning)
 
+# Load environment variables from .env file
+load_dotenv()
+
 initialize_ee_with_credentials()
 
-# Get API keys from environment variables
-MAPTILER_API_KEY = 'tBojLsXV1LWWhszN3ikf'
+MAPTILER_API_KEY = os.getenv('MAPTILER_API_KEY')
 if not MAPTILER_API_KEY:
-    MAPTILER_API_KEY = 'YOUR_MAPTILER_API_KEY'
-    warnings.warn("MAPTILER_API_KEY environment variable not set. Using placeholder. Please set it for full functionality.")
+    warnings.warn("MAPTILER_API_KEY environment variable not set. Please create a .env file with your MapTiler API key.")
     
 BASEMAP_TILES = {
     'MAPTILER': f"https://api.maptiler.com/tiles/satellite-v2/{{z}}/{{x}}/{{y}}.jpg?key={MAPTILER_API_KEY}",
-    'HUTCH_TILE': 'https://tiles.earthindex.ai/v1/tiles/sentinel2-temporal-mosaics/2023-01-01/2024-01-01/rgb/{z}/{x}/{y}.webp',
+    'HUTCH_TILE': 'https://tiles.earthindex.ai/v1/tiles/sentinel2-yearly-mosaics/2024-01-01/2025-01-01/rgb/{z}/{x}/{y}.webp',
     'GOOGLE_HYBRID': 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
 }
 
-# Color-blind safe palette
 POS_COLOR = '#0072B2'  # Blue
 NEG_COLOR = '#D55E00'  # Orange
 NEUTRAL_COLOR = '#999999'  # Grey
@@ -84,25 +85,25 @@ class GeoLabeler:
         self.map = self._build_map(center_y, center_x)
 
         # Add basemap options
-        hsv_median = get_s2_hsv_median(
+        ndvi_median = get_s2_ndvi_median(
             self.ee_boundary, start_date, end_date)
 
-        hsv_url = get_ee_image_url(hsv_median, {
-            'min': [0, 0, 0],
-            'max': [1, 1, 1],
-            'bands': ['hue', 'saturation', 'value']
+        ndvi_url = get_ee_image_url(ndvi_median, {
+            'min': -0.2,
+            'max': 0.8,
+            'palette': ['red', 'yellow', 'green']
         })
-        BASEMAP_TILES['HSV_MEDIAN'] = hsv_url
+        BASEMAP_TILES['NDVI'] = ndvi_url
 
-        rgb_median = get_s2_rgb_median(
-        self.ee_boundary, start_date, end_date, scale_factor=10000)
+        ndwi_median = get_s2_ndwi_median(
+            self.ee_boundary, start_date, end_date)
 
-        rgb_url = get_ee_image_url(rgb_median, {
-            'min': [0, 0, 0],
-            'max': [0.25, 0.25, 0.25],
-            'bands': ['B4', 'B3', 'B2']
+        ndwi_url = get_ee_image_url(ndwi_median, {
+            'min': -0.5,
+            'max': 0.5,
+            'palette': ['brown', 'white', 'blue']
         })
-        BASEMAP_TILES['RGB_MEDIAN'] = rgb_url
+        BASEMAP_TILES['NDWI'] = ndwi_url
 
         print("Building UI...")
         
@@ -172,7 +173,6 @@ class GeoLabeler:
 
     def _build_side_panel(self):
         """Build the collapsible side panel with accordion sections."""
-        # --- SEARCH SECTION (Always visible at top) ---
         self.search_btn = Button(
             description='Search',
             layout=Layout(width='100%', height='40px'),
@@ -182,9 +182,9 @@ class GeoLabeler:
         
         self.neighbors_slider = IntSlider(
             value=1000,
-            min=10,
-            max=10000,
-            step=10,
+            min=100,
+            max=20000,
+            step=100,
             description='',  # No description
             readout=True,
             layout=Layout(width='100%')
@@ -424,8 +424,8 @@ class GeoLabeler:
         # Selection mode toggle
         self.selection_mode.observe(self._on_selection_mode_change, 'value')
         
-        # Neighbors slider
-        self.neighbors_slider.observe(self._on_neighbors_change, 'value')
+        # # Neighbors slider
+        # self.neighbors_slider.observe(self._on_neighbors_change, 'value')
         
         # Basemap buttons
         for basemap_name, btn in self.basemap_buttons.items():
@@ -452,12 +452,6 @@ class GeoLabeler:
         else:  # Erase
             self.select_val = -100
         self._update_status()
-
-
-    def _on_neighbors_change(self, change):
-        """Handle neighbors slider change with debouncing."""
-        # Simple debouncing - could be improved with actual timer
-        pass
 
 
     def _on_google_maps_click(self, b):
@@ -557,7 +551,6 @@ class GeoLabeler:
                         'embedding': np.array(row['embedding'])
                     })
             
-            print(f"Found {len(points_to_label)} points inside polygon")
             
             # Label the points
             for point in points_to_label:
@@ -643,11 +636,7 @@ class GeoLabeler:
         print(f"🔍 Searching for {n_neighbors} similar points...")
         search_results = self.duckdb_connection.execute(sql, [query_vec, n_neighbors]).df()
         
-        # Filter out any IDs that are already in positive labels
         search_results_filtered = search_results[~search_results['id'].isin(self.pos_ids)]
-        print(search_results_filtered.head())
-        # Create GeoDataFrame with embeddings for caching
-        # Use shapely.wkb.loads for WKB geometry from DuckDB
         geometries = [shapely.wkt.loads(row['geometry_wkt']) if row['geometry_wkt'] else None
                      for _, row in search_results_filtered.iterrows()]
         
@@ -674,7 +663,6 @@ class GeoLabeler:
         # Update the map
         self.update_layer(self.points, detections_geojson)
         
-        print(f"✅ Found {len(detections_geojson['features'])} similar points")
 
     def label_point(self, **kwargs):
         """Assign a label and map layer to a clicked map point."""
@@ -869,7 +857,6 @@ class GeoLabeler:
         
         # Default query vector math
         self.query_vector = 2 * pos_vec - neg_vec
-        print(f"Updated query vector from {len(self.pos_ids)} positive and {len(self.neg_ids)} negative labels")
 
     def save_dataset(self, b):
         """Save labeled points with embeddings to a GeoJSON file."""

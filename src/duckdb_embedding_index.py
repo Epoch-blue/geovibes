@@ -26,6 +26,7 @@ def create_database(
     con = duckdb.connect(database=output_file)
     
     logging.info("Loading extensions...")
+    con.execute("SET enable_progress_bar=true")
     con.execute("INSTALL spatial; LOAD spatial;")
     con.execute("INSTALL vss; LOAD vss;")
     con.execute("SET hnsw_enable_experimental_persistence = true;")
@@ -38,7 +39,7 @@ def create_database(
     SELECT
         id,
         CAST({embedding_column} AS FLOAT[{embedding_dim}]) as embedding,
-        ST_GeomFromWKB(geometry) as geometry
+        geometry
     FROM read_parquet({sql_parquet_files_list_str});
     """
     
@@ -57,6 +58,12 @@ def create_database(
             f"CREATE INDEX IF NOT EXISTS emb_hnsw_idx ON geo_embeddings USING HNSW (embedding) WITH (metric = '{metric}');")
         index_time = time.time() - start_index_time
         logging.info(f"HNSW index created in {index_time:.2f} seconds")
+        
+        logging.info("Creating RTree spatial index...")
+        start_spatial_index_time = time.time()
+        con.execute("CREATE INDEX IF NOT EXISTS geom_spatial_idx ON geo_embeddings USING RTREE (geometry);")
+        spatial_index_time = time.time() - start_spatial_index_time
+        logging.info(f"RTree spatial index created in {spatial_index_time:.2f} seconds")
         
         db_size_info = con.execute("PRAGMA database_size;").fetchone()
         logging.info(f"Database size: {db_size_info}")
