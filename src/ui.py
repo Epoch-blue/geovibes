@@ -218,7 +218,7 @@ class GeoLabeler:
         
         for basemap_name in BASEMAP_TILES.keys():
             btn = Button(
-                description=basemap_name.replace('_', ' ').title(),
+                description=basemap_name.replace('_', ' '),
                 layout=Layout(width='100%', margin='1px'),
                 button_style=''
             )

@@ -1,5 +1,4 @@
 python-dotenv
-python-annoy
 geopandas
 fiona
 numpy
@@ -20,5 +19,5 @@ earthengine-api
 geemap
 gcsfs
 lonboard
-python-duckdb
+python-duckdb==1.3.0
 rasterio
