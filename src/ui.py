@@ -145,6 +145,7 @@ class GeoVibes:
         self.detection_ids = []
         self.cached_embeddings = {}
         self.detections_with_embeddings = None
+        self.current_operation = None  # Track current operation for status display
         
         # Build UI
         self.side_panel, self.ui_widgets = self._build_side_panel()
@@ -664,6 +665,8 @@ class GeoVibes:
                 elif self.select_val == UIConstants.NEGATIVE_LABEL:
                     self.neg_ids.append(point_id)
             
+            # Show polygon labeling result in status bar
+            self._show_operation_status(f"✅ Labeled {len(point_ids)} points as {self.current_label}")
             if self.verbose:
                 print(f"✅ Labeled {len(point_ids)} points as {self.current_label}")
             
@@ -686,7 +689,7 @@ class GeoVibes:
             self._update_status()
 
 
-    def _update_status(self, lat=None, lon=None):
+    def _update_status(self, lat=None, lon=None, operation_msg=None):
         """Update the status bar."""
         if lat is None or lon is None:
             center = self.map.center
@@ -701,11 +704,26 @@ class GeoVibes:
             if self.polygon_drawing:
                 status_text += " | <b>Drawing polygon...</b>"
         
+        # Add operation message if provided, otherwise use current operation
+        display_operation = operation_msg or self.current_operation
+        if display_operation:
+            status_text += f"<br/><span style='color: #0072B2; font-weight: bold;'>{display_operation}</span>"
+        
         self.status_bar.value = f"""
             <div style='background: white; padding: 5px; border-radius: 5px; opacity: 0.8; font-size: 12px;'>
                 {status_text}
             </div>
         """
+
+    def _show_operation_status(self, message):
+        """Show an operation status message in the status bar."""
+        self.current_operation = message
+        self._update_status(operation_msg=message)
+    
+    def _clear_operation_status(self):
+        """Clear the current operation status."""
+        self.current_operation = None
+        self._update_status()
 
     def reset_all(self, b):
         """Reset all labels, search results, and cached data."""
@@ -732,6 +750,9 @@ class GeoVibes:
         self.erase_layer.data = empty_geojson
         self.points.data = empty_geojson
         
+        # Clear operation status
+        self._clear_operation_status()
+        
         if self.verbose:
             print("✅ All data cleared!")
 
@@ -746,18 +767,22 @@ class GeoVibes:
             return
         
         # Show progress for large batches
-        if len(missing_ids) > 100 and self.verbose:
-            print(f"🔄 Fetching embeddings for {len(missing_ids)} points...")
+        if len(missing_ids) > 100:
+            self._show_operation_status(f"🔄 Fetching embeddings for {len(missing_ids)} points...")
+            if self.verbose:
+                print(f"🔄 Fetching embeddings for {len(missing_ids)} points...")
         
         # Process in chunks to avoid memory issues
         for i in range(0, len(missing_ids), chunk_size):
             chunk = missing_ids[i:i + chunk_size]
             
             # Show chunk progress for very large batches
-            if len(missing_ids) > chunk_size and self.verbose:
+            if len(missing_ids) > chunk_size:
                 chunk_num = i // chunk_size + 1
                 total_chunks = (len(missing_ids) - 1) // chunk_size + 1
-                print(f"   Processing chunk {chunk_num}/{total_chunks} ({len(chunk)} points)...")
+                self._show_operation_status(f"🔄 Processing chunk {chunk_num}/{total_chunks}")
+                if self.verbose:
+                    print(f"   Processing chunk {chunk_num}/{total_chunks} ({len(chunk)} points)...")
             
             # Build parameterized query for this chunk
             placeholders = ','.join(['?' for _ in chunk])
@@ -778,8 +803,10 @@ class GeoVibes:
                 point_id = str(row['id'])
                 self.cached_embeddings[point_id] = embedding
         
-        if len(missing_ids) > 100 and self.verbose:
-            print(f"✅ Cached embeddings for {len(missing_ids)} points")
+        if len(missing_ids) > 100:
+            self._show_operation_status(f"✅ Cached embeddings for {len(missing_ids)} points")
+            if self.verbose:
+                print(f"✅ Cached embeddings for {len(missing_ids)} points")
 
     def search_click(self, b):
         """Perform similarity search based on current query vector."""
@@ -793,19 +820,46 @@ class GeoVibes:
         # Convert query vector to the format needed for DuckDB
         query_vec = self.query_vector.tolist()
         
-        # Use lightweight query without embeddings to avoid memory issues
-        sql = DatabaseConstants.SIMILARITY_SEARCH_LIGHT_QUERY
+        # Build query with exclusion of labeled points
+        all_labeled_ids = self.pos_ids + self.neg_ids
         
-        if self.verbose:
-            print(f"🔍 Searching for {n_neighbors} similar points...")
+        if all_labeled_ids:
+            # Create placeholders for labeled IDs - let DuckDB handle type conversion
+            placeholders = ','.join(['?' for _ in all_labeled_ids])
+            sql = f"""
+            WITH query(vec) AS (SELECT CAST(? AS FLOAT[384]))
+            SELECT  g.id,
+                    ST_AsGeoJSON(g.geometry) AS geometry_json,
+                    ST_AsText(g.geometry) AS geometry_wkt,
+                    array_distance(g.embedding, q.vec) AS distance
+            FROM    geo_embeddings AS g, query AS q
+            WHERE   g.id NOT IN ({placeholders})
+            ORDER BY distance
+            LIMIT ?;
+            """
+            query_params = [query_vec] + all_labeled_ids + [n_neighbors]
+        else:
+            # No labeled points to exclude, use original query
+            sql = DatabaseConstants.SIMILARITY_SEARCH_LIGHT_QUERY
+            query_params = [query_vec, n_neighbors]
+        
+        # Show search progress in status bar
+        if all_labeled_ids:
+            self._show_operation_status(f"🔍 Searching for {n_neighbors} points (excluding {len(all_labeled_ids)} labeled)...")
+            if self.verbose:
+                print(f"🔍 Searching for {n_neighbors} similar points (excluding {len(all_labeled_ids)} labeled points)...")
+        else:
+            self._show_operation_status(f"🔍 Searching for {n_neighbors} similar points...")
+            if self.verbose:
+                print(f"🔍 Searching for {n_neighbors} similar points...")
         
         # Fetch as Arrow table then convert only needed columns to pandas
-        arrow_table = self.duckdb_connection.execute(sql, [query_vec, n_neighbors]).fetch_arrow_table()
-        search_results = arrow_table.select(['id', 'geometry_json', 'geometry_wkt', 'distance']).to_pandas()
+        arrow_table = self.duckdb_connection.execute(sql, query_params).fetch_arrow_table()
+        search_results_filtered = arrow_table.select(['id', 'geometry_json', 'geometry_wkt', 'distance']).to_pandas()
         
-        # Filter out both positive and negative labeled points
-        all_labeled_ids = set(self.pos_ids + self.neg_ids)
-        search_results_filtered = search_results[~search_results['id'].astype(str).isin(all_labeled_ids)]
+        # Show results in status bar
+        filtered_count = len(search_results_filtered)
+        self._show_operation_status(f"✅ Found {filtered_count} similar points")
         geometries = [shapely.wkt.loads(row['geometry_wkt']) if row['geometry_wkt'] else None
                      for _, row in search_results_filtered.iterrows()]
         
