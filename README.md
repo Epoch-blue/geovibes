@@ -90,12 +90,16 @@ The `vibe_checker.ipynb` notebook provides an interactive map interface for labe
 - Automatic saving of labeled points as GeoJSON files
 
 ### Label a point and search
+Start your search by picking a point for which you would like to find similar ones in your area, and the click Search
+![Label a point and search for similar points](images/label_positive_point.gif)
 
 ### Polygon Labeling
-
-### Save Dataset
+Search is iterative: this  means positives get added to your query vector and negatives get subtracted as you go along. If you'd like to add a large group of positives/negatives you can use the polygon labeling mode.
+![Polygon labeling and search for similar points](images/polygon_label.gif)
 
 ### Load Dataset
+You can save your search results as a geojson, and reload them and start searching again.
+![Load a previous dataset](images/load_saved_changes.gif)
 
 
 
