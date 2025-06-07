@@ -14,37 +14,67 @@ The GeoVibes system uses a layered architecture designed for efficient memory ma
 
 ```mermaid
 graph TB
-    User["👤 User"] --> GeoVibes["🎯 GeoVibes Core"]
+    subgraph UI["🖥️ User Interface"]
+        MapClick["📍 Map Click<br/>Point Selection"]
+        PolygonDraw["🔗 Polygon Draw<br/>Bulk Selection"]
+        SearchBtn["🔍 Search Button"]
+        LabelToggle["🏷️ Label Toggle<br/>Pos/Neg/Erase"]
+        SaveLoad["💾 Save/Load Dataset"]
+    end
+    
+    subgraph Core["⚡ Core Processing"]
+        LabelLists["📋 Label Lists<br/>pos_ids[] & neg_ids[]"]
+        CachedEmbeds["🧠 Cached Embeddings<br/>cached_embeddings{}"]
+        QueryVector["🧮 Query Vector<br/>2×pos_avg - neg_avg"]
+        SearchResults["📊 Search Results<br/>detections_with_embeddings"]
+    end
     
     subgraph Memory["💾 Memory Management"]
         Arrow["🏹 Arrow Format"]
         Chunking["📦 Chunked Processing<br/>10K embedding chunks"]
-        PostFilter["🔍 Post-filtering<br/>In-memory pandas filtering"]
+        PostFilter["🔍 Post-filtering<br/>pandas NOT IN avoidance"]
     end
     
-    GeoVibes --> LabelManager["🏷️ Label Manager"]
-    LabelManager --> Chunking
-    Chunking --> DuckDB["🦆 DuckDB<br/>geo_embeddings table"]
-    DuckDB --> Arrow
-    Arrow --> LabelManager
-    LabelManager --> QueryVector["🧮 Query Vector<br/>pos_avg - neg_avg"]
+    subgraph DB["🗄️ Database"]
+        DuckDB["🦆 DuckDB"]
+        GeoTable["📊 geo_embeddings<br/>id, geometry, embedding"]
+    end
     
-    GeoVibes --> QueryVector
+    %% Labeling Flow
+    MapClick --> LabelLists
+    PolygonDraw --> LabelLists
+    LabelToggle --> LabelLists
+    LabelLists --> Chunking
+    Chunking --> DuckDB
+    DuckDB --> Arrow
+    Arrow --> CachedEmbeds
+    CachedEmbeds --> QueryVector
+    
+    %% Search Flow
+    SearchBtn --> QueryVector
     QueryVector --> DuckDB
     DuckDB --> Arrow
     Arrow --> PostFilter
-    PostFilter --> GeoVibes
+    PostFilter --> SearchResults
+    SearchResults --> MapClick
     
+    %% Feedback Loop
+    SearchResults -.->|"Click to Label"| LabelLists
+    
+    %% Data Persistence
+    SaveLoad <--> CachedEmbeds
+    SaveLoad <--> LabelLists
+    
+    classDef uiClass fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef coreClass fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
     classDef memoryClass fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef dbClass fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
+    
+    class MapClick,PolygonDraw,SearchBtn,LabelToggle,SaveLoad uiClass
+    class LabelLists,CachedEmbeds,QueryVector,SearchResults coreClass
     class Arrow,Chunking,PostFilter memoryClass
+    class DuckDB,GeoTable dbClass
 ```
-
-### Key Architectural Features
-
-- **Memory-Safe Processing**: Uses Arrow format and 10K chunk sizes to prevent kernel crashes when handling large embedding datasets
-- **Post-Filtering**: Avoids DuckDB's `NOT IN` clause bug by filtering results in-memory using pandas
-- **Lazy Loading**: Embeddings are fetched on-demand rather than loaded upfront, achieving 87% memory reduction
-- **Chunked Retrieval**: Large embedding operations are broken into manageable batches to prevent memory exhaustion
 
 ## Prerequisites
 
