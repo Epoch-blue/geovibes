@@ -29,50 +29,39 @@ graph TB
         SearchResults["📊 Search Results<br/>detections_with_embeddings"]
     end
     
-    subgraph Memory["💾 Memory Management"]
-        Arrow["🏹 Arrow Format"]
-        Chunking["📦 Chunked Processing<br/>10K embedding chunks"]
-        PostFilter["🔍 Post-filtering<br/>pandas NOT IN avoidance"]
-    end
-    
     subgraph DB["🗄️ Database"]
         DuckDB["🦆 DuckDB"]
         GeoTable["📊 geo_embeddings<br/>id, geometry, embedding"]
     end
     
     %% Labeling Flow
-    MapClick --> LabelLists
-    PolygonDraw --> LabelLists
-    LabelToggle --> LabelLists
-    LabelLists --> Chunking
-    Chunking --> DuckDB
-    DuckDB --> Arrow
-    Arrow --> CachedEmbeds
-    CachedEmbeds --> QueryVector
+    MapClick ==> LabelLists
+    PolygonDraw ==> LabelLists
+    LabelToggle ==> LabelLists
+    LabelLists ==> CachedEmbeds
+    CachedEmbeds ==> DuckDB
+    DuckDB ==> CachedEmbeds
+    CachedEmbeds ==> QueryVector
     
     %% Search Flow
-    SearchBtn --> QueryVector
-    QueryVector --> DuckDB
-    DuckDB --> Arrow
-    Arrow --> PostFilter
-    PostFilter --> SearchResults
-    SearchResults --> MapClick
+    SearchBtn ==> QueryVector
+    QueryVector ==> DuckDB
+    DuckDB ==> SearchResults
+    SearchResults ==> MapClick
     
     %% Feedback Loop
     SearchResults -.->|"Click to Label"| LabelLists
     
     %% Data Persistence
-    SaveLoad <--> CachedEmbeds
-    SaveLoad <--> LabelLists
+    SaveLoad <==> CachedEmbeds
+    SaveLoad <==> LabelLists
     
-    classDef uiClass fill:#e1f5fe,stroke:#01579b,stroke-width:2px
-    classDef coreClass fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
-    classDef memoryClass fill:#fff3e0,stroke:#e65100,stroke-width:2px
-    classDef dbClass fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
+    classDef uiClass fill:#e1f5fe,stroke:#01579b,stroke-width:4px,font-size:16px
+    classDef coreClass fill:#f3e5f5,stroke:#4a148c,stroke-width:4px,font-size:16px
+    classDef dbClass fill:#e8f5e8,stroke:#1b5e20,stroke-width:4px,font-size:16px
     
     class MapClick,PolygonDraw,SearchBtn,LabelToggle,SaveLoad uiClass
     class LabelLists,CachedEmbeds,QueryVector,SearchResults coreClass
-    class Arrow,Chunking,PostFilter memoryClass
     class DuckDB,GeoTable dbClass
 ```
 
