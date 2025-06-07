@@ -832,35 +832,23 @@ class GeoVibes:
         # Convert query vector to the format needed for DuckDB
         query_vec = self.query_vector.tolist()
         
-        # Build query with exclusion of labeled points
+        # Get labeled IDs for post-filtering
         all_labeled_ids = self.pos_ids + self.neg_ids
         
-        if all_labeled_ids:
-            # Convert string IDs to integers for database compatibility
-            int_labeled_ids = self._ids_to_int(all_labeled_ids)
-            placeholders = ','.join(['?' for _ in int_labeled_ids])
-            sql = f"""
-            WITH query(vec) AS (SELECT CAST(? AS FLOAT[384]))
-            SELECT  g.id,
-                    ST_AsGeoJSON(g.geometry) AS geometry_json,
-                    ST_AsText(g.geometry) AS geometry_wkt,
-                    array_distance(g.embedding, q.vec) AS distance
-            FROM    geo_embeddings AS g, query AS q
-            WHERE   g.id NOT IN ({placeholders})
-            ORDER BY distance
-            LIMIT ?;
-            """
-            query_params = [query_vec] + int_labeled_ids + [n_neighbors]
-        else:
-            # No labeled points to exclude, use original query
-            sql = DatabaseConstants.SIMILARITY_SEARCH_LIGHT_QUERY
-            query_params = [query_vec, n_neighbors]
+        # Request extra results to account for filtering out labeled points
+        # Add some buffer (max 50% extra) to ensure we get enough results after filtering
+        extra_results = min(len(all_labeled_ids), n_neighbors // 2)
+        total_requested = n_neighbors + extra_results
+        
+        # Use simple query without NOT IN clause to avoid DuckDB crash
+        sql = DatabaseConstants.SIMILARITY_SEARCH_LIGHT_QUERY
+        query_params = [query_vec, total_requested]
         
         # Show search progress in status bar
         if all_labeled_ids:
-            self._show_operation_status(f"🔍 Searching for {n_neighbors} points (excluding {len(all_labeled_ids)} labeled)...")
+            self._show_operation_status(f"🔍 Searching for {n_neighbors} points (will filter {len(all_labeled_ids)} labeled)...")
             if self.verbose:
-                print(f"🔍 Searching for {n_neighbors} similar points (excluding {len(all_labeled_ids)} labeled points)...")
+                print(f"🔍 Searching for {n_neighbors} similar points (requesting {total_requested}, will filter {len(all_labeled_ids)} labeled points)...")
         else:
             self._show_operation_status(f"🔍 Searching for {n_neighbors} similar points...")
             if self.verbose:
@@ -868,11 +856,32 @@ class GeoVibes:
         
         # Fetch as Arrow table then convert only needed columns to pandas
         arrow_table = self.duckdb_connection.execute(sql, query_params).fetch_arrow_table()
-        search_results_filtered = arrow_table.select(['id', 'geometry_json', 'geometry_wkt', 'distance']).to_pandas()
+        search_results = arrow_table.select(['id', 'geometry_json', 'geometry_wkt', 'distance']).to_pandas()
+        
+        # Post-filter to exclude labeled points in memory (much safer than DuckDB NOT IN)
+        if all_labeled_ids:
+            # Convert to string IDs for consistent comparison
+            labeled_id_strings = set(str(lid) for lid in all_labeled_ids)
+            # Filter out labeled points
+            mask = ~search_results['id'].astype(str).isin(labeled_id_strings)
+            search_results_filtered = search_results[mask].copy()
+            # Take only the requested number of neighbors
+            search_results_filtered = search_results_filtered.head(n_neighbors)
+        else:
+            search_results_filtered = search_results.head(n_neighbors)
         
         # Show results in status bar
         filtered_count = len(search_results_filtered)
-        self._show_operation_status(f"✅ Found {filtered_count} similar points")
+        if all_labeled_ids:
+            total_found = len(search_results)
+            filtered_out = total_found - filtered_count
+            self._show_operation_status(f"✅ Found {filtered_count} similar points (filtered out {filtered_out} labeled)")
+            if self.verbose:
+                print(f"✅ Found {filtered_count} similar points after filtering out {filtered_out} labeled points")
+        else:
+            self._show_operation_status(f"✅ Found {filtered_count} similar points")
+        
+        # Create geometries from WKT
         geometries = [shapely.wkt.loads(row['geometry_wkt']) if row['geometry_wkt'] else None
                      for _, row in search_results_filtered.iterrows()]
         
@@ -898,7 +907,6 @@ class GeoVibes:
         
         # Update the map
         self.update_layer(self.points, detections_geojson)
-        
 
     def label_point(self, **kwargs):
         """Assign a label and map layer to a clicked map point."""
