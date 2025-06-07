@@ -2,10 +2,8 @@
 machine learning on top of satellite foundation model embeddings."""
 
 import json
-import os
 import warnings
 from datetime import datetime
-import pathlib
 
 import duckdb
 import ee
@@ -220,7 +218,7 @@ class GeoVibes:
         self.reset_btn = Button(
             description='🗑️ Reset',
             layout=Layout(width='100%', height=UIConstants.RESET_BUTTON_HEIGHT),
-            button_style='warning',  # Orange to indicate caution
+            button_style='',  # Default grey style
             tooltip='Clear all labels and search results'
         )
         
@@ -251,7 +249,10 @@ class GeoVibes:
         self.basemap_buttons = {}
         basemap_section_widgets = []
         
-        for basemap_name in BasemapConfig.BASEMAP_TILES.keys():
+        # Use instance basemap_tiles which includes EE basemaps (NDVI/NDWI)
+        basemap_tiles_to_use = getattr(self, 'basemap_tiles', BasemapConfig.BASEMAP_TILES)
+        
+        for basemap_name in basemap_tiles_to_use.keys():
             btn = Button(
                 description=basemap_name.replace('_', ' '),
                 layout=Layout(width='100%', margin='1px'),
