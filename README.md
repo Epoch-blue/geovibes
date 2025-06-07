@@ -1,6 +1,6 @@
-# Evaluate Your Geospatial Model's Vibes
+# Evaluate Your Geospatial Models Vibes
 
-Yeah benchmarks are cool and stuff, but how are your model's vibes? With this tooling you'll hopefully be able to see!
+Yeah benchmarks are cool and stuff, but how are your model's vibes? With this tooling you'll hopefully be able to see via the magic of search/retrieval. 
 
 ## Prerequisites
 First, there are some basic system requirements to take care of. Please refer to the linked documentation for installation.
