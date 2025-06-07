@@ -1,47 +1,4 @@
 #!/usr/bin/env python3
-"""
-region_to_embeddings.py
------------------------
-Download Earth Genome *earthindexembeddings* Parquet files that spatially
-intersect a user‑supplied region **in parallel**.
-
-Changes vs. v1
-~~~~~~~~~~~~~~
-* **Parallel downloads** with a configurable `--workers` argument (default: 8) via
-  `concurrent.futures.ThreadPoolExecutor`.
-* Minor refactor: the S3 client is instantiated *per worker* to avoid potential
-  thread‑safety issues.
-* Progress information for each completed download.
-
-Overview
-~~~~~~~~
-Given a GeoJSON **or** GeoParquet file describing one or more polygons, the
-script:
-
-1. Converts the region(s) to WGS84 (EPSG:4326).
-2. Samples a regular lon/lat grid over the bounding box (default step
-   0.05° ≈ 5 – 6 km).
-3. Maps each grid point to a 100 km **MGRS** tile key (first 5 chars).
-4. Constructs S3 object paths of the form
-     `s3://earthgenome/earthindexembeddings/2024/<TILE>_<START>_<END>.parquet`.
-5. Downloads each Parquet file concurrently to a local directory, using the
-   custom endpoint `https://data.source.coop` with unsigned requests.
-6. Logs missing keys and a summary at the end.
-
-Dependencies
-~~~~~~~~~~~~
-```
-pip install geopandas shapely numpy mgrs boto3 botocore pyarrow
-```
-
-Example
-~~~~~~~
-```bash
-python region_to_embeddings.py region.gpq \
-    --start 2024-01-01 --end 2025-01-01 \
-    --out-dir ./embeddings --workers 16 --verbose
-```
-"""
 from __future__ import annotations
 
 import argparse

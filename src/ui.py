@@ -18,12 +18,13 @@ import shapely
 from shapely.geometry import Point
 import webbrowser
 
-from gee import get_s2_ndvi_median, get_s2_ndwi_median, get_ee_image_url, initialize_ee_with_credentials
-from ui_config import UIConstants, BasemapConfig, GeoLabelerConfig, DatabaseConstants, LayerStyles
+from .ee_tools import get_s2_ndvi_median, get_s2_ndwi_median, get_ee_image_url, initialize_ee_with_credentials
+from .ui_config import UIConstants, BasemapConfig, GeoLabelerConfig, DatabaseConstants, LayerStyles
 
 warnings.simplefilter("ignore", category=FutureWarning)
 
-initialize_ee_with_credentials()
+
+EE_AVAILABLE = initialize_ee_with_credentials()
 
 # Validate MapTiler API key
 if not BasemapConfig.MAPTILER_API_KEY:
@@ -98,8 +99,17 @@ class GeoVibes:
         self.basemap_layer = ipyl.TileLayer(url=baselayer_url, no_wrap=True, name='basemap', 
                                        attribution=BasemapConfig.MAPTILER_ATTRIBUTION)
         
-        self.ee_boundary = ee.Geometry(shapely.geometry.mapping(
-            gpd.read_file(self.config.boundary_path).union_all()))
+        # Setup Earth Engine boundary if available
+        if EE_AVAILABLE:
+            try:
+                self.ee_boundary = ee.Geometry(shapely.geometry.mapping(
+                    gpd.read_file(self.config.boundary_path).union_all()))
+            except Exception as e:
+                print(f"⚠️  Failed to create Earth Engine boundary: {e}")
+                print("⚠️  NDVI/NDWI basemaps will be unavailable")
+                self.ee_boundary = None
+        else:
+            self.ee_boundary = None
         
         # Setup spatial extension in DuckDB
         self.duckdb_connection.execute(DatabaseConstants.SPATIAL_SETUP_QUERY)
@@ -111,7 +121,7 @@ class GeoVibes:
         # Build map
         self.map = self._build_map(center_y, center_x)
 
-        # Add Earth Engine basemap options
+        # Add Earth Engine basemap options (if available)
         self._setup_ee_basemaps()
 
         print("Building UI...")
@@ -168,21 +178,36 @@ class GeoVibes:
 
 
     def _setup_ee_basemaps(self):
-        """Set up Earth Engine basemaps (NDVI and NDWI)."""
+        """Set up Earth Engine basemaps (NDVI and NDWI) if available."""
         # Create a copy of the base basemap tiles
         self.basemap_tiles = BasemapConfig.BASEMAP_TILES.copy()
         
-        # Add NDVI basemap
-        ndvi_median = get_s2_ndvi_median(
-            self.ee_boundary, self.config.start_date, self.config.end_date)
-        ndvi_url = get_ee_image_url(ndvi_median, BasemapConfig.NDVI_VIS_PARAMS)
-        self.basemap_tiles['NDVI'] = ndvi_url
+        # Only add Earth Engine basemaps if EE is available and boundary is set
+        if EE_AVAILABLE and self.ee_boundary is not None:
+            try:
+                print("🛰️ Setting up Earth Engine basemaps (NDVI and NDWI)...")
+                
+                # Add NDVI basemap
+                ndvi_median = get_s2_ndvi_median(
+                    self.ee_boundary, self.config.start_date, self.config.end_date)
+                ndvi_url = get_ee_image_url(ndvi_median, BasemapConfig.NDVI_VIS_PARAMS)
+                self.basemap_tiles['NDVI'] = ndvi_url
 
-        # Add NDWI basemap
-        ndwi_median = get_s2_ndwi_median(
-            self.ee_boundary, self.config.start_date, self.config.end_date)
-        ndwi_url = get_ee_image_url(ndwi_median, BasemapConfig.NDWI_VIS_PARAMS)
-        self.basemap_tiles['NDWI'] = ndwi_url
+                # Add NDWI basemap
+                ndwi_median = get_s2_ndwi_median(
+                    self.ee_boundary, self.config.start_date, self.config.end_date)
+                ndwi_url = get_ee_image_url(ndwi_median, BasemapConfig.NDWI_VIS_PARAMS)
+                self.basemap_tiles['NDWI'] = ndwi_url
+                
+                print("✅ Earth Engine basemaps added successfully!")
+                
+            except Exception as e:
+                print(f"⚠️  Failed to create Earth Engine basemaps: {e}")
+                print("⚠️  Continuing with basic basemaps only")
+        else:
+            if not EE_AVAILABLE:
+                print("⚠️  Earth Engine not available - NDVI/NDWI basemaps skipped")
+
 
     def _build_map(self, center_y, center_x):
         """Build and return the map widget."""

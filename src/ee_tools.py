@@ -3,17 +3,18 @@ import ee
 import os
 
 def initialize_ee_with_credentials():
-    """Initialize Earth Engine with service account credentials if available, otherwise default."""
+    """Initialize Earth Engine with user credentials or service account if configured."""
     load_dotenv()
     try:
-        credentials = ee.ServiceAccountCredentials(
-            os.getenv('GEE_SERVICE_ACCOUNT', ''),
-            os.getenv('GOOGLE_APPLICATION_CREDENTIALS', '')
-        )
-        ee.Initialize(project='earthindex', credentials=credentials)
+        ee.Initialize()  # Use user's default project
+        print("✅ Earth Engine initialized with user credentials")
+        return True
     except Exception as e:
-        print(f"Error initializing Earth Engine: {e}, defaulting to ")
-        ee.Initialize(project='earthindex')
+        print(f"❌ Earth Engine authentication failed: {e}")
+        print("\n🔧 To enable NDVI/NDWI basemaps, please run the following command:")
+        print("    earthengine authenticate")
+        print("⚠️  Continuing without Earth Engine (NDVI/NDWI basemaps will be unavailable)")
+        return False  # Return False instead of raising an error
 
 
 def get_s2_cloud_masked_collection(aoi: ee.Geometry,
