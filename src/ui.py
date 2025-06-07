@@ -12,7 +12,7 @@ import geopandas as gpd
 import ipyleaflet as ipyl
 from ipyleaflet import Map, DrawControl
 from IPython.display import display
-from ipywidgets import Button, VBox, HBox, IntSlider, Label, Layout, HTML, ToggleButtons, Accordion
+from ipywidgets import Button, VBox, HBox, IntSlider, Label, Layout, HTML, ToggleButtons, Accordion, FileUpload
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -190,9 +190,17 @@ class GeoLabeler:
             layout=Layout(width='100%')
         )
         
+        self.reset_btn = Button(
+            description='🗑️ Reset',
+            layout=Layout(width='100%', height='35px'),
+            button_style='warning',  # Orange to indicate caution
+            tooltip='Clear all labels and search results'
+        )
+        
         search_section = VBox([
             self.search_btn,
-            self.neighbors_slider
+            self.neighbors_slider,
+            self.reset_btn
         ], layout=Layout(padding='5px', margin='0 0 10px 0'))
         
         # --- Labeling section ---
@@ -232,6 +240,14 @@ class GeoLabeler:
         # --- Export section ---
         self.save_btn = Button(description='💾 Save Dataset', layout=Layout(width='100%'))
         
+        # --- Load Dataset section ---
+        self.load_btn = Button(description='📂 Load Dataset', layout=Layout(width='100%'))
+        self.file_upload = FileUpload(
+            accept='.geojson,.parquet',
+            multiple=False,
+            layout=Layout(width='100%', display='none')  # Initially hidden
+        )
+        
         # --- External Tools section ---
         self.google_maps_btn = Button(
             description='🌍 Google Maps ↗',
@@ -248,7 +264,7 @@ class GeoLabeler:
                 self.selection_mode
             ], layout=Layout(padding='5px')),
             VBox(basemap_section_widgets, layout=Layout(padding='5px')),
-            VBox([self.save_btn, self.google_maps_btn], layout=Layout(padding='5px'))
+            VBox([self.save_btn, self.load_btn, self.file_upload, self.google_maps_btn], layout=Layout(padding='5px'))
         ])
         
         # Set titles
@@ -285,11 +301,14 @@ class GeoLabeler:
         # Return panel and widget references
         ui_widgets = {
             'search_btn': self.search_btn,
+            'reset_btn': self.reset_btn,
             'label_toggle': self.label_toggle,
             'selection_mode': self.selection_mode,
             'neighbors_slider': self.neighbors_slider,
             'basemap_buttons': self.basemap_buttons,
             'save_btn': self.save_btn,
+            'load_btn': self.load_btn,
+            'file_upload': self.file_upload,
             'google_maps_btn': self.google_maps_btn,
             'collapse_btn': self.collapse_btn
         }
@@ -418,6 +437,9 @@ class GeoLabeler:
         # Search button (main functionality)
         self.search_btn.on_click(self.search_click)
         
+        # Reset button
+        self.reset_btn.on_click(self.reset_all)
+        
         # Label toggle
         self.label_toggle.observe(self._on_label_change, 'value')
         
@@ -436,6 +458,8 @@ class GeoLabeler:
         
         # Export and external tools
         self.save_btn.on_click(self.save_dataset)
+        self.load_btn.on_click(self._on_load_click)
+        self.file_upload.observe(self._on_file_upload, names=['value'])
         self.google_maps_btn.on_click(self._on_google_maps_click)
         
         # Map interactions
@@ -459,6 +483,46 @@ class GeoLabeler:
         center = self.map.center
         url = f"https://www.google.com/maps/@{center[0]},{center[1]},15z"
         webbrowser.open(url, new=2)
+
+    def _on_load_click(self, b):
+        """Handle load dataset button click."""
+        # Toggle file upload widget visibility
+        if self.file_upload.layout.display == 'none':
+            self.file_upload.layout.display = 'flex'
+            self.load_btn.description = '📂 Cancel Load'
+        else:
+            self.file_upload.layout.display = 'none'
+            self.load_btn.description = '📂 Load Dataset'
+            # Clear any uploaded files
+            self.file_upload.value = ()
+
+    def _on_file_upload(self, change):
+        """Handle file upload."""
+        if not change['new']:
+            return
+        
+        # Get the uploaded file - change['new'] is a tuple of uploaded files
+        uploaded_files = change['new']
+        if not uploaded_files:
+            return
+            
+        # Get the first uploaded file
+        uploaded_file = uploaded_files[0]
+        filename = uploaded_file['name']
+        content = uploaded_file['content']
+        
+        try:
+            self.load_dataset_from_content(content, filename)
+            # Hide the upload widget and reset button text
+            self.file_upload.layout.display = 'none'
+            self.load_btn.description = '📂 Load Dataset'
+            # Clear the upload widget
+            self.file_upload.value = ()
+        except Exception as e:
+            print(f"❌ Error loading file: {str(e)}")
+            # Still hide the widget on error
+            self.file_upload.layout.display = 'none'
+            self.load_btn.description = '📂 Load Dataset'
 
 
     def _on_basemap_select(self, basemap_name):
@@ -609,6 +673,32 @@ class GeoLabeler:
                 {status_text}
             </div>
         """
+
+    def reset_all(self, b):
+        """Reset all labels, search results, and cached data."""
+        print("🗑️ Resetting all labels and search results...")
+        
+        # Clear all label lists
+        self.pos_ids = []
+        self.neg_ids = []
+        
+        # Clear cached embeddings
+        self.cached_embeddings = {}
+        
+        # Reset query vector
+        self.query_vector = None
+        
+        # Clear detections
+        self.detections_with_embeddings = None
+        
+        # Clear all map layers
+        empty_geojson = {"type": "FeatureCollection", "features": []}
+        self.pos_layer.data = empty_geojson
+        self.neg_layer.data = empty_geojson
+        self.erase_layer.data = empty_geojson
+        self.points.data = empty_geojson
+        
+        print("✅ All data cleared!")
 
     def search_click(self, b):
         """Perform similarity search based on current query vector."""
@@ -1013,6 +1103,117 @@ class GeoLabeler:
             print(f"❌ File not found: {filename}")
         except Exception as e:
             print(f"❌ Error loading dataset: {str(e)}")
+
+    def load_dataset_from_content(self, content, filename):
+        """Load a dataset from uploaded file content."""
+        print(f"📂 Loading dataset from {filename}...")
+        
+        try:
+            # Convert content to bytes if it's a memoryview
+            if isinstance(content, memoryview):
+                content_bytes = content.tobytes()
+            elif isinstance(content, bytes):
+                content_bytes = content
+            else:
+                content_bytes = bytes(content)
+            
+            # Determine file type and parse accordingly
+            if filename.lower().endswith('.geojson'):
+                # Parse GeoJSON
+                geojson_data = json.loads(content_bytes.decode('utf-8'))
+                self._process_geojson_data(geojson_data, filename)
+                
+            elif filename.lower().endswith('.parquet'):
+                # Parse GeoParquet using pandas/geopandas
+                import io
+                gdf = gpd.read_parquet(io.BytesIO(content_bytes))
+                self._process_geoparquet_data(gdf, filename)
+                
+            else:
+                raise ValueError(f"Unsupported file format. Please use .geojson or .parquet files.")
+                
+        except Exception as e:
+            raise Exception(f"Error processing {filename}: {str(e)}")
+
+    def _process_geojson_data(self, geojson_data, filename):
+        """Process GeoJSON data and populate labels."""
+        # Clear current labels
+        self.pos_ids = []
+        self.neg_ids = []
+        self.cached_embeddings = {}
+        
+        # Process features
+        for feature in geojson_data['features']:
+            point_id = str(feature['properties']['id'])  # Ensure string type
+            label = feature['properties']['label']
+            embedding = np.array(feature['properties']['embedding'])
+            
+            # Cache the embedding
+            self.cached_embeddings[point_id] = embedding
+            
+            # Add to appropriate list
+            if label == 1:
+                self.pos_ids.append(point_id)
+            elif label == 0:
+                self.neg_ids.append(point_id)
+        
+        # Update visualization
+        self.update_layers()
+        self.update_query_vector()
+        
+        # Print summary
+        metadata = geojson_data.get('metadata', {})
+        print(f"✅ Dataset loaded successfully from {filename}!")
+        print(f"📊 Summary:")
+        print(f"   - Total points: {metadata.get('total_points', len(geojson_data['features']))}")
+        print(f"   - Positive labels: {len(self.pos_ids)}")
+        print(f"   - Negative labels: {len(self.neg_ids)}")
+        print(f"   - Saved on: {metadata.get('timestamp', 'Unknown')}")
+
+    def _process_geoparquet_data(self, gdf, filename):
+        """Process GeoParquet data and populate labels."""
+        # Clear current labels
+        self.pos_ids = []
+        self.neg_ids = []
+        self.cached_embeddings = {}
+        
+        # Check required columns
+        required_cols = ['id', 'label', 'embedding']
+        for col in required_cols:
+            if col not in gdf.columns:
+                raise ValueError(f"Required column '{col}' not found in {filename}")
+        
+        # Process each row
+        for _, row in gdf.iterrows():
+            point_id = str(row['id'])  # Ensure string type
+            label = row['label']
+            
+            # Handle embedding - could be stored as array or list
+            if isinstance(row['embedding'], (list, np.ndarray)):
+                embedding = np.array(row['embedding'])
+            else:
+                # Try to parse if it's stored as string
+                embedding = np.array(json.loads(row['embedding']))
+            
+            # Cache the embedding
+            self.cached_embeddings[point_id] = embedding
+            
+            # Add to appropriate list
+            if label == 1:
+                self.pos_ids.append(point_id)
+            elif label == 0:
+                self.neg_ids.append(point_id)
+        
+        # Update visualization
+        self.update_layers()
+        self.update_query_vector()
+        
+        # Print summary
+        print(f"✅ Dataset loaded successfully from {filename}!")
+        print(f"📊 Summary:")
+        print(f"   - Total points: {len(gdf)}")
+        print(f"   - Positive labels: {len(self.pos_ids)}")
+        print(f"   - Negative labels: {len(self.neg_ids)}")
 
     def _update_basemap_button_styles(self):
         """Update basemap button styles to highlight current selection."""
