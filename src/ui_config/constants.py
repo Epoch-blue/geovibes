@@ -27,7 +27,7 @@ class UIConstants:
     # Search settings
     DEFAULT_NEIGHBORS = 1000
     MIN_NEIGHBORS = 100
-    MAX_NEIGHBORS = 20000
+    MAX_NEIGHBORS = 25000
     NEIGHBORS_STEP = 100
     
     # Point styles
