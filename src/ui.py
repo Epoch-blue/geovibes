@@ -709,7 +709,7 @@ class GeoLabeler:
             if nearest_result.empty:
                 return
             
-            point_id = nearest_result.iloc[0]['id']
+            point_id = str(nearest_result.iloc[0]['id'])  # Convert to string
             embedding = nearest_result.iloc[0]['embedding']
         
         # Cache the embedding for later use
