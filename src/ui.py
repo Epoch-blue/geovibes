@@ -6,14 +6,15 @@ import os
 import warnings
 from datetime import datetime
 from dotenv import load_dotenv
+import pathlib
 
+import duckdb
 import ee
 import geopandas as gpd
 import ipyleaflet as ipyl
 from ipyleaflet import Map, DrawControl
 from IPython.display import display
 from ipywidgets import Button, VBox, HBox, IntSlider, Label, Layout, HTML, ToggleButtons, Accordion, FileUpload
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import shapely
@@ -24,7 +25,6 @@ from gee import get_s2_ndvi_median, get_s2_ndwi_median, get_ee_image_url, initia
 
 warnings.simplefilter("ignore", category=FutureWarning)
 
-# Load environment variables from .env file
 load_dotenv()
 
 initialize_ee_with_credentials()
@@ -44,6 +44,10 @@ NEG_COLOR = '#D55E00'  # Orange
 NEUTRAL_COLOR = '#999999'  # Grey
 
 
+
+maptiler_attribution = '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>'
+
+
 class GeoLabeler:
     """An interactive Leaflet map for labeling geographic features relative to satellite image embedding tiles.
     
@@ -59,16 +63,61 @@ class GeoLabeler:
         update_layer: Add points to the map for visualization, without changing labels.
     
     """
+    
+    @classmethod
+    def from_config(cls, config_path, **kwargs):
+        """Create a GeoLabeler instance from a configuration file.
+        
+        Args:
+            config_path: Path to JSON configuration file
+            **kwargs: Additional keyword arguments to override config values
+        
+        Returns:
+            GeoLabeler instance
+        """
+        return cls(config_path=config_path, **kwargs)
     def __init__(
-            self, geojson_path, mgrs_ids, start_date, end_date, imagery,
-            duckdb_connection, baselayer_url=BASEMAP_TILES['MAPTILER'], **kwargs):
+            self, geojson_path=None, start_date=None, end_date=None,
+            duckdb_connection=None, duckdb_path=None, config=None, config_path=None,
+            baselayer_url=BASEMAP_TILES['MAPTILER'], **kwargs):
         print("Initializing GeoLabeler...")
-        self.duckdb_connection = duckdb_connection
+        
+        # Handle configuration loading
+        if config_path is not None:
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+        
+        if config is not None:
+            # Load parameters from config
+            geojson_path = config.get('boundary_path', geojson_path)
+            start_date = config.get('start_date', start_date)
+            end_date = config.get('end_date', end_date)
+            if duckdb_path is None:
+                duckdb_path = config.get('duckdb_path')
+        
+        # Handle duckdb connection
+        if duckdb_connection is None:
+            if duckdb_path is None:
+                raise ValueError("Either duckdb_connection or duckdb_path must be provided")
+            self.duckdb_connection = duckdb.connect(duckdb_path)
+            self._owns_connection = True
+        else:
+            self.duckdb_connection = duckdb_connection
+            self._owns_connection = False
+        
+        # Validate required parameters
+        if geojson_path is None or start_date is None or end_date is None:
+            raise ValueError("Required parameters missing. Provide either config or individual parameters.")
+        
+        self.geojson_path = geojson_path
+        self.start_date = start_date
+        self.end_date = end_date
         self.current_basemap = 'MAPTILER'
         self.basemap_layer = ipyl.TileLayer(url=baselayer_url, no_wrap=True, name='basemap', 
-                                       attribution=kwargs.get('attribution'))
+                                       attribution=maptiler_attribution)
+        
         self.ee_boundary = ee.Geometry(shapely.geometry.mapping(
-            gpd.read_file(geojson_path).geometry.iloc[0]))
+            gpd.read_file(self.geojson_path).union_all()))
         
         # Get map center from DuckDB
         load_spatial_query = """
@@ -78,7 +127,7 @@ class GeoLabeler:
         self.duckdb_connection.execute(load_spatial_query)
 
         # Get centroid of boundary from geopandas
-        boundary_gdf = gpd.read_file(geojson_path)
+        boundary_gdf = gpd.read_file(self.geojson_path)
         center_y, center_x = boundary_gdf.geometry.iloc[0].centroid.y, boundary_gdf.geometry.iloc[0].centroid.x
         
         # Build map
@@ -86,7 +135,7 @@ class GeoLabeler:
 
         # Add basemap options
         ndvi_median = get_s2_ndvi_median(
-            self.ee_boundary, start_date, end_date)
+            self.ee_boundary, self.start_date, self.end_date)
 
         ndvi_url = get_ee_image_url(ndvi_median, {
             'min': -0.2,
@@ -96,7 +145,7 @@ class GeoLabeler:
         BASEMAP_TILES['NDVI'] = ndvi_url
 
         ndwi_median = get_s2_ndwi_median(
-            self.ee_boundary, start_date, end_date)
+            self.ee_boundary, self.start_date, self.end_date)
 
         ndwi_url = get_ee_image_url(ndwi_median, {
             'min': -0.5,
@@ -110,7 +159,6 @@ class GeoLabeler:
         # Initialize state
         self.current_label = 'Positive'
         self.execute_label_point = True
-        self.mgrs_ids = mgrs_ids
         self.select_val = 1  # Initialize to positive
         self.pos_ids = []
         self.neg_ids = []
@@ -125,7 +173,7 @@ class GeoLabeler:
         self.side_panel, self.ui_widgets = self._build_side_panel()
         
         # Add layers to map
-        self._add_map_layers(geojson_path)
+        self._add_map_layers()
         
         # Add DrawControl
         self._setup_draw_control()
@@ -337,10 +385,10 @@ class GeoLabeler:
         display(HTML(style))
 
 
-    def _add_map_layers(self, geojson_path):
+    def _add_map_layers(self):
         """Add all necessary layers to the map."""
         # Region boundary
-        with open(geojson_path) as f:
+        with open(self.geojson_path) as f:
             region_layer = ipyl.GeoJSON(
                     name="region",
                     data=json.load(f),
@@ -1222,3 +1270,10 @@ class GeoLabeler:
                 btn.button_style = 'info'  # Blue highlight for active
             else:
                 btn.button_style = ''  # Default style
+
+    def close(self):
+        """Clean up resources."""
+        if hasattr(self, '_owns_connection') and self._owns_connection:
+            if hasattr(self, 'duckdb_connection') and self.duckdb_connection:
+                self.duckdb_connection.close()
+                print("🔌 DuckDB connection closed.")
