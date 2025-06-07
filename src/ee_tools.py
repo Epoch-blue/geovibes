@@ -1,6 +1,5 @@
 from dotenv import load_dotenv
 import ee
-import os
 
 def initialize_ee_with_credentials():
     """Initialize Earth Engine with user credentials or service account if configured."""

@@ -48,9 +48,6 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
                    help="Filter parquet files to only include data intersecting with (buffered) land geometries")
     return p.parse_args(argv)
 
-# -----------------------------------------------------------------------------
-# Geometry helpers
-# -----------------------------------------------------------------------------
 
 def _load_region(path: str | pathlib.Path) -> gpd.GeoSeries:
     """Load a vector file (GeoJSON or GeoParquet) and return one unified geometry in WGS84."""
@@ -101,7 +98,6 @@ def _get_intersecting_mgrs_ids_from_reference(
             f"Available columns: {mgrs_gdf.columns.tolist()}"
         )
 
-    # Ensure MGRS reference GDF is in EPSG:4326 if CRS is defined
     if mgrs_gdf.crs is not None and mgrs_gdf.crs.to_epsg() != 4326:
         _LOG.info(f"Reprojecting MGRS reference layer from {mgrs_gdf.crs} to EPSG:4326.")
         mgrs_gdf = mgrs_gdf.to_crs(4326)
@@ -109,13 +105,9 @@ def _get_intersecting_mgrs_ids_from_reference(
         _LOG.warning("MGRS reference file has no CRS defined. Assuming EPSG:4326.")
         mgrs_gdf.crs = "EPSG:4326" # Assume WGS84 if not set; risky but common for GeoJSONs
 
-    # Prepare the input region for spatial join (ensure it's a GeoDataFrame)
-    # The input region_gs is already in EPSG:4326 from _load_region
     region_gdf = gpd.GeoDataFrame(geometry=region_gs)
 
     _LOG.info("Performing spatial join between input region and MGRS reference layer...")
-    # Perform spatial join. 'inner' keeps only intersecting features.
-    # predicate='intersects' is default for sjoin if not specified
     intersecting_mgrs_tiles = gpd.sjoin(mgrs_gdf, region_gdf, how="inner", predicate="intersects")
 
     if intersecting_mgrs_tiles.empty:
@@ -126,9 +118,6 @@ def _get_intersecting_mgrs_ids_from_reference(
     _LOG.info(f"Found {len(tile_keys)} unique intersecting MGRS tile IDs.")
     return tile_keys
 
-# -----------------------------------------------------------------------------
-# S3 helpers
-# -----------------------------------------------------------------------------
 
 def _new_s3_client(endpoint_url: str):
     """Create a new unsigned boto3 S3 client (safe for thread local use)."""
@@ -161,9 +150,6 @@ def _download_single(key_info: tuple[str, pathlib.Path, str, bool]):
     except client.exceptions.NoSuchKey:
         return f"Missing {s3_key} (not found)"
 
-# -----------------------------------------------------------------------------
-# Main
-# -----------------------------------------------------------------------------
 
 def _get_utm_crs(lon: float, lat: float) -> str:
     """Get appropriate UTM CRS for a given longitude/latitude."""
@@ -180,16 +166,13 @@ def _buffer_geometry(geom, buffer_meters: float):
     if buffer_meters <= 0:
         return geom
     
-    # Get UTM CRS for accurate buffering
     centroid = geom.centroid
     utm_crs = _get_utm_crs(centroid.x, centroid.y)
     
-    # Buffer in projected coordinates
     gdf_orig = gpd.GeoDataFrame([geom], geometry=[geom], crs="EPSG:4326")
     gdf_projected = gdf_orig.to_crs(utm_crs)
     buffered_geom = gdf_projected.geometry.iloc[0].buffer(buffer_meters)
     
-    # Convert back to WGS84
     buffered_gdf = gpd.GeoDataFrame([buffered_geom], geometry=[buffered_geom], crs=utm_crs)
     return buffered_gdf.to_crs(4326).geometry.iloc[0]
 

@@ -19,7 +19,7 @@ from shapely.geometry import Point
 import webbrowser
 
 from .ee_tools import get_s2_ndvi_median, get_s2_ndwi_median, get_ee_image_url, initialize_ee_with_credentials
-from .ui_config import UIConstants, BasemapConfig, GeoLabelerConfig, DatabaseConstants, LayerStyles
+from .ui_config import UIConstants, BasemapConfig, GeoVibesConfig, DatabaseConstants, LayerStyles
 
 warnings.simplefilter("ignore", category=FutureWarning)
 
@@ -67,16 +67,16 @@ class GeoVibes:
         
         # Handle configuration loading using new config system
         if config_path is not None:
-            self.config = GeoLabelerConfig.from_file(config_path)
+            self.config = GeoVibesConfig.from_file(config_path)
             self.config.validate()
         elif config is not None:
-            self.config = GeoLabelerConfig.from_dict(config)
+            self.config = GeoVibesConfig.from_dict(config)
             self.config.validate()
         else:
             # Create config from individual parameters
             if geojson_path is None or start_date is None or end_date is None:
                 raise ValueError("Required parameters missing. Provide either config_path, config dict, or individual parameters.")
-            self.config = GeoLabelerConfig(
+            self.config = GeoVibesConfig(
                 duckdb_path=duckdb_path,
                 boundary_path=geojson_path,
                 start_date=start_date,
@@ -84,13 +84,11 @@ class GeoVibes:
             )
             self.config.validate()
         
-        # Set default baselayer URL if not provided
         if baselayer_url is None:
             baselayer_url = BasemapConfig.BASEMAP_TILES['MAPTILER']
         
-        # Handle duckdb connection
         if duckdb_connection is None:
-            self.duckdb_connection = duckdb.connect(self.config.duckdb_path)
+            self.duckdb_connection = duckdb.connect(self.config.duckdb_path, read_only=True)
             self._owns_connection = True
         else:
             self.duckdb_connection = duckdb_connection
@@ -98,8 +96,6 @@ class GeoVibes:
         self.current_basemap = 'MAPTILER'
         self.basemap_layer = ipyl.TileLayer(url=baselayer_url, no_wrap=True, name='basemap', 
                                        attribution=BasemapConfig.MAPTILER_ATTRIBUTION)
-        
-        # Setup Earth Engine boundary if available
         if EE_AVAILABLE:
             try:
                 self.ee_boundary = ee.Geometry(shapely.geometry.mapping(

@@ -5,12 +5,11 @@ Configuration management for GeoVibes.
 import json
 import os
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
-class GeoLabelerConfig:
-    """Configuration for GeoLabeler."""
+class GeoVibesConfig:
+    """Configuration for GeoVibes."""
     
     duckdb_path: str
     boundary_path: str
@@ -18,14 +17,14 @@ class GeoLabelerConfig:
     end_date: str
     
     @classmethod
-    def from_file(cls, config_path: str) -> 'GeoLabelerConfig':
+    def from_file(cls, config_path: str) -> 'GeoVibesConfig':
         """Load configuration from a JSON file.
         
         Args:
             config_path: Path to JSON configuration file
             
         Returns:
-            GeoLabelerConfig instance
+            GeoVibesConfig instance
             
         Raises:
             FileNotFoundError: If config file doesn't exist
@@ -47,14 +46,14 @@ class GeoLabelerConfig:
         return cls(**{k: v for k, v in config_data.items() if k in required_fields})
     
     @classmethod
-    def from_dict(cls, config_dict: dict) -> 'GeoLabelerConfig':
+    def from_dict(cls, config_dict: dict) -> 'GeoVibesConfig':
         """Create configuration from dictionary.
         
         Args:
             config_dict: Dictionary containing configuration
             
         Returns:
-            GeoLabelerConfig instance
+            GeoVibesConfig instance
         """
         return cls(
             duckdb_path=config_dict['duckdb_path'],
