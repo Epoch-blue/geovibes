@@ -96,7 +96,10 @@ class DatabaseConstants:
     # Embedding dimension (could be made configurable later)
     EMBEDDING_DIM = 384
     
-    # Search query template
+    # Chunk size for embedding fetching to avoid memory issues
+    EMBEDDING_CHUNK_SIZE = 10000
+    
+    # Original search query with embeddings (kept for backward compatibility)
     SIMILARITY_SEARCH_QUERY = """
     WITH query(vec) AS (SELECT CAST(? AS FLOAT[384]))
     SELECT  g.id,
@@ -109,7 +112,29 @@ class DatabaseConstants:
     LIMIT ?;
     """
     
-    # Nearest point query
+    # Lightweight search query without embeddings (memory-efficient)
+    SIMILARITY_SEARCH_LIGHT_QUERY = """
+    WITH query(vec) AS (SELECT CAST(? AS FLOAT[384]))
+    SELECT  g.id,
+            ST_AsGeoJSON(g.geometry) AS geometry_json,
+            ST_AsText(g.geometry) AS geometry_wkt,
+            array_distance(g.embedding, q.vec) AS distance
+    FROM    geo_embeddings AS g, query AS q
+    ORDER BY distance
+    LIMIT ?;
+    """
+    
+    # Nearest point query without embedding (memory-efficient)
+    NEAREST_POINT_LIGHT_QUERY = """
+    SELECT  g.id,
+            ST_AsText(g.geometry) AS wkt,
+            ST_Distance(geometry, ST_Point(?, ?)) AS dist_m
+    FROM    geo_embeddings g
+    ORDER BY dist_m
+    LIMIT   1
+    """
+    
+    # Original nearest point query with embedding (kept for backward compatibility)
     NEAREST_POINT_QUERY = """
     SELECT  g.id,
             ST_AsText(g.geometry) AS wkt,

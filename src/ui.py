@@ -48,22 +48,31 @@ class GeoVibes:
     """
     
     @classmethod
-    def from_config(cls, config_path, **kwargs):
+    def from_config(cls, config_path, verbose=False, **kwargs):
         """Create a GeoLabeler instance from a configuration file.
         
         Args:
             config_path: Path to JSON configuration file
+            verbose: If True, print detailed progress messages
             **kwargs: Additional keyword arguments to override config values
         
         Returns:
             GeoLabeler instance
         """
-        return cls(config_path=config_path, **kwargs)
+        return cls(config_path=config_path, verbose=verbose, **kwargs)
     def __init__(
             self, geojson_path=None, start_date=None, end_date=None,
             duckdb_connection=None, duckdb_path=None, config=None, config_path=None,
-            baselayer_url=None, **kwargs):
-        print("Initializing GeoLabeler...")
+            baselayer_url=None, verbose=False, **kwargs):
+        """Initialize GeoVibes interface.
+        
+        Args:
+            verbose: If True, print detailed progress and status messages. Default False.
+            Other parameters: See class documentation.
+        """
+        self.verbose = verbose
+        if self.verbose:
+            print("Initializing GeoLabeler...")
         
         # Handle configuration loading using new config system
         if config_path is not None:
@@ -101,8 +110,9 @@ class GeoVibes:
                 self.ee_boundary = ee.Geometry(shapely.geometry.mapping(
                     gpd.read_file(self.config.boundary_path).union_all()))
             except Exception as e:
-                print(f"⚠️  Failed to create Earth Engine boundary: {e}")
-                print("⚠️  NDVI/NDWI basemaps will be unavailable")
+                if self.verbose:
+                    print(f"⚠️  Failed to create Earth Engine boundary: {e}")
+                    print("⚠️  NDVI/NDWI basemaps will be unavailable")
                 self.ee_boundary = None
         else:
             self.ee_boundary = None
@@ -120,7 +130,8 @@ class GeoVibes:
         # Add Earth Engine basemap options (if available)
         self._setup_ee_basemaps()
 
-        print("Building UI...")
+        if self.verbose:
+            print("Building UI...")
         
         # Initialize state
         self.current_label = 'Positive'
@@ -181,7 +192,8 @@ class GeoVibes:
         # Only add Earth Engine basemaps if EE is available and boundary is set
         if EE_AVAILABLE and self.ee_boundary is not None:
             try:
-                print("🛰️ Setting up Earth Engine basemaps (NDVI and NDWI)...")
+                if self.verbose:
+                    print("🛰️ Setting up Earth Engine basemaps (NDVI and NDWI)...")
                 
                 # Add NDVI basemap
                 ndvi_median = get_s2_ndvi_median(
@@ -195,13 +207,15 @@ class GeoVibes:
                 ndwi_url = get_ee_image_url(ndwi_median, BasemapConfig.NDWI_VIS_PARAMS)
                 self.basemap_tiles['NDWI'] = ndwi_url
                 
-                print("✅ Earth Engine basemaps added successfully!")
+                if self.verbose:
+                    print("✅ Earth Engine basemaps added successfully!")
                 
             except Exception as e:
-                print(f"⚠️  Failed to create Earth Engine basemaps: {e}")
-                print("⚠️  Continuing with basic basemaps only")
+                if self.verbose:
+                    print(f"⚠️  Failed to create Earth Engine basemaps: {e}")
+                    print("⚠️  Continuing with basic basemaps only")
         else:
-            if not EE_AVAILABLE:
+            if not EE_AVAILABLE and self.verbose:
                 print("⚠️  Earth Engine not available - NDVI/NDWI basemaps skipped")
 
 
@@ -591,7 +605,7 @@ class GeoVibes:
 
 
     def handle_draw(self, target, action, geo_json):
-        """Handle polygon drawing with automatic mode switching."""
+        """Handle polygon drawing with chunked embedding fetching."""
         if action == 'created' and geo_json['geometry']['type'] == 'Polygon':
             # Mark that we're processing a polygon
             self.polygon_drawing = False
@@ -600,7 +614,7 @@ class GeoVibes:
             polygon_coords = geo_json['geometry']['coordinates'][0]
             polygon = shapely.geometry.Polygon(polygon_coords)
             
-            points_to_label = []
+            point_ids = []
             
             # First check cached detections
             if self.detections_with_embeddings is not None and len(self.detections_with_embeddings) > 0:
@@ -608,48 +622,50 @@ class GeoVibes:
                 within_mask = self.detections_with_embeddings.geometry.within(polygon)
                 cached_points = self.detections_with_embeddings[within_mask]
                 
-                for _, row in cached_points.iterrows():
-                    points_to_label.append({
-                        'id': row['id'],
-                        'embedding': row['embedding']
-                    })
+                point_ids.extend(cached_points['id'].tolist())
             
             # If no cached results or need more points, query the database
-            if len(points_to_label) == 0:
+            if len(point_ids) == 0:
                 polygon_wkt = polygon.wkt
                 
+                # Use lightweight query without embeddings
                 points_in_polygon_query = f"""
-                SELECT id, embedding
+                SELECT id
                 FROM geo_embeddings
                 WHERE ST_Within(geometry, ST_GeomFromText('{polygon_wkt}'))
                 """
                 
-                points_inside = self.duckdb_connection.execute(points_in_polygon_query).df()
+                arrow_table = self.duckdb_connection.execute(points_in_polygon_query).fetch_arrow_table()
+                points_inside = arrow_table.to_pandas()
                 
-                for _, row in points_inside.iterrows():
-                    points_to_label.append({
-                        'id': row['id'],
-                        'embedding': np.array(row['embedding'])
-                    })
+                point_ids.extend(points_inside['id'].tolist())
             
+            if not point_ids:
+                if self.verbose:
+                    print("⚠️ No points found within the selected polygon")
+                self.draw_control.clear()
+                self._update_status()
+                return
             
-            # Label the points
-            for point in points_to_label:
-                point_id = point['id']
-                embedding = point['embedding']
-                
-                # Cache the embedding
-                self.cached_embeddings[point_id] = embedding
-                
+            # Fetch embeddings in chunks for all points
+            self._fetch_embeddings(point_ids)
+            
+            # Label all points (embeddings are now guaranteed to be cached)
+            for point_id in point_ids:
+                # Remove from existing labels
                 if point_id in self.pos_ids:
                     self.pos_ids.remove(point_id)
                 if point_id in self.neg_ids:
                     self.neg_ids.remove(point_id)
                 
+                # Add to appropriate label list
                 if self.select_val == UIConstants.POSITIVE_LABEL:
                     self.pos_ids.append(point_id)
                 elif self.select_val == UIConstants.NEGATIVE_LABEL:
                     self.neg_ids.append(point_id)
+            
+            if self.verbose:
+                print(f"✅ Labeled {len(point_ids)} points as {self.current_label}")
             
             self.update_layers()
             self.update_query_vector()
@@ -693,7 +709,8 @@ class GeoVibes:
 
     def reset_all(self, b):
         """Reset all labels, search results, and cached data."""
-        print("🗑️ Resetting all labels and search results...")
+        if self.verbose:
+            print("🗑️ Resetting all labels and search results...")
         
         # Clear all label lists
         self.pos_ids = []
@@ -715,12 +732,60 @@ class GeoVibes:
         self.erase_layer.data = empty_geojson
         self.points.data = empty_geojson
         
-        print("✅ All data cleared!")
+        if self.verbose:
+            print("✅ All data cleared!")
+
+    def _fetch_embeddings(self, point_ids, chunk_size=None):
+        """Fetch embeddings for given point IDs in chunks and cache them."""
+        if chunk_size is None:
+            chunk_size = DatabaseConstants.EMBEDDING_CHUNK_SIZE
+            
+        missing_ids = [pid for pid in point_ids if pid not in self.cached_embeddings]
+        
+        if not missing_ids:
+            return
+        
+        # Show progress for large batches
+        if len(missing_ids) > 100 and self.verbose:
+            print(f"🔄 Fetching embeddings for {len(missing_ids)} points...")
+        
+        # Process in chunks to avoid memory issues
+        for i in range(0, len(missing_ids), chunk_size):
+            chunk = missing_ids[i:i + chunk_size]
+            
+            # Show chunk progress for very large batches
+            if len(missing_ids) > chunk_size and self.verbose:
+                chunk_num = i // chunk_size + 1
+                total_chunks = (len(missing_ids) - 1) // chunk_size + 1
+                print(f"   Processing chunk {chunk_num}/{total_chunks} ({len(chunk)} points)...")
+            
+            # Build parameterized query for this chunk
+            placeholders = ','.join(['?' for _ in chunk])
+            query = f"""
+            SELECT id, embedding
+            FROM geo_embeddings 
+            WHERE id IN ({placeholders})
+            """
+            
+            # Fetch as Arrow then convert to pandas
+            arrow_table = self.duckdb_connection.execute(query, chunk).fetch_arrow_table()
+            chunk_df = arrow_table.to_pandas()
+            
+            # Cache the embeddings from this chunk
+            for _, row in chunk_df.iterrows():
+                embedding = np.array(row['embedding'])
+                # Ensure consistent string type for point IDs
+                point_id = str(row['id'])
+                self.cached_embeddings[point_id] = embedding
+        
+        if len(missing_ids) > 100 and self.verbose:
+            print(f"✅ Cached embeddings for {len(missing_ids)} points")
 
     def search_click(self, b):
         """Perform similarity search based on current query vector."""
         if self.query_vector is None:
-            print("⚠️ No query vector available. Please add some positive labels first.")
+            if self.verbose:
+                print("⚠️ No query vector available. Please add some positive labels first.")
             return
         
         n_neighbors = self.neighbors_slider.value
@@ -728,18 +793,25 @@ class GeoVibes:
         # Convert query vector to the format needed for DuckDB
         query_vec = self.query_vector.tolist()
         
-        sql = DatabaseConstants.SIMILARITY_SEARCH_QUERY
+        # Use lightweight query without embeddings to avoid memory issues
+        sql = DatabaseConstants.SIMILARITY_SEARCH_LIGHT_QUERY
         
-        print(f"🔍 Searching for {n_neighbors} similar points...")
-        search_results = self.duckdb_connection.execute(sql, [query_vec, n_neighbors]).df()
+        if self.verbose:
+            print(f"🔍 Searching for {n_neighbors} similar points...")
         
-        search_results_filtered = search_results[~search_results['id'].isin(self.pos_ids)]
+        # Fetch as Arrow table then convert only needed columns to pandas
+        arrow_table = self.duckdb_connection.execute(sql, [query_vec, n_neighbors]).fetch_arrow_table()
+        search_results = arrow_table.select(['id', 'geometry_json', 'geometry_wkt', 'distance']).to_pandas()
+        
+        # Filter out both positive and negative labeled points
+        all_labeled_ids = set(self.pos_ids + self.neg_ids)
+        search_results_filtered = search_results[~search_results['id'].astype(str).isin(all_labeled_ids)]
         geometries = [shapely.wkt.loads(row['geometry_wkt']) if row['geometry_wkt'] else None
                      for _, row in search_results_filtered.iterrows()]
         
+        # Create detections DataFrame without embeddings (fetched on-demand during labeling)
         self.detections_with_embeddings = gpd.GeoDataFrame({
-            'id': search_results_filtered['id'].values,
-            'embedding': search_results_filtered['embedding'].values,
+            'id': search_results_filtered['id'].astype(str).values,  # Ensure string type
             'distance': search_results_filtered['distance'].values,
             'geometry': geometries
         })
@@ -754,7 +826,7 @@ class GeoVibes:
             detections_geojson["features"].append({
                 "type": "Feature",
                 "geometry": json.loads(row['geometry_json']),
-                "properties": {"id": row['id'], "distance": row['distance']}
+                "properties": {"id": str(row['id']), "distance": row['distance']}  # Ensure string type
             })
         
         # Update the map
@@ -775,7 +847,6 @@ class GeoVibes:
         
         clicked_point = Point(lon, lat)
         point_id = None
-        embedding = None
         
         # First check if we have cached detections
         if self.detections_with_embeddings is not None and len(self.detections_with_embeddings) > 0:
@@ -784,25 +855,25 @@ class GeoVibes:
             nearest_idx = distances.idxmin()
             
             # Use a threshold to ensure we're clicking on an actual point
-            if distances[nearest_idx] < UIConstants.CLICK_THRESHOLD:  # Adjust threshold as needed
+            if distances[nearest_idx] < UIConstants.CLICK_THRESHOLD:
                 nearest_detection = self.detections_with_embeddings.loc[nearest_idx]
-                point_id = nearest_detection['id']
-                embedding = nearest_detection['embedding']
+                point_id = str(nearest_detection['id'])  # Ensure string type
         
         # If not found in cache, query the database
         if point_id is None:
-            sql = DatabaseConstants.NEAREST_POINT_QUERY
+            # Use lightweight query without embedding
+            sql = DatabaseConstants.NEAREST_POINT_LIGHT_QUERY
             
-            nearest_result = self.duckdb_connection.execute(sql, [lon, lat]).df()
+            arrow_table = self.duckdb_connection.execute(sql, [lon, lat]).fetch_arrow_table()
+            nearest_result = arrow_table.to_pandas()
             
             if nearest_result.empty:
                 return
             
             point_id = str(nearest_result.iloc[0]['id'])  # Convert to string
-            embedding = nearest_result.iloc[0]['embedding']
         
-        # Cache the embedding for later use
-        self.cached_embeddings[point_id] = np.array(embedding)
+        # Fetch embedding on-demand for this specific point
+        self._fetch_embeddings([point_id])
         
         # Update labels
         if point_id in self.pos_ids:
@@ -833,8 +904,9 @@ class GeoVibes:
                 }
                 self.erase_layer.data = erase_geojson
         
+        # Update visualization and query vector immediately
         self.update_layers()
-        self.update_query_vector()
+        self.update_query_vector()  # Don't skip fetch to ensure query vector is properly computed
 
     def update_layer(self, layer, geojson_data):
         """Update a specific layer with new GeoJSON data."""
@@ -877,37 +949,28 @@ class GeoVibes:
         else:
             self.neg_layer.data = {"type": "FeatureCollection", "features": []}
 
-        self.update_query_vector()
-
-    def update_query_vector(self):
-        """Update the query vector based on current positive and negative labels."""
+    def update_query_vector(self, skip_fetch=False):
+        """Update the query vector based on current positive and negative labels.
+        
+        Args:
+            skip_fetch: If True, assume embeddings are already cached (optimization for single-point labeling)
+        """
         if not self.pos_ids:
             self.query_vector = None
             return
         
-        # Use cached embeddings instead of querying database
-        pos_embeddings = []
-        missing_pos_ids = []
-        
-        for pid in self.pos_ids:
-            if pid in self.cached_embeddings:
-                pos_embeddings.append(self.cached_embeddings[pid])
-            else:
-                missing_pos_ids.append(pid)
-        
-        # If we have missing embeddings, fetch them
-        if missing_pos_ids:
-            query = """
-            SELECT id, embedding
-            FROM geo_embeddings 
-            WHERE id IN ({})
-            """.format(','.join([f"'{pid}'" for pid in missing_pos_ids]))
+        # Only fetch missing embeddings if not skipping (for efficiency in single-point labeling)
+        if not skip_fetch:
+            # Fetch missing embeddings for positive labels using chunked method
+            self._fetch_embeddings(self.pos_ids)
             
-            missing_results = self.duckdb_connection.execute(query).df()
-            for _, row in missing_results.iterrows():
-                embedding = np.array(row['embedding'])
-                self.cached_embeddings[row['id']] = embedding
-                pos_embeddings.append(embedding)
+            # Fetch missing embeddings for negative labels using chunked method
+            if self.neg_ids:
+                self._fetch_embeddings(self.neg_ids)
+        
+        # Get positive embeddings from cache
+        pos_embeddings = [self.cached_embeddings[pid] for pid in self.pos_ids 
+                         if pid in self.cached_embeddings]
         
         if not pos_embeddings:
             self.query_vector = None
@@ -915,29 +978,9 @@ class GeoVibes:
         
         pos_vec = np.mean(pos_embeddings, axis=0)
         
-        # Handle negative embeddings
-        neg_embeddings = []
-        missing_neg_ids = []
-        
-        for nid in self.neg_ids:
-            if nid in self.cached_embeddings:
-                neg_embeddings.append(self.cached_embeddings[nid])
-            else:
-                missing_neg_ids.append(nid)
-        
-        # If we have missing negative embeddings, fetch them
-        if missing_neg_ids:
-            query = """
-            SELECT id, embedding
-            FROM geo_embeddings 
-            WHERE id IN ({})
-            """.format(','.join([f"'{nid}'" for nid in missing_neg_ids]))
-            
-            missing_results = self.duckdb_connection.execute(query).df()
-            for _, row in missing_results.iterrows():
-                embedding = np.array(row['embedding'])
-                self.cached_embeddings[row['id']] = embedding
-                neg_embeddings.append(embedding)
+        # Get negative embeddings from cache
+        neg_embeddings = [self.cached_embeddings[nid] for nid in self.neg_ids 
+                         if nid in self.cached_embeddings]
         
         if neg_embeddings:
             neg_vec = np.mean(neg_embeddings, axis=0)
@@ -953,16 +996,19 @@ class GeoVibes:
         
         # Check if we have any labels to save
         if not self.pos_ids and not self.neg_ids:
-            print("⚠️ No labeled points to save.")
+            if self.verbose:
+                print("⚠️ No labeled points to save.")
             return
         
-        print("💾 Saving dataset...")
+        if self.verbose:
+            print("💾 Saving dataset...")
         
         # Combine all labeled IDs
         all_labeled_ids = list(set(self.pos_ids + self.neg_ids))
         
         if not all_labeled_ids:
-            print("⚠️ No valid labels to save.")
+            if self.verbose:
+                print("⚠️ No valid labels to save.")
             return
         
         # Query database for all labeled points with their geometries and embeddings
@@ -979,7 +1025,8 @@ class GeoVibes:
         results = self.duckdb_connection.execute(query).df()
         
         if results.empty:
-            print("⚠️ Could not retrieve data for labeled points.")
+            if self.verbose:
+                print("⚠️ Could not retrieve data for labeled points.")
             return
         
         # Create lists to store the data
@@ -987,7 +1034,7 @@ class GeoVibes:
         
         # Process each result
         for _, row in results.iterrows():
-            point_id = row['id']
+            point_id = str(row['id'])  # Ensure string type for consistency
             
             # Determine label (positive or negative)
             if point_id in self.pos_ids:
@@ -1039,13 +1086,14 @@ class GeoVibes:
             pos_count = len([f for f in features if f['properties']['label'] == UIConstants.POSITIVE_LABEL])
             neg_count = len([f for f in features if f['properties']['label'] == UIConstants.NEGATIVE_LABEL])
             
-            print(f"✅ Dataset saved successfully!")
-            print(f"📄 Filename: {filename}")
-            print(f"📊 Summary:")
-            print(f"   - Total points: {len(features)}")
-            print(f"   - Positive labels: {pos_count}")
-            print(f"   - Negative labels: {neg_count}")
-            print(f"   - Embedding dimension: {len(features[0]['properties']['embedding']) if features else 0}")
+            if self.verbose:
+                print(f"✅ Dataset saved successfully!")
+                print(f"📄 Filename: {filename}")
+                print(f"📊 Summary:")
+                print(f"   - Total points: {len(features)}")
+                print(f"   - Positive labels: {pos_count}")
+                print(f"   - Negative labels: {neg_count}")
+                print(f"   - Embedding dimension: {len(features[0]['properties']['embedding']) if features else 0}")
             
             # Optional: Also save a separate CSV with just IDs and labels for easier processing
             labels_df = pd.DataFrame([
@@ -1054,10 +1102,12 @@ class GeoVibes:
             ])
             csv_filename = f"labeled_dataset_{timestamp}_labels.csv"
             labels_df.to_csv(csv_filename, index=False)
-            print(f"📄 Also saved labels CSV: {csv_filename}")
+            if self.verbose:
+                print(f"📄 Also saved labels CSV: {csv_filename}")
             
         except Exception as e:
-            print(f"❌ Error saving dataset: {str(e)}")
+            if self.verbose:
+                print(f"❌ Error saving dataset: {str(e)}")
 
     def load_dataset(self, filename):
         """Load a previously saved labeled dataset."""
@@ -1072,7 +1122,7 @@ class GeoVibes:
             
             # Process features
             for feature in geojson_data['features']:
-                point_id = feature['properties']['id']
+                point_id = str(feature['properties']['id'])  # Ensure string type
                 label = feature['properties']['label']
                 embedding = np.array(feature['properties']['embedding'])
                 
@@ -1091,21 +1141,25 @@ class GeoVibes:
             
             # Print summary
             metadata = geojson_data.get('metadata', {})
-            print(f"✅ Dataset loaded successfully!")
-            print(f"📊 Summary:")
-            print(f"   - Total points: {metadata.get('total_points', len(geojson_data['features']))}")
-            print(f"   - Positive labels: {len(self.pos_ids)}")
-            print(f"   - Negative labels: {len(self.neg_ids)}")
-            print(f"   - Saved on: {metadata.get('timestamp', 'Unknown')}")
+            if self.verbose:
+                print(f"✅ Dataset loaded successfully!")
+                print(f"📊 Summary:")
+                print(f"   - Total points: {metadata.get('total_points', len(geojson_data['features']))}")
+                print(f"   - Positive labels: {len(self.pos_ids)}")
+                print(f"   - Negative labels: {len(self.neg_ids)}")
+                print(f"   - Saved on: {metadata.get('timestamp', 'Unknown')}")
             
         except FileNotFoundError:
-            print(f"❌ File not found: {filename}")
+            if self.verbose:
+                print(f"❌ File not found: {filename}")
         except Exception as e:
-            print(f"❌ Error loading dataset: {str(e)}")
+            if self.verbose:
+                print(f"❌ Error loading dataset: {str(e)}")
 
     def load_dataset_from_content(self, content, filename):
         """Load a dataset from uploaded file content."""
-        print(f"📂 Loading dataset from {filename}...")
+        if self.verbose:
+            print(f"📂 Loading dataset from {filename}...")
         
         try:
             # Convert content to bytes if it's a memoryview
@@ -1162,12 +1216,13 @@ class GeoVibes:
         
         # Print summary
         metadata = geojson_data.get('metadata', {})
-        print(f"✅ Dataset loaded successfully from {filename}!")
-        print(f"📊 Summary:")
-        print(f"   - Total points: {metadata.get('total_points', len(geojson_data['features']))}")
-        print(f"   - Positive labels: {len(self.pos_ids)}")
-        print(f"   - Negative labels: {len(self.neg_ids)}")
-        print(f"   - Saved on: {metadata.get('timestamp', 'Unknown')}")
+        if self.verbose:
+            print(f"✅ Dataset loaded successfully from {filename}!")
+            print(f"📊 Summary:")
+            print(f"   - Total points: {metadata.get('total_points', len(geojson_data['features']))}")
+            print(f"   - Positive labels: {len(self.pos_ids)}")
+            print(f"   - Negative labels: {len(self.neg_ids)}")
+            print(f"   - Saved on: {metadata.get('timestamp', 'Unknown')}")
 
     def _process_geoparquet_data(self, gdf, filename):
         """Process GeoParquet data and populate labels."""
@@ -1208,11 +1263,12 @@ class GeoVibes:
         self.update_query_vector()
         
         # Print summary
-        print(f"✅ Dataset loaded successfully from {filename}!")
-        print(f"📊 Summary:")
-        print(f"   - Total points: {len(gdf)}")
-        print(f"   - Positive labels: {len(self.pos_ids)}")
-        print(f"   - Negative labels: {len(self.neg_ids)}")
+        if self.verbose:
+            print(f"✅ Dataset loaded successfully from {filename}!")
+            print(f"📊 Summary:")
+            print(f"   - Total points: {len(gdf)}")
+            print(f"   - Positive labels: {len(self.pos_ids)}")
+            print(f"   - Negative labels: {len(self.neg_ids)}")
 
     def _update_basemap_button_styles(self):
         """Update basemap button styles to highlight current selection."""
@@ -1227,4 +1283,5 @@ class GeoVibes:
         if hasattr(self, '_owns_connection') and self._owns_connection:
             if hasattr(self, 'duckdb_connection') and self.duckdb_connection:
                 self.duckdb_connection.close()
-                print("🔌 DuckDB connection closed.")
+                if self.verbose:
+                    print("🔌 DuckDB connection closed.")
