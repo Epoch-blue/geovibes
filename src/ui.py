@@ -5,7 +5,6 @@ import json
 import os
 import warnings
 from datetime import datetime
-from dotenv import load_dotenv
 import pathlib
 
 import duckdb
@@ -21,34 +20,19 @@ import shapely
 from shapely.geometry import Point
 import webbrowser
 
-from gee import get_s2_ndvi_median, get_s2_ndwi_median, get_ee_image_url, initialize_ee_with_credentials 
+from gee import get_s2_ndvi_median, get_s2_ndwi_median, get_ee_image_url, initialize_ee_with_credentials
+from ui_config import UIConstants, BasemapConfig, GeoLabelerConfig, DatabaseConstants, LayerStyles
 
 warnings.simplefilter("ignore", category=FutureWarning)
 
-load_dotenv()
-
 initialize_ee_with_credentials()
 
-MAPTILER_API_KEY = os.getenv('MAPTILER_API_KEY')
-if not MAPTILER_API_KEY:
+# Validate MapTiler API key
+if not BasemapConfig.MAPTILER_API_KEY:
     warnings.warn("MAPTILER_API_KEY environment variable not set. Please create a .env file with your MapTiler API key.")
-    
-BASEMAP_TILES = {
-    'MAPTILER': f"https://api.maptiler.com/tiles/satellite-v2/{{z}}/{{x}}/{{y}}.jpg?key={MAPTILER_API_KEY}",
-    'HUTCH_TILE': 'https://tiles.earthindex.ai/v1/tiles/sentinel2-yearly-mosaics/2024-01-01/2025-01-01/rgb/{z}/{x}/{y}.webp',
-    'GOOGLE_HYBRID': 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
-}
-
-POS_COLOR = '#0072B2'  # Blue
-NEG_COLOR = '#D55E00'  # Orange
-NEUTRAL_COLOR = '#999999'  # Grey
 
 
-
-maptiler_attribution = '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>'
-
-
-class GeoLabeler:
+class GeoVibes:
     """An interactive Leaflet map for labeling geographic features relative to satellite image embedding tiles.
     
     Attributes: 
@@ -79,87 +63,65 @@ class GeoLabeler:
     def __init__(
             self, geojson_path=None, start_date=None, end_date=None,
             duckdb_connection=None, duckdb_path=None, config=None, config_path=None,
-            baselayer_url=BASEMAP_TILES['MAPTILER'], **kwargs):
+            baselayer_url=None, **kwargs):
         print("Initializing GeoLabeler...")
         
-        # Handle configuration loading
+        # Handle configuration loading using new config system
         if config_path is not None:
-            with open(config_path, 'r') as f:
-                config = json.load(f)
+            self.config = GeoLabelerConfig.from_file(config_path)
+            self.config.validate()
+        elif config is not None:
+            self.config = GeoLabelerConfig.from_dict(config)
+            self.config.validate()
+        else:
+            # Create config from individual parameters
+            if geojson_path is None or start_date is None or end_date is None:
+                raise ValueError("Required parameters missing. Provide either config_path, config dict, or individual parameters.")
+            self.config = GeoLabelerConfig(
+                duckdb_path=duckdb_path,
+                boundary_path=geojson_path,
+                start_date=start_date,
+                end_date=end_date
+            )
+            self.config.validate()
         
-        if config is not None:
-            # Load parameters from config
-            geojson_path = config.get('boundary_path', geojson_path)
-            start_date = config.get('start_date', start_date)
-            end_date = config.get('end_date', end_date)
-            if duckdb_path is None:
-                duckdb_path = config.get('duckdb_path')
+        # Set default baselayer URL if not provided
+        if baselayer_url is None:
+            baselayer_url = BasemapConfig.BASEMAP_TILES['MAPTILER']
         
         # Handle duckdb connection
         if duckdb_connection is None:
-            if duckdb_path is None:
-                raise ValueError("Either duckdb_connection or duckdb_path must be provided")
-            self.duckdb_connection = duckdb.connect(duckdb_path)
+            self.duckdb_connection = duckdb.connect(self.config.duckdb_path)
             self._owns_connection = True
         else:
             self.duckdb_connection = duckdb_connection
             self._owns_connection = False
-        
-        # Validate required parameters
-        if geojson_path is None or start_date is None or end_date is None:
-            raise ValueError("Required parameters missing. Provide either config or individual parameters.")
-        
-        self.geojson_path = geojson_path
-        self.start_date = start_date
-        self.end_date = end_date
         self.current_basemap = 'MAPTILER'
         self.basemap_layer = ipyl.TileLayer(url=baselayer_url, no_wrap=True, name='basemap', 
-                                       attribution=maptiler_attribution)
+                                       attribution=BasemapConfig.MAPTILER_ATTRIBUTION)
         
         self.ee_boundary = ee.Geometry(shapely.geometry.mapping(
-            gpd.read_file(self.geojson_path).union_all()))
+            gpd.read_file(self.config.boundary_path).union_all()))
         
-        # Get map center from DuckDB
-        load_spatial_query = """
-        INSTALL spatial;
-        LOAD spatial;
-        """
-        self.duckdb_connection.execute(load_spatial_query)
+        # Setup spatial extension in DuckDB
+        self.duckdb_connection.execute(DatabaseConstants.SPATIAL_SETUP_QUERY)
 
         # Get centroid of boundary from geopandas
-        boundary_gdf = gpd.read_file(self.geojson_path)
+        boundary_gdf = gpd.read_file(self.config.boundary_path)
         center_y, center_x = boundary_gdf.geometry.iloc[0].centroid.y, boundary_gdf.geometry.iloc[0].centroid.x
         
         # Build map
         self.map = self._build_map(center_y, center_x)
 
-        # Add basemap options
-        ndvi_median = get_s2_ndvi_median(
-            self.ee_boundary, self.start_date, self.end_date)
-
-        ndvi_url = get_ee_image_url(ndvi_median, {
-            'min': -0.2,
-            'max': 0.8,
-            'palette': ['red', 'yellow', 'green']
-        })
-        BASEMAP_TILES['NDVI'] = ndvi_url
-
-        ndwi_median = get_s2_ndwi_median(
-            self.ee_boundary, self.start_date, self.end_date)
-
-        ndwi_url = get_ee_image_url(ndwi_median, {
-            'min': -0.5,
-            'max': 0.5,
-            'palette': ['brown', 'white', 'blue']
-        })
-        BASEMAP_TILES['NDWI'] = ndwi_url
+        # Add Earth Engine basemap options
+        self._setup_ee_basemaps()
 
         print("Building UI...")
         
         # Initialize state
         self.current_label = 'Positive'
         self.execute_label_point = True
-        self.select_val = 1  # Initialize to positive
+        self.select_val = UIConstants.POSITIVE_LABEL  # Initialize to positive
         self.pos_ids = []
         self.neg_ids = []
         self.detection_gdf = None
@@ -182,10 +144,10 @@ class GeoLabeler:
         self._wire_events()
         
         # Add legend
-        self.legend = HTML(value="""
+        self.legend = HTML(value=f"""
             <div style='background: white; padding: 5px; border-radius: 5px; opacity: 0.8;'>
-                <span style='color: #0072B2; font-weight: bold;'>🔵 Positive</span> | 
-                <span style='color: #D55E00; font-weight: bold;'>🟠 Negative</span>
+                <span style='color: {UIConstants.POS_COLOR}; font-weight: bold;'>🔵 Positive</span> | 
+                <span style='color: {UIConstants.NEG_COLOR}; font-weight: bold;'>🟠 Negative</span>
             </div>
         """)
         
@@ -202,17 +164,34 @@ class GeoLabeler:
         self.main_layout = HBox([
             self.side_panel,
             map_with_overlays
-        ], layout=Layout(height='700px', width='100%'))
+        ], layout=Layout(height=UIConstants.DEFAULT_HEIGHT, width='100%'))
         
         display(self.main_layout)
 
+
+    def _setup_ee_basemaps(self):
+        """Set up Earth Engine basemaps (NDVI and NDWI)."""
+        # Create a copy of the base basemap tiles
+        self.basemap_tiles = BasemapConfig.BASEMAP_TILES.copy()
+        
+        # Add NDVI basemap
+        ndvi_median = get_s2_ndvi_median(
+            self.ee_boundary, self.config.start_date, self.config.end_date)
+        ndvi_url = get_ee_image_url(ndvi_median, BasemapConfig.NDVI_VIS_PARAMS)
+        self.basemap_tiles['NDVI'] = ndvi_url
+
+        # Add NDWI basemap
+        ndwi_median = get_s2_ndwi_median(
+            self.ee_boundary, self.config.start_date, self.config.end_date)
+        ndwi_url = get_ee_image_url(ndwi_median, BasemapConfig.NDWI_VIS_PARAMS)
+        self.basemap_tiles['NDWI'] = ndwi_url
 
     def _build_map(self, center_y, center_x):
         """Build and return the map widget."""
         map_widget = Map(
             basemap=self.basemap_layer,
             center=(center_y, center_x), 
-            zoom=7, 
+            zoom=UIConstants.DEFAULT_ZOOM, 
             layout=Layout(flex='1 1 auto', height='100%'),
             scroll_wheel_zoom=True
         )
@@ -223,16 +202,16 @@ class GeoLabeler:
         """Build the collapsible side panel with accordion sections."""
         self.search_btn = Button(
             description='Search',
-            layout=Layout(width='100%', height='40px'),
+            layout=Layout(width='100%', height=UIConstants.BUTTON_HEIGHT),
             button_style='success',  # Green to highlight importance
             tooltip='Find points similar to your positive labels'
         )
         
         self.neighbors_slider = IntSlider(
-            value=1000,
-            min=100,
-            max=20000,
-            step=100,
+            value=UIConstants.DEFAULT_NEIGHBORS,
+            min=UIConstants.MIN_NEIGHBORS,
+            max=UIConstants.MAX_NEIGHBORS,
+            step=UIConstants.NEIGHBORS_STEP,
             description='',  # No description
             readout=True,
             layout=Layout(width='100%')
@@ -240,7 +219,7 @@ class GeoLabeler:
         
         self.reset_btn = Button(
             description='🗑️ Reset',
-            layout=Layout(width='100%', height='35px'),
+            layout=Layout(width='100%', height=UIConstants.RESET_BUTTON_HEIGHT),
             button_style='warning',  # Orange to indicate caution
             tooltip='Clear all labels and search results'
         )
@@ -272,7 +251,7 @@ class GeoLabeler:
         self.basemap_buttons = {}
         basemap_section_widgets = []
         
-        for basemap_name in BASEMAP_TILES.keys():
+        for basemap_name in BasemapConfig.BASEMAP_TILES.keys():
             btn = Button(
                 description=basemap_name.replace('_', ' '),
                 layout=Layout(width='100%', margin='1px'),
@@ -326,7 +305,7 @@ class GeoLabeler:
         self.panel_collapsed = False
         self.collapse_btn = Button(
             description='◀',
-            layout=Layout(width='25px', height='25px'),
+            layout=Layout(width=UIConstants.COLLAPSE_BUTTON_SIZE, height=UIConstants.COLLAPSE_BUTTON_SIZE),
             tooltip='Collapse/Expand Panel'
         )
         
@@ -344,7 +323,7 @@ class GeoLabeler:
             panel_header,
             search_section,  # Always visible
             self.accordion_container  # This will be hidden/shown
-        ], layout=Layout(width='200px', padding='5px'))  # Narrower width
+        ], layout=Layout(width=UIConstants.PANEL_WIDTH, padding='5px'))  # Narrower width
         
         # Return panel and widget references
         ui_widgets = {
@@ -381,83 +360,47 @@ class GeoLabeler:
             color: white !important;
         }
         </style>
-        """ % (POS_COLOR, NEG_COLOR, NEUTRAL_COLOR)
+        """ % (UIConstants.POS_COLOR, UIConstants.NEG_COLOR, UIConstants.NEUTRAL_COLOR)
         display(HTML(style))
 
 
     def _add_map_layers(self):
         """Add all necessary layers to the map."""
         # Region boundary
-        with open(self.geojson_path) as f:
+        with open(self.config.boundary_path) as f:
             region_layer = ipyl.GeoJSON(
                     name="region",
                     data=json.load(f),
-                    style={
-                        'color': '#FAFAFA',
-                        'opacity': 1,
-                        'fillOpacity': 0,
-                        'weight': 1
-                    }
+                    style=LayerStyles.get_region_style()
                 )
         self.map.add_layer(region_layer)
 
         # Positive layer
         self.pos_layer = ipyl.GeoJSON(
             data=json.loads(gpd.GeoDataFrame(columns=['geometry']).to_json()),
-            point_style={
-                'color': POS_COLOR,
-                'radius': 4,
-                'fillColor': POS_COLOR,
-                'opacity': 1,
-                'fillOpacity': 0.7,
-                'weight': 2
-            }
+            point_style=LayerStyles.get_point_style(UIConstants.POS_COLOR)
         )
         self.map.add_layer(self.pos_layer)
 
         # Negative layer
         self.neg_layer = ipyl.GeoJSON(
             data=json.loads(gpd.GeoDataFrame(columns=['geometry']).to_json()),
-            point_style={
-                'color': NEG_COLOR,
-                'radius': 4,
-                'fillColor': NEG_COLOR,
-                'opacity': 1,
-                'fillOpacity': 0.7,
-                'weight': 2
-            }
+            point_style=LayerStyles.get_point_style(UIConstants.NEG_COLOR)
         )
         self.map.add_layer(self.neg_layer)
 
         # Erase layer
         self.erase_layer = ipyl.GeoJSON(
             data=json.loads(gpd.GeoDataFrame(columns=['geometry']).to_json()),
-            point_style={
-                'color': 'white',
-                'radius': 4,
-                'fillColor': '#000000',
-                'opacity': 1,
-                'fillOpacity': 0.7,
-                'weight': 2
-            }
+            point_style=LayerStyles.get_erase_style()
         )
         self.map.add_layer(self.erase_layer)
         
         # Points layer for search results
         self.points = ipyl.GeoJSON(
             data=json.loads(gpd.GeoDataFrame(columns=['geometry']).to_json()),
-            point_style={
-                'color': 'black',
-                'radius': 3,
-                'fillColor': '#ffe014',
-                'opacity': 1,
-                'fillOpacity': 0.7,
-                'weight': 1
-            },
-            hover_style={
-                'fillColor': '#ffe014',
-                'fillOpacity': 0.5
-            }
+            point_style=LayerStyles.get_search_style(),
+            hover_style=LayerStyles.get_search_hover_style()
         )
         self.map.add_layer(self.points)
         
@@ -465,7 +408,7 @@ class GeoLabeler:
     def _setup_draw_control(self):
         """Set up the draw control for lasso selection."""
         self.draw_control = DrawControl(
-            polygon={"shapeOptions": {"color": "#6be5c3", "fillOpacity": 0.5}},
+            polygon=LayerStyles.get_draw_options(),
             polyline={},
             circle={},
             rectangle={},
@@ -518,11 +461,11 @@ class GeoLabeler:
         """Handle label toggle change."""
         self.current_label = change['new']
         if self.current_label == 'Positive':
-            self.select_val = 1
+            self.select_val = UIConstants.POSITIVE_LABEL
         elif self.current_label == 'Negative':
-            self.select_val = 0
+            self.select_val = UIConstants.NEGATIVE_LABEL
         else:  # Erase
-            self.select_val = -100
+            self.select_val = UIConstants.ERASE_LABEL
         self._update_status()
 
 
@@ -576,7 +519,11 @@ class GeoLabeler:
     def _on_basemap_select(self, basemap_name):
         """Handle basemap selection."""
         self.current_basemap = basemap_name
-        self.basemap_layer.url = BASEMAP_TILES[basemap_name]
+        # Use instance basemap_tiles which includes EE basemaps
+        if hasattr(self, 'basemap_tiles'):
+            self.basemap_layer.url = self.basemap_tiles[basemap_name]
+        else:
+            self.basemap_layer.url = BasemapConfig.BASEMAP_TILES[basemap_name]
         self._update_basemap_button_styles()
 
 
@@ -677,9 +624,9 @@ class GeoLabeler:
                 if point_id in self.neg_ids:
                     self.neg_ids.remove(point_id)
                 
-                if self.select_val == 1:
+                if self.select_val == UIConstants.POSITIVE_LABEL:
                     self.pos_ids.append(point_id)
-                elif self.select_val == 0:
+                elif self.select_val == UIConstants.NEGATIVE_LABEL:
                     self.neg_ids.append(point_id)
             
             self.update_layers()
@@ -759,17 +706,7 @@ class GeoLabeler:
         # Convert query vector to the format needed for DuckDB
         query_vec = self.query_vector.tolist()
         
-        sql = """
-        WITH query(vec) AS (SELECT CAST(? AS FLOAT[384]))
-        SELECT  g.id,
-                g.embedding,
-                ST_AsGeoJSON(g.geometry) AS geometry_json,
-                ST_AsText(g.geometry) AS geometry_wkt,
-                array_distance(g.embedding, q.vec) AS distance
-        FROM    geo_embeddings AS g, query AS q
-        ORDER BY distance
-        LIMIT ?;
-        """
+        sql = DatabaseConstants.SIMILARITY_SEARCH_QUERY
         
         print(f"🔍 Searching for {n_neighbors} similar points...")
         search_results = self.duckdb_connection.execute(sql, [query_vec, n_neighbors]).df()
@@ -825,22 +762,14 @@ class GeoLabeler:
             nearest_idx = distances.idxmin()
             
             # Use a threshold to ensure we're clicking on an actual point
-            if distances[nearest_idx] < 0.001:  # Adjust threshold as needed
+            if distances[nearest_idx] < UIConstants.CLICK_THRESHOLD:  # Adjust threshold as needed
                 nearest_detection = self.detections_with_embeddings.loc[nearest_idx]
                 point_id = nearest_detection['id']
                 embedding = nearest_detection['embedding']
         
         # If not found in cache, query the database
         if point_id is None:
-            sql = """
-            SELECT  g.id,
-                    ST_AsText(g.geometry) AS wkt,
-                    ST_Distance(geometry, ST_Point(?, ?)) AS dist_m,
-                    g.embedding
-            FROM    geo_embeddings g
-            ORDER BY dist_m
-            LIMIT   1
-            """
+            sql = DatabaseConstants.NEAREST_POINT_QUERY
             
             nearest_result = self.duckdb_connection.execute(sql, [lon, lat]).df()
             
@@ -859,9 +788,9 @@ class GeoLabeler:
         if point_id in self.neg_ids:
             self.neg_ids.remove(point_id)
                 
-        if self.select_val == 1:
+        if self.select_val == UIConstants.POSITIVE_LABEL:
             self.pos_ids.append(point_id)
-        elif self.select_val == 0:
+        elif self.select_val == UIConstants.NEGATIVE_LABEL:
             self.neg_ids.append(point_id)
         else:
             # For erase mode, get the point geometry from DuckDB
@@ -1038,11 +967,11 @@ class GeoLabeler:
         for _, row in results.iterrows():
             point_id = row['id']
             
-            # Determine label (1 for positive, 0 for negative)
+            # Determine label (positive or negative)
             if point_id in self.pos_ids:
-                label = 1
+                label = UIConstants.POSITIVE_LABEL
             elif point_id in self.neg_ids:
-                label = 0
+                label = UIConstants.NEGATIVE_LABEL
             else:
                 continue  # Skip if somehow not in either list
             
@@ -1071,8 +1000,8 @@ class GeoLabeler:
             "metadata": {
                 "timestamp": timestamp,
                 "total_points": len(features),
-                "positive_points": len([f for f in features if f['properties']['label'] == 1]),
-                "negative_points": len([f for f in features if f['properties']['label'] == 0]),
+                "positive_points": len([f for f in features if f['properties']['label'] == UIConstants.POSITIVE_LABEL]),
+                "negative_points": len([f for f in features if f['properties']['label'] == UIConstants.NEGATIVE_LABEL]),
                 "embedding_dimension": len(features[0]['properties']['embedding']) if features else 0
             }
         }
@@ -1085,8 +1014,8 @@ class GeoLabeler:
                 json.dump(geojson_data, f, indent=2)
             
             # Create summary
-            pos_count = len([f for f in features if f['properties']['label'] == 1])
-            neg_count = len([f for f in features if f['properties']['label'] == 0])
+            pos_count = len([f for f in features if f['properties']['label'] == UIConstants.POSITIVE_LABEL])
+            neg_count = len([f for f in features if f['properties']['label'] == UIConstants.NEGATIVE_LABEL])
             
             print(f"✅ Dataset saved successfully!")
             print(f"📄 Filename: {filename}")
@@ -1129,9 +1058,9 @@ class GeoLabeler:
                 self.cached_embeddings[point_id] = embedding
                 
                 # Add to appropriate list
-                if label == 1:
+                if label == UIConstants.POSITIVE_LABEL:
                     self.pos_ids.append(point_id)
-                elif label == 0:
+                elif label == UIConstants.NEGATIVE_LABEL:
                     self.neg_ids.append(point_id)
             
             # Update visualization
@@ -1200,9 +1129,9 @@ class GeoLabeler:
             self.cached_embeddings[point_id] = embedding
             
             # Add to appropriate list
-            if label == 1:
+            if label == UIConstants.POSITIVE_LABEL:
                 self.pos_ids.append(point_id)
-            elif label == 0:
+            elif label == UIConstants.NEGATIVE_LABEL:
                 self.neg_ids.append(point_id)
         
         # Update visualization
@@ -1247,9 +1176,9 @@ class GeoLabeler:
             self.cached_embeddings[point_id] = embedding
             
             # Add to appropriate list
-            if label == 1:
+            if label == UIConstants.POSITIVE_LABEL:
                 self.pos_ids.append(point_id)
-            elif label == 0:
+            elif label == UIConstants.NEGATIVE_LABEL:
                 self.neg_ids.append(point_id)
         
         # Update visualization
