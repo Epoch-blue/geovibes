@@ -19,5 +19,5 @@ earthengine-api
 geemap
 gcsfs
 lonboard
-duckdb
+duckdb>1.0.0
 rasterio
