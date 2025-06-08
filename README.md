@@ -130,6 +130,8 @@ Once this is complete, simply add the path to your embeddings db + the geojson u
 ## Check Vibes
 The `vibe_checker.ipynb` notebook provides an interactive map interface for labeling geographic points. Key features:
 
+Note: You will need to create a `.env` file within the root of this repository with an API key from [Map Tiler](https://cloud.maptiler.com/) added to the file like `MAPTILER_API_KEY="your-api-key"`.
+
 - Interactive map with multiple basemap options (Maptiler satellite, S2-RGB composite, Google Hybrid, S2-NDVI, S2-NDWI). **Please note that the NDVI/NDWI are generated on the fly from GEE. The dates for this imagery should be set using the config.**
 - Point and lasso selection modes for efficient labeling
 - Positive/negative/erase labeling options
