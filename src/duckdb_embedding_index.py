@@ -82,7 +82,7 @@ def main() -> None:
                        help="Name of embedding column (default: embedding)")
     parser.add_argument("--embedding_dim", type=int, default=384,
                        help="Embedding dimension (default: 384)")
-    parser.add_argument("--metric", type=str, choices=["l2sq", "cosine", "inner_product"], 
+    parser.add_argument("--metric", type=str, choices=["l2sq", "cosine", "ip"], 
                        default="cosine", help="Distance metric for HNSW index (default: cosine)")
     
     args = parser.parse_args()

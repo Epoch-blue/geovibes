@@ -87,43 +87,148 @@ class BasemapConfig:
 class DatabaseConstants:
     """Database-related constants."""
     
-    # Spatial query for DuckDB setup
-    SPATIAL_SETUP_QUERY = """
+    EXTENSION_SETUP_QUERY = """
     INSTALL spatial;
     LOAD spatial;
     """
     
-    # Embedding dimension (could be made configurable later)
-    EMBEDDING_DIM = 384
-    
     # Chunk size for embedding fetching to avoid memory issues
     EMBEDDING_CHUNK_SIZE = 10000
     
-    # Original search query with embeddings (kept for backward compatibility)
-    SIMILARITY_SEARCH_QUERY = """
-    WITH query(vec) AS (SELECT CAST(? AS FLOAT[384]))
-    SELECT  g.id,
-            g.embedding,
-            ST_AsGeoJSON(g.geometry) AS geometry_json,
-            ST_AsText(g.geometry) AS geometry_wkt,
-            array_distance(g.embedding, q.vec) AS distance
-    FROM    geo_embeddings AS g, query AS q
-    ORDER BY distance
-    LIMIT ?;
-    """
+    @staticmethod
+    def detect_embedding_dimension(duckdb_connection) -> int:
+        """Detect embedding dimension from first row of database.
+        
+        Args:
+            duckdb_connection: Active DuckDB connection
+            
+        Returns:
+            int: Embedding dimension
+            
+        Raises:
+            ValueError: If no embeddings found or dimension cannot be detected
+        """
+        try:
+            result = duckdb_connection.execute(
+                "SELECT embedding FROM geo_embeddings LIMIT 1"
+            ).fetchone()
+            
+            if result and result[0]:
+                return len(result[0])
+            else:
+                raise ValueError("No embeddings found in database")
+        except Exception as e:
+            raise ValueError(f"Could not detect embedding dimension: {e}")
     
-    # Lightweight search query without embeddings (memory-efficient)
-    SIMILARITY_SEARCH_LIGHT_QUERY = """
-    WITH query(vec) AS (SELECT CAST(? AS FLOAT[384]))
-    SELECT  g.id,
-            ST_AsGeoJSON(g.geometry) AS geometry_json,
-            ST_AsText(g.geometry) AS geometry_wkt,
-            array_distance(g.embedding, q.vec) AS distance
-    FROM    geo_embeddings AS g, query AS q
-    ORDER BY distance
-    LIMIT ?;
-    """
+    @staticmethod
+    def detect_embedding_dimension_from_parquet(parquet_path: str, embedding_column: str = 'embedding') -> int:
+        """Detect embedding dimension from parquet file.
+        
+        Args:
+            parquet_path: Path to parquet file
+            embedding_column: Name of embedding column (default: 'embedding')
+            
+        Returns:
+            int: Embedding dimension
+            
+        Raises:
+            ValueError: If no embeddings found or dimension cannot be detected
+        """
+        try:
+            import pandas as pd
+            
+            # Read just the first row
+            df = pd.read_parquet(parquet_path, nrows=1)
+            
+            if embedding_column not in df.columns:
+                raise ValueError(f"Embedding column '{embedding_column}' not found in parquet file")
+            
+            embedding = df[embedding_column].iloc[0]
+            if hasattr(embedding, '__len__'):
+                return len(embedding)
+            else:
+                raise ValueError(f"Embedding in column '{embedding_column}' is not array-like")
+                
+        except Exception as e:
+            raise ValueError(f"Could not detect embedding dimension from parquet: {e}")
     
+    @staticmethod
+    def get_similarity_search_query(embedding_dim: int) -> str:
+        """Generate similarity search query with embeddings for given dimension.
+        
+        Args:
+            embedding_dim: Dimension of the embeddings
+            
+        Returns:
+            str: SQL query string
+        """
+        return f"""
+        WITH query(vec) AS (SELECT CAST(? AS FLOAT[{embedding_dim}]))
+        SELECT  g.id,
+                g.embedding,
+                ST_AsGeoJSON(g.geometry) AS geometry_json,
+                ST_AsText(g.geometry) AS geometry_wkt,
+                array_distance(g.embedding, q.vec) AS distance
+        FROM    geo_embeddings AS g, query AS q
+        ORDER BY distance
+        LIMIT ?;
+        """
+    
+    @staticmethod
+    def get_similarity_search_light_query(embedding_dim: int) -> str:
+        """Generate lightweight similarity search query for given dimension.
+        
+        Args:
+            embedding_dim: Dimension of the embeddings
+            
+        Returns:
+            str: SQL query string
+        """
+        return f"""
+        WITH query(vec) AS (SELECT CAST(? AS FLOAT[{embedding_dim}]))
+        SELECT  g.id,
+                ST_AsGeoJSON(g.geometry) AS geometry_json,
+                ST_AsText(g.geometry)  AS geometry_wkt,
+                g.embedding <-> q.vec AS distance
+        FROM    geo_embeddings AS g, query AS q
+        ORDER BY g.embedding <-> q.vec
+        LIMIT ?;
+        """
+    
+    # Legacy constants for backward compatibility (deprecated)
+    @property
+    def EMBEDDING_DIM(self):
+        """Deprecated: Use detect_embedding_dimension() instead."""
+        import warnings
+        warnings.warn(
+            "EMBEDDING_DIM is deprecated. Use detect_embedding_dimension() instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return 1000  # Default fallback
+    
+    @property 
+    def SIMILARITY_SEARCH_QUERY(self):
+        """Deprecated: Use get_similarity_search_query() instead."""
+        import warnings
+        warnings.warn(
+            "SIMILARITY_SEARCH_QUERY is deprecated. Use get_similarity_search_query() instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return self.get_similarity_search_query(1000)
+    
+    @property
+    def SIMILARITY_SEARCH_LIGHT_QUERY(self):
+        """Deprecated: Use get_similarity_search_light_query() instead."""
+        import warnings
+        warnings.warn(
+            "SIMILARITY_SEARCH_LIGHT_QUERY is deprecated. Use get_similarity_search_light_query() instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return self.get_similarity_search_light_query(1000)
+
     # Nearest point query without embedding (memory-efficient)
     NEAREST_POINT_LIGHT_QUERY = """
     SELECT  g.id,

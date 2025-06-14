@@ -118,7 +118,18 @@ class GeoVibes:
             self.ee_boundary = None
         
         # Setup spatial extension in DuckDB
-        self.duckdb_connection.execute(DatabaseConstants.SPATIAL_SETUP_QUERY)
+        self.duckdb_connection.execute(DatabaseConstants.EXTENSION_SETUP_QUERY)
+
+        # Detect embedding dimension from database
+        try:
+            self.embedding_dim = DatabaseConstants.detect_embedding_dimension(self.duckdb_connection)
+            if self.verbose:
+                print(f"🔍 Detected embedding dimension: {self.embedding_dim}")
+        except ValueError as e:
+            if self.verbose:
+                print(f"⚠️ Could not detect embedding dimension: {e}")
+                print("⚠️ Using default dimension of 1000")
+            self.embedding_dim = 384
 
         # Get centroid of boundary from geopandas
         boundary_gdf = gpd.read_file(self.config.boundary_path)
@@ -840,8 +851,8 @@ class GeoVibes:
         extra_results = min(len(all_labeled_ids), n_neighbors // 2)
         total_requested = n_neighbors + extra_results
         
-        # Use simple query without NOT IN clause to avoid DuckDB crash
-        sql = DatabaseConstants.SIMILARITY_SEARCH_LIGHT_QUERY
+        # Use dynamic query with detected embedding dimension
+        sql = DatabaseConstants.get_similarity_search_light_query(self.embedding_dim)
         query_params = [query_vec, total_requested]
         
         # Show search progress in status bar
@@ -1157,7 +1168,7 @@ class GeoVibes:
                 "total_points": len(features),
                 "positive_points": len([f for f in features if f['properties']['label'] == UIConstants.POSITIVE_LABEL]),
                 "negative_points": len([f for f in features if f['properties']['label'] == UIConstants.NEGATIVE_LABEL]),
-                "embedding_dimension": len(features[0]['properties']['embedding']) if features else 0
+                "embedding_dimension": self.embedding_dim
             }
         }
         
@@ -1179,7 +1190,7 @@ class GeoVibes:
                 print(f"   - Total points: {len(features)}")
                 print(f"   - Positive labels: {pos_count}")
                 print(f"   - Negative labels: {neg_count}")
-                print(f"   - Embedding dimension: {len(features[0]['properties']['embedding']) if features else 0}")
+                print(f"   - Embedding dimension: {self.embedding_dim}")
             
             # Optional: Also save a separate CSV with just IDs and labels for easier processing
             labels_df = pd.DataFrame([
