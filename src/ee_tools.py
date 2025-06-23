@@ -5,7 +5,7 @@ def initialize_ee_with_credentials():
     """Initialize Earth Engine with user credentials or service account if configured."""
     load_dotenv()
     try:
-        ee.Initialize(project='cr458-ee')  # Use user's default project
+        ee.Initialize(project='earthindex')  # Use user's default project
         print("✅ Earth Engine initialized with user credentials")
         return True
     except Exception as e:
