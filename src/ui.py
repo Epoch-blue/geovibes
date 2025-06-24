@@ -736,16 +736,17 @@ class GeoVibes:
         self.current_operation = None
         self._update_status()
 
-    def _ids_to_int(self, id_list):
-        """Convert string IDs to integers for database queries.
+    def _prepare_ids_for_query(self, id_list):
+        """Prepare IDs for database queries, handling both string and integer IDs.
         
         Args:
-            id_list: List of ID strings
+            id_list: List of ID values (strings or integers)
             
         Returns:
-            List of integers
+            List of values appropriate for database queries
         """
-        return [int(str(id_val)) for id_val in id_list]
+        # Return IDs as-is since DuckDB can handle both strings and integers
+        return [str(id_val) for id_val in id_list]
 
     def reset_all(self, b):
         """Reset all labels, search results, and cached data."""
@@ -806,9 +807,9 @@ class GeoVibes:
                 if self.verbose:
                     print(f"   Processing chunk {chunk_num}/{total_chunks} ({len(chunk)} points)...")
             
-            # Build parameterized query for this chunk - convert IDs to integers
-            int_chunk = self._ids_to_int(chunk)
-            placeholders = ','.join(['?' for _ in int_chunk])
+            # Build parameterized query for this chunk
+            prepared_chunk = self._prepare_ids_for_query(chunk)
+            placeholders = ','.join(['?' for _ in prepared_chunk])
             query = f"""
             SELECT id, embedding
             FROM geo_embeddings 
@@ -816,7 +817,7 @@ class GeoVibes:
             """
             
             # Fetch as Arrow then convert to pandas
-            arrow_table = self.duckdb_connection.execute(query, int_chunk).fetch_arrow_table()
+            arrow_table = self.duckdb_connection.execute(query, prepared_chunk).fetch_arrow_table()
             chunk_df = arrow_table.to_pandas()
             
             # Cache the embeddings from this chunk
@@ -978,9 +979,9 @@ class GeoVibes:
             FROM geo_embeddings 
             WHERE id = ?
             """
-            # Convert string ID to integer for database compatibility
-            int_point_id = int(str(point_id))
-            erase_result = self.duckdb_connection.execute(erase_query, [int_point_id]).fetchone()
+            # Prepare ID for database query
+            prepared_point_id = str(point_id)
+            erase_result = self.duckdb_connection.execute(erase_query, [prepared_point_id]).fetchone()
             if erase_result:
                 erase_geojson = {
                     "type": "FeatureCollection", 
@@ -1002,15 +1003,15 @@ class GeoVibes:
 
     def update_layers(self):
         if self.pos_ids:
-            # Convert string IDs to integers for database compatibility
-            int_pos_ids = self._ids_to_int(self.pos_ids)
-            placeholders = ','.join(['?' for _ in int_pos_ids])
+            # Prepare IDs for database query
+            prepared_pos_ids = self._prepare_ids_for_query(self.pos_ids)
+            placeholders = ','.join(['?' for _ in prepared_pos_ids])
             pos_query = f"""
             SELECT ST_AsGeoJSON(geometry) as geometry
             FROM geo_embeddings 
             WHERE id IN ({placeholders})
             """
-            pos_results = self.duckdb_connection.execute(pos_query, int_pos_ids).df()
+            pos_results = self.duckdb_connection.execute(pos_query, prepared_pos_ids).df()
             pos_geojson = {"type": "FeatureCollection", "features": []}
             for _, row in pos_results.iterrows():
                 pos_geojson["features"].append({
@@ -1023,15 +1024,15 @@ class GeoVibes:
             self.pos_layer.data = {"type": "FeatureCollection", "features": []}
         
         if self.neg_ids:
-            # Convert string IDs to integers for database compatibility
-            int_neg_ids = self._ids_to_int(self.neg_ids)
-            placeholders = ','.join(['?' for _ in int_neg_ids])
+            # Prepare IDs for database query
+            prepared_neg_ids = self._prepare_ids_for_query(self.neg_ids)
+            placeholders = ','.join(['?' for _ in prepared_neg_ids])
             neg_query = f"""
             SELECT ST_AsGeoJSON(geometry) as geometry
             FROM geo_embeddings 
             WHERE id IN ({placeholders})
             """
-            neg_results = self.duckdb_connection.execute(neg_query, int_neg_ids).df()
+            neg_results = self.duckdb_connection.execute(neg_query, prepared_neg_ids).df()
             neg_geojson = {"type": "FeatureCollection", "features": []}
             for _, row in neg_results.iterrows():
                 neg_geojson["features"].append({
@@ -1106,9 +1107,9 @@ class GeoVibes:
             return
         
         # Query database for all labeled points with their geometries and embeddings
-        # Convert string IDs to integers for database compatibility
-        int_labeled_ids = self._ids_to_int(all_labeled_ids)
-        placeholders = ','.join(['?' for _ in int_labeled_ids])
+        # Prepare IDs for database query
+        prepared_labeled_ids = self._prepare_ids_for_query(all_labeled_ids)
+        placeholders = ','.join(['?' for _ in prepared_labeled_ids])
         query = f"""
         SELECT 
             id,
@@ -1119,7 +1120,7 @@ class GeoVibes:
         WHERE id IN ({placeholders})
         """
         
-        results = self.duckdb_connection.execute(query, int_labeled_ids).df()
+        results = self.duckdb_connection.execute(query, prepared_labeled_ids).df()
         
         if results.empty:
             if self.verbose:

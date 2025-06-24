@@ -2,6 +2,7 @@ import argparse
 import logging
 import pathlib
 import sys
+import time
 from typing import List, Set, Optional, Dict
 
 import geopandas as gpd
@@ -10,9 +11,6 @@ import pandas as pd
 from shapely.ops import unary_union
 from tqdm import tqdm
 from joblib import Parallel, delayed
-import tempfile
-import shutil
-
 import os
 
 def setup_logging():
@@ -71,6 +69,13 @@ def process_and_save_geojson(gcs_path: str, epsg_code: str, output_dir: str) -> 
     Reads a GeoJSON from GCS, processes it, and saves it as a local GeoParquet file.
     """
     try:
+        # Check if the output file already exists
+        output_filename = f"{pathlib.Path(gcs_path).stem}.parquet"
+        local_path = os.path.join(output_dir, output_filename)
+        if os.path.exists(local_path):
+            logging.info(f"Skipping {gcs_path}, output file already exists.")
+            return local_path
+            
         gdf = gpd.read_file(gcs_path).drop(columns=["id"])
         if gdf.empty:
             return None
@@ -90,45 +95,102 @@ def process_and_save_geojson(gcs_path: str, epsg_code: str, output_dir: str) -> 
 
         gdf['geometry'] = centroids
         gdf = gdf[gdf.geometry.notna()]
+        
         band_names = [f'A{i:02d}' for i in range(64)]
+        
+        # Ensure all band columns exist, fill with 0 if not
+        for band in band_names:
+            if band not in gdf.columns:
+                gdf[band] = 0
+                
         gdf['embedding'] = gdf[band_names].values.tolist()
+
+        # Rename 'id' to 'tile_id' if it exists, otherwise create it from filename
+        if 'id' in gdf.columns:
+            gdf = gdf.rename(columns={'id': 'tile_id'})
+        elif 'tile_id' not in gdf.columns:
+            mgrs_id = pathlib.Path(gcs_path).stem.split('_')[0]
+            gdf['tile_id'] = mgrs_id
+        
+        # Select final columns
         final_cols = ['tile_id', 'geometry', 'embedding']
-        return gdf[final_cols]
+        final_gdf = gdf[final_cols]
+        
+        # Save to local geoparquet file
+        final_gdf.to_parquet(local_path)
+        
+        return local_path
     
     except Exception as e:
         logging.warning(f"Failed to process {gcs_path}: {e}")
         return None
 
-def create_duckdb_index(parquet_files: List[str], output_file: str, metric: str):
+def create_duckdb_index(
+    parquet_files: List[str], 
+    output_file: str, 
+    metric: str,
+    embedding_column: str = "embedding",
+    embedding_dim: int = 64
+) -> None:
     """Creates a DuckDB database with HNSW and spatial indexes from local parquet files."""
+    
     logging.info(f"Creating DuckDB database at {output_file} with {metric} metric...")
-    
+    logging.info(f"Using embedding dimension: {embedding_dim}")
+
     con = duckdb.connect(database=output_file)
-    
-    # Use glob to read all parquet files from the directory
-    parquet_paths_str = "['" + "','".join(parquet_files) + "']"
-    
-    con.execute("INSTALL vss; LOAD vss;")
+
+    logging.info("Loading extensions...")
+    con.execute("SET enable_progress_bar=true")
     con.execute("INSTALL spatial; LOAD spatial;")
-    
-    # Create the final table
-    con.execute(f"""
+    con.execute("INSTALL vss; LOAD vss;")
+    con.execute("SET hnsw_enable_experimental_persistence = true;")
+
+    # Convert string paths to Path objects and create proper path strings
+    path_strings = [
+        f"'{p_str}'"
+        for p_str in (str(pathlib.Path(p).resolve()).replace("\\", "/") for p in parquet_files)
+    ]
+    sql_parquet_files_list_str = "[" + ", ".join(path_strings) + "]"
+
+    create_table_sql = f"""
     CREATE OR REPLACE TABLE geo_embeddings AS
     SELECT
         tile_id AS id,
-        ST_GeomFromWKB(geometry) AS geometry,
-        CAST(embedding AS FLOAT[64]) AS embedding
-    FROM read_parquet({parquet_paths_str})
-    """)
-    
-    logging.info("Creating HNSW index...")
-    con.execute(f"CREATE INDEX hnsw_idx ON geo_embeddings USING HNSW (embedding) WITH (metric = '{metric}');")
-    
-    logging.info("Creating R-Tree spatial index...")
-    con.execute("CREATE INDEX rtree_idx ON geo_embeddings USING RTREE (geometry);")
-    
+        CAST({embedding_column} AS FLOAT[{embedding_dim}]) as embedding,
+        geometry
+    FROM read_parquet({sql_parquet_files_list_str});
+    """
+
+    logging.info("Creating table and ingesting data...")
+    start_time = time.time()
+    con.execute(create_table_sql)
+    ingest_time = time.time() - start_time
+
+    row_count = con.execute("SELECT COUNT(*) FROM geo_embeddings;").fetchone()[0]
+    logging.info(f"Ingested {row_count} rows in {ingest_time:.2f} seconds")
+
+    if row_count > 0:
+        logging.info(f"Creating HNSW index with {metric} metric...")
+        start_index_time = time.time()
+        con.execute(
+            f"CREATE INDEX IF NOT EXISTS emb_hnsw_idx ON geo_embeddings USING HNSW (embedding) WITH (metric = '{metric}');"
+        )
+        index_time = time.time() - start_index_time
+        logging.info(f"HNSW index created in {index_time:.2f} seconds")
+
+        logging.info("Creating RTree spatial index...")
+        start_spatial_index_time = time.time()
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS geom_spatial_idx ON geo_embeddings USING RTREE (geometry);"
+        )
+        spatial_index_time = time.time() - start_spatial_index_time
+        logging.info(f"RTree spatial index created in {spatial_index_time:.2f} seconds")
+
+        db_size_info = con.execute("PRAGMA database_size;").fetchone()
+        logging.info(f"Database size: {db_size_info}")
+
     con.close()
-    logging.info(f"Database created successfully at {output_file}")
+    logging.info(f"Database saved to {output_file}")
 
 def main():
     parser = argparse.ArgumentParser(description="Process Google Satellite GeoJSON files and create a DuckDB index.")
@@ -138,6 +200,7 @@ def main():
     parser.add_argument("--mgrs_reference_file", default="/Users/christopherren/geovibes/geometries/mgrs_tiles.parquet", help="Path to the MGRS grid reference file.")
     parser.add_argument("--gcs_bucket", default="geovibes", help="GCS bucket to use for the embeddings.")
     parser.add_argument("--metric", default="cosine", choices=["cosine", "l2sq", "inner_product"], help="Distance metric for HNSW index.")
+    parser.add_argument("--embedding_dim", type=int, default=64, help="Dimension of the embedding vectors.")
     parser.add_argument("--workers", type=int, default=-1, help="Number of parallel workers for processing files.")
     args = parser.parse_args()
 
@@ -146,48 +209,50 @@ def main():
     # Create output directory if it doesn't exist
     pathlib.Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     
-    # Create a temporary directory for intermediate parquet files
-    temp_dir = tempfile.mkdtemp(dir=args.output_dir)
-    
     try:
-        # 1. Find intersecting MGRS tiles and their EPSG codes
-        mgrs_epsg_map = get_intersecting_mgrs_ids(args.roi_file, args.mgrs_reference_file)
-        if not mgrs_epsg_map:
-            logging.info("No intersecting MGRS tiles found for the given ROI.")
-            return
-
-        # 2. Build GCS paths and prepare arguments for parallel processing
-        tasks = [
-            (
-                f"gs://{args.gcs_bucket}/embeddings/google_satellite_v1/25_0_10/{mgrs_id}_2024.geojson",
-                epsg_code,
-                temp_dir,
-            )
-            for mgrs_id, epsg_code in mgrs_epsg_map.items()
-        ]
-        logging.info(f"Constructed {len(tasks)} tasks to process.")
-
-        # 3. & 4. Read, process, and save GeoJSONs in parallel
-        processed_files = Parallel(n_jobs=args.workers, verbose=20)(
-            delayed(process_and_save_geojson)(*task)
-            for task in tasks
-        )
+        # Check if parquet files already exist in the output directory
+        local_parquet_files = [str(f) for f in pathlib.Path(args.output_dir).glob("*.parquet")]
         
-        local_parquet_files = [f for f in processed_files if f is not None]
         if not local_parquet_files:
-            logging.error("No data could be processed from the generated GCS paths.")
-            return
+            logging.info("No local parquet files found, starting processing from GCS...")
+            
+            # 1. Find intersecting MGRS tiles and their EPSG codes
+            mgrs_epsg_map = get_intersecting_mgrs_ids(args.roi_file, args.mgrs_reference_file)
+            if not mgrs_epsg_map:
+                logging.info("No intersecting MGRS tiles found for the given ROI.")
+                return
+
+            # 2. Build GCS paths and prepare arguments for parallel processing
+            tasks = [
+                (
+                    f"gs://{args.gcs_bucket}/embeddings/google_satellite_v1/25_0_10/{mgrs_id}_2024.geojson",
+                    epsg_code,
+                    args.output_dir,
+                )
+                for mgrs_id, epsg_code in mgrs_epsg_map.items()
+            ]
+            logging.info(f"Constructed {len(tasks)} tasks to process.")
+
+            # 3. & 4. Read, process, and save GeoJSONs in parallel
+            processed_files = Parallel(n_jobs=args.workers, verbose=20)(
+                delayed(process_and_save_geojson)(*task)
+                for task in tqdm(tasks, desc="Processing GeoJSON files")
+            )
+            
+            local_parquet_files = [f for f in processed_files if f is not None]
+            if not local_parquet_files:
+                logging.error("No data could be processed from the generated GCS paths.")
+                return
         
+        else:
+            logging.info(f"Found {len(local_parquet_files)} existing parquet files, skipping processing.")
+
         # 5. Create DuckDB index from the local parquet files
-        create_duckdb_index(local_parquet_files, args.output_db_file, args.metric)
+        create_duckdb_index(local_parquet_files, args.output_db_file, args.metric, embedding_dim=args.embedding_dim)
         
     except Exception as e:
         logging.error(f"An error occurred during the process: {e}")
         sys.exit(1)
-    finally:
-        # Clean up temporary directory
-        logging.info(f"Cleaning up temporary directory: {temp_dir}")
-        shutil.rmtree(temp_dir, ignore_errors=True)
 
 if __name__ == "__main__":
-    main() 
+    main()
