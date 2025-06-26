@@ -69,12 +69,8 @@ def process_and_save_geojson(gcs_path: str, epsg_code: str, output_dir: str) -> 
     Reads a GeoJSON from GCS, processes it, and saves it as a local GeoParquet file.
     """
     try:
-        # Check if the output file already exists
         output_filename = f"{pathlib.Path(gcs_path).stem}.parquet"
         local_path = os.path.join(output_dir, output_filename)
-        if os.path.exists(local_path):
-            logging.info(f"Skipping {gcs_path}, output file already exists.")
-            return local_path
             
         gdf = gpd.read_file(gcs_path).drop(columns=["id"])
         if gdf.empty:
@@ -205,51 +201,53 @@ def main():
     args = parser.parse_args()
 
     setup_logging()
-    
+
     # Create output directory if it doesn't exist
-    pathlib.Path(args.output_dir).mkdir(parents=True, exist_ok=True)
-    
+    output_path = pathlib.Path(args.output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
     try:
-        # Check if parquet files already exist in the output directory
-        local_parquet_files = [str(f) for f in pathlib.Path(args.output_dir).glob("*.parquet")]
+        # 1. Find intersecting MGRS tiles and their EPSG codes
+        mgrs_epsg_map = get_intersecting_mgrs_ids(args.roi_file, args.mgrs_reference_file)
+        if not mgrs_epsg_map:
+            logging.info("No intersecting MGRS tiles found for the given ROI.")
+            return
+
+        local_parquet_files = []
+        tasks_to_process = []
+
+        logging.info("Checking for existing parquet files...")
+        for mgrs_id, epsg_code in mgrs_epsg_map.items():
+            expected_filename = f"{mgrs_id}_2024.parquet"
+            local_path = output_path / expected_filename
+
+            if local_path.exists():
+                local_parquet_files.append(str(local_path))
+            else:
+                gcs_path = f"gs://{args.gcs_bucket}/embeddings/google_satellite_v1/25_0_10/{mgrs_id}_2024.geojson"
+                tasks_to_process.append((gcs_path, epsg_code, args.output_dir))
         
-        if not local_parquet_files:
-            logging.info("No local parquet files found, starting processing from GCS...")
-            
-            # 1. Find intersecting MGRS tiles and their EPSG codes
-            mgrs_epsg_map = get_intersecting_mgrs_ids(args.roi_file, args.mgrs_reference_file)
-            if not mgrs_epsg_map:
-                logging.info("No intersecting MGRS tiles found for the given ROI.")
-                return
+        logging.info(f"Found {len(local_parquet_files)} existing parquet files.")
+        
+        if tasks_to_process:
+            logging.info(f"Constructed {len(tasks_to_process)} tasks to process for missing files.")
 
-            # 2. Build GCS paths and prepare arguments for parallel processing
-            tasks = [
-                (
-                    f"gs://{args.gcs_bucket}/embeddings/google_satellite_v1/25_0_10/{mgrs_id}_2024.geojson",
-                    epsg_code,
-                    args.output_dir,
-                )
-                for mgrs_id, epsg_code in mgrs_epsg_map.items()
-            ]
-            logging.info(f"Constructed {len(tasks)} tasks to process.")
-
-            # 3. & 4. Read, process, and save GeoJSONs in parallel
+            # Process and save GeoJSONs in parallel for missing files
             processed_files = Parallel(n_jobs=args.workers, verbose=20)(
                 delayed(process_and_save_geojson)(*task)
-                for task in tqdm(tasks, desc="Processing GeoJSON files")
+                for task in tqdm(tasks_to_process, desc="Processing GeoJSON files")
             )
-            
-            local_parquet_files = [f for f in processed_files if f is not None]
-            if not local_parquet_files:
-                logging.error("No data could be processed from the generated GCS paths.")
-                return
-        
-        else:
-            logging.info(f"Found {len(local_parquet_files)} existing parquet files, skipping processing.")
 
-        # 5. Create DuckDB index from the local parquet files
+            newly_processed_files = [f for f in processed_files if f is not None]
+            local_parquet_files.extend(newly_processed_files)
+
+        if not local_parquet_files:
+            logging.error("No data could be processed or found.")
+            return
+
+        # Create DuckDB index from all local parquet files (existing and newly processed)
         create_duckdb_index(local_parquet_files, args.output_db_file, args.metric, embedding_dim=args.embedding_dim)
-        
+
     except Exception as e:
         logging.error(f"An error occurred during the process: {e}")
         sys.exit(1)
