@@ -9,12 +9,13 @@ from dataclasses import dataclass
 
 @dataclass
 class GeoVibesConfig:
-    """Configuration for GeoVibes."""
+    """Configuration for GeoVibes application."""
     
     duckdb_path: str
     boundary_path: str
     start_date: str
     end_date: str
+    gcp_project: str = None
     
     @classmethod
     def from_file(cls, config_path: str) -> 'GeoVibesConfig':
@@ -43,7 +44,11 @@ class GeoVibesConfig:
         if missing_fields:
             raise ValueError(f"Missing required configuration fields: {missing_fields}")
         
-        return cls(**{k: v for k, v in config_data.items() if k in required_fields})
+        # Include optional gcp_project field
+        config_instance = cls(**{k: v for k, v in config_data.items() if k in required_fields})
+        if 'gcp_project' in config_data:
+            config_instance.gcp_project = config_data['gcp_project']
+        return config_instance
     
     @classmethod
     def from_dict(cls, config_dict: dict) -> 'GeoVibesConfig':
@@ -59,7 +64,8 @@ class GeoVibesConfig:
             duckdb_path=config_dict['duckdb_path'],
             boundary_path=config_dict['boundary_path'],
             start_date=config_dict['start_date'],
-            end_date=config_dict['end_date']
+            end_date=config_dict['end_date'],
+            gcp_project=config_dict.get('gcp_project')
         )
     
     def validate(self) -> None:
@@ -97,9 +103,12 @@ class GeoVibesConfig:
         Returns:
             Dictionary representation of the configuration
         """
-        return {
+        config_dict = {
             'duckdb_path': self.duckdb_path,
             'boundary_path': self.boundary_path,
             'start_date': self.start_date,
             'end_date': self.end_date
-        } 
+        }
+        if self.gcp_project:
+            config_dict['gcp_project'] = self.gcp_project
+        return config_dict 

@@ -1,9 +1,9 @@
-"""Map labeling interface and training utility functions for 
-machine learning on top of satellite foundation model embeddings."""
+"""Interactive map interface for geospatial similarity search using satellite embeddings."""
 
 import json
 import warnings
 from datetime import datetime
+from typing import Dict, List, Optional, Union, Any
 
 import duckdb
 import ee
@@ -23,28 +23,15 @@ from .ui_config import UIConstants, BasemapConfig, GeoVibesConfig, DatabaseConst
 
 warnings.simplefilter("ignore", category=FutureWarning)
 
-
-EE_AVAILABLE = initialize_ee_with_credentials()
-
-# Validate MapTiler API key
 if not BasemapConfig.MAPTILER_API_KEY:
     warnings.warn("MAPTILER_API_KEY environment variable not set. Please create a .env file with your MapTiler API key.")
 
 
 class GeoVibes:
-    """An interactive Leaflet map for labeling geographic features relative to satellite image embedding tiles.
+    """Interactive map interface for geospatial similarity search using satellite embeddings.
     
-    Attributes: 
-        gdf: A pandas GeoDataFrame whose columns are embedding feature values and a geometry
-        map: A Leaflet map
-        pos_ids, neg_ids: Lists of dataframe indices associated to pos / neg labeled points
-        pos_layer, neg_layer, erase_layer, points: Leaflet map layers 
-        select_val: 1/0/-100 to indicate pos/neg/erase label action
-        execute_lable_point: Boolean flag for label_point() execution on map interaction
-    
-    External method: 
-        update_layer: Add points to the map for visualization, without changing labels.
-    
+    Provides point-and-click labeling interface with similarity search capabilities
+    using vector embeddings stored in DuckDB with HNSW indexing.
     """
     
     @classmethod
@@ -61,20 +48,34 @@ class GeoVibes:
         """
         return cls(config_path=config_path, verbose=verbose, **kwargs)
     def __init__(
-            self, geojson_path=None, start_date=None, end_date=None,
-            duckdb_connection=None, duckdb_path=None, config=None, config_path=None,
-            baselayer_url=None, verbose=False, **kwargs):
+            self, 
+            geojson_path: Optional[str] = None, 
+            start_date: Optional[str] = None, 
+            end_date: Optional[str] = None,
+            duckdb_connection: Optional[duckdb.DuckDBPyConnection] = None, 
+            duckdb_path: Optional[str] = None, 
+            config: Optional[Dict] = None, 
+            config_path: Optional[str] = None,
+            baselayer_url: Optional[str] = None, 
+            verbose: bool = False, 
+            **kwargs) -> None:
         """Initialize GeoVibes interface.
         
         Args:
-            verbose: If True, print detailed progress and status messages. Default False.
-            Other parameters: See class documentation.
+            geojson_path: Path to boundary GeoJSON file.
+            start_date: Start date in YYYY-MM-DD format.
+            end_date: End date in YYYY-MM-DD format.
+            duckdb_connection: Existing DuckDB connection to reuse.
+            duckdb_path: Path to DuckDB database file.
+            config: Configuration dictionary.
+            config_path: Path to JSON configuration file.
+            baselayer_url: Custom basemap tile URL.
+            verbose: Enable detailed progress messages.
         """
         self.verbose = verbose
         if self.verbose:
-            print("Initializing GeoLabeler...")
+            print("Initializing GeoVibes...")
         
-        # Handle configuration loading using new config system
         if config_path is not None:
             self.config = GeoVibesConfig.from_file(config_path)
             self.config.validate()
@@ -82,7 +83,6 @@ class GeoVibes:
             self.config = GeoVibesConfig.from_dict(config)
             self.config.validate()
         else:
-            # Create config from individual parameters
             if geojson_path is None or start_date is None or end_date is None:
                 raise ValueError("Required parameters missing. Provide either config_path, config dict, or individual parameters.")
             self.config = GeoVibesConfig(
@@ -92,6 +92,8 @@ class GeoVibes:
                 end_date=end_date
             )
             self.config.validate()
+        
+        self.ee_available = initialize_ee_with_credentials(self.config.gcp_project)
         
         if baselayer_url is None:
             baselayer_url = BasemapConfig.BASEMAP_TILES['MAPTILER']
@@ -109,7 +111,7 @@ class GeoVibes:
         self.current_basemap = 'MAPTILER'
         self.basemap_layer = ipyl.TileLayer(url=baselayer_url, no_wrap=True, name='basemap', 
                                        attribution=BasemapConfig.MAPTILER_ATTRIBUTION)
-        if EE_AVAILABLE:
+        if self.ee_available:
             try:
                 self.ee_boundary = ee.Geometry(shapely.geometry.mapping(
                     gpd.read_file(self.config.boundary_path).union_all()))
@@ -200,24 +202,20 @@ class GeoVibes:
         display(self.main_layout)
 
 
-    def _setup_ee_basemaps(self):
+    def _setup_ee_basemaps(self) -> None:
         """Set up Earth Engine basemaps (NDVI and NDWI) if available."""
-        # Create a copy of the base basemap tiles
         self.basemap_tiles = BasemapConfig.BASEMAP_TILES.copy()
         
-        # Only add Earth Engine basemaps if EE is available and boundary is set
-        if EE_AVAILABLE and self.ee_boundary is not None:
+        if self.ee_available and self.ee_boundary is not None:
             try:
                 if self.verbose:
                     print("🛰️ Setting up Earth Engine basemaps (NDVI and NDWI)...")
                 
-                # Add NDVI basemap
                 ndvi_median = get_s2_ndvi_median(
                     self.ee_boundary, self.config.start_date, self.config.end_date)
                 ndvi_url = get_ee_image_url(ndvi_median, BasemapConfig.NDVI_VIS_PARAMS)
                 self.basemap_tiles['NDVI'] = ndvi_url
 
-                # Add NDWI basemap
                 ndwi_median = get_s2_ndwi_median(
                     self.ee_boundary, self.config.start_date, self.config.end_date)
                 ndwi_url = get_ee_image_url(ndwi_median, BasemapConfig.NDWI_VIS_PARAMS)
@@ -231,7 +229,7 @@ class GeoVibes:
                     print(f"⚠️  Failed to create Earth Engine basemaps: {e}")
                     print("⚠️  Continuing with basic basemaps only")
         else:
-            if not EE_AVAILABLE and self.verbose:
+            if not self.ee_available and self.verbose:
                 print("⚠️  Earth Engine not available - NDVI/NDWI basemaps skipped")
 
 

@@ -1,11 +1,23 @@
+from typing import Dict, Optional
 from dotenv import load_dotenv
 import ee
 
-def initialize_ee_with_credentials():
-    """Initialize Earth Engine with user credentials or service account if configured."""
+
+def initialize_ee_with_credentials(project: Optional[str] = None) -> bool:
+    """Initialize Earth Engine with user credentials.
+    
+    Args:
+        project: Google Cloud project ID. If None, uses EE default.
+        
+    Returns:
+        True if initialization succeeded, False otherwise.
+    """
     load_dotenv()
     try:
-        ee.Initialize(project='demeterlabs-gee')  # Use user's default project
+        if project:
+            ee.Initialize(project=project)
+        else:
+            ee.Initialize()
         print("✅ Earth Engine initialized with user credentials")
         return True
     except Exception as e:
@@ -13,23 +25,23 @@ def initialize_ee_with_credentials():
         print("\n🔧 To enable NDVI/NDWI basemaps, please run the following command:")
         print("    earthengine authenticate")
         print("⚠️  Continuing without Earth Engine (NDVI/NDWI basemaps will be unavailable)")
-        return False  # Return False instead of raising an error
+        return False
 
 
 def get_s2_cloud_masked_collection(aoi: ee.Geometry,
                                  start_date: str = '2024-01-01', 
                                  end_date: str = '2025-12-31',
                                  clear_threshold: float = 0.80) -> ee.ImageCollection:
-    """Get cloud-masked Sentinel-2 collection for a given area and time period.
+    """Get cloud-masked Sentinel-2 collection using CloudScore+ for quality filtering.
     
     Args:
-        aoi: Earth Engine geometry defining area of interest
-        start_date: Start date in YYYY-MM-DD format
-        end_date: End date in YYYY-MM-DD format
-        clear_threshold: Minimum cloud score threshold (0-1) for including pixels
+        aoi: Earth Engine geometry defining area of interest.
+        start_date: Start date in YYYY-MM-DD format.
+        end_date: End date in YYYY-MM-DD format.
+        clear_threshold: CloudScore+ threshold (0-1) where 1 is clearest.
         
     Returns:
-        Cloud-masked Sentinel-2 image collection
+        Sentinel-2 image collection with cloud masking applied.
     """
     s2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
     csPlus = ee.ImageCollection('GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED')
@@ -46,17 +58,17 @@ def get_s2_rgb_median(aoi: ee.Geometry,
                       end_date: str = '2025-12-31', 
                       clear_threshold: float = 0.80,
                       scale_factor: float = 1) -> ee.Image:
-    """Get median RGB composite from Sentinel-2 imagery for a given area and time period.
+    """Create median RGB composite from cloud-masked Sentinel-2 imagery.
     
     Args:
-        aoi: Earth Engine geometry defining area of interest
-        start_date: Start date in YYYY-MM-DD format
-        end_date: End date in YYYY-MM-DD format
-        clear_threshold: Minimum cloud score threshold (0-1) for including pixels
-        scale_factor: Factor to divide image values by
+        aoi: Earth Engine geometry defining area of interest.
+        start_date: Start date in YYYY-MM-DD format.
+        end_date: End date in YYYY-MM-DD format.
+        clear_threshold: CloudScore+ threshold (0-1) for pixel quality.
+        scale_factor: Divisor for scaling pixel values.
         
     Returns:
-        Median RGB composite as Earth Engine Image with bands B4 (R), B3 (G), B2 (B)
+        Median RGB composite with bands B4 (red), B3 (green), B2 (blue).
     """
     collection = get_s2_cloud_masked_collection(aoi, start_date, end_date, clear_threshold)
     return collection.select(['B4', 'B3', 'B2']).median().divide(scale_factor)
@@ -66,16 +78,16 @@ def get_s2_ndvi_median(aoi: ee.Geometry,
                        start_date: str = '2024-01-01',
                        end_date: str = '2025-12-31',
                        clear_threshold: float = 0.80) -> ee.Image:
-    """Get median NDVI from Sentinel-2 imagery for a given area and time period.
+    """Create median NDVI from cloud-masked Sentinel-2 imagery.
     
     Args:
-        aoi: Earth Engine geometry defining area of interest
-        start_date: Start date in YYYY-MM-DD format
-        end_date: End date in YYYY-MM-DD format
-        clear_threshold: Minimum cloud score threshold (0-1) for including pixels
+        aoi: Earth Engine geometry defining area of interest.
+        start_date: Start date in YYYY-MM-DD format.
+        end_date: End date in YYYY-MM-DD format.
+        clear_threshold: CloudScore+ threshold (0-1) for pixel quality.
         
     Returns:
-        Median NDVI as Earth Engine Image
+        Median NDVI image calculated from NIR (B8) and red (B4) bands.
     """
     collection = get_s2_cloud_masked_collection(aoi, start_date, end_date, clear_threshold)
     ndvi = collection.map(lambda img: img.normalizedDifference(['B8', 'B4']).rename('ndvi'))
@@ -86,16 +98,16 @@ def get_s2_ndwi_median(aoi: ee.Geometry,
                        start_date: str = '2024-01-01',
                        end_date: str = '2025-12-31',
                        clear_threshold: float = 0.80) -> ee.Image:
-    """Get median NDWI from Sentinel-2 imagery for a given area and time period.
+    """Create median NDWI from cloud-masked Sentinel-2 imagery.
     
     Args:
-        aoi: Earth Engine geometry defining area of interest
-        start_date: Start date in YYYY-MM-DD format
-        end_date: End date in YYYY-MM-DD format
-        clear_threshold: Minimum cloud score threshold (0-1) for including pixels
+        aoi: Earth Engine geometry defining area of interest.
+        start_date: Start date in YYYY-MM-DD format.
+        end_date: End date in YYYY-MM-DD format.
+        clear_threshold: CloudScore+ threshold (0-1) for pixel quality.
         
     Returns:
-        Median NDWI as Earth Engine Image
+        Median NDWI image calculated from green (B3) and NIR (B8) bands.
     """
     collection = get_s2_cloud_masked_collection(aoi, start_date, end_date, clear_threshold)
     ndwi = collection.map(lambda img: img.normalizedDifference(['B3', 'B8']).rename('ndwi'))
@@ -106,31 +118,31 @@ def get_s2_hsv_median(aoi: ee.Geometry,
                       start_date: str = '2023-01-01',
                       end_date: str = '2024-12-31',
                       clear_threshold: float = 0.80) -> ee.Image:
-    """Get median HSV composite from Sentinel-2 imagery for a given area and time period.
+    """Create median HSV composite from cloud-masked Sentinel-2 imagery.
     
     Args:
-        aoi: Earth Engine geometry defining area of interest
-        start_date: Start date in YYYY-MM-DD format
-        end_date: End date in YYYY-MM-DD format
-        clear_threshold: Minimum cloud score threshold (0-1) for including pixels
+        aoi: Earth Engine geometry defining area of interest.
+        start_date: Start date in YYYY-MM-DD format.
+        end_date: End date in YYYY-MM-DD format.
+        clear_threshold: CloudScore+ threshold (0-1) for pixel quality.
         
     Returns:
-        Median HSV composite as Earth Engine Image with bands hue, saturation, value
+        HSV composite with hue, saturation, and value bands.
     """
     rgb_median = get_s2_rgb_median(aoi, start_date, end_date, clear_threshold).divide(10000)
     hsv_median = ee.Image.rgbToHsv(rgb_median)
     return hsv_median.select(['hue', 'saturation', 'value'])
     
 
-def get_ee_image_url(image: ee.Image, vis_params: dict) -> str:
-    """Get tile URL for displaying Earth Engine image in web map.
+def get_ee_image_url(image: ee.Image, vis_params: Dict) -> str:
+    """Generate tile URL template for Earth Engine image display.
     
     Args:
-        image: Earth Engine Image to display
-        vis_params: Dictionary of visualization parameters
+        image: Earth Engine image to visualize.
+        vis_params: Visualization parameters (min, max, palette, bands, etc.).
         
     Returns:
-        URL template string for map tiles
+        URL template string with {z}/{x}/{y} placeholders for map tiles.
     """
     map_id = image.getMapId(vis_params)
     return map_id['tile_fetcher'].url_format
