@@ -185,14 +185,19 @@ class DatabaseConstants:
             str: SQL query string
         """
         return f"""
-        WITH query(vec) AS (SELECT CAST(? AS FLOAT[{embedding_dim}]))
         SELECT  g.id,
                 ST_AsGeoJSON(g.geometry) AS geometry_json,
                 ST_AsText(g.geometry)  AS geometry_wkt,
-                g.embedding <-> q.vec AS distance
-        FROM    geo_embeddings AS g, query AS q
-        ORDER BY g.embedding <-> q.vec
-        LIMIT ?;
+                distance
+        FROM (
+            SELECT  g.id,
+                    g.geometry,
+                    g.embedding <-> CAST(? AS FLOAT[{embedding_dim}]) AS distance
+            FROM    geo_embeddings g
+            WHERE   g.embedding IS NOT NULL
+            ORDER BY distance
+            LIMIT ?
+        ) g;
         """
     
     # Legacy constants for backward compatibility (deprecated)

@@ -8,6 +8,7 @@ from typing import List, Set, Optional, Dict
 import geopandas as gpd
 import duckdb
 import pandas as pd
+import numpy as np
 from shapely.ops import unary_union
 from tqdm import tqdm
 from joblib import Parallel, delayed
@@ -121,6 +122,72 @@ def process_and_save_geojson(gcs_path: str, epsg_code: str, output_dir: str) -> 
         logging.warning(f"Failed to process {gcs_path}: {e}")
         return None
 
+def check_and_clean_embeddings(parquet_files: List[str]) -> List[str]:
+    """Check parquet files for NaN embeddings and create cleaned versions."""
+    
+    logging.info("Checking parquet files for NaN values in embeddings...")
+    cleaned_files = []
+    total_nan_count = 0
+    files_with_nans = []
+    
+    for parquet_file in tqdm(parquet_files, desc="Checking parquet files"):
+        # Read the parquet file as GeoDataFrame to preserve geometry type
+        try:
+            df = gpd.read_parquet(parquet_file)
+        except Exception:
+            # Fallback to pandas if geopandas fails
+            df = pd.read_parquet(parquet_file)
+        original_count = len(df)
+        
+        # Check for NaN values in embedding column
+        if 'embedding' in df.columns:
+            # Convert embeddings to numpy arrays for NaN checking
+            embeddings = np.array(df['embedding'].tolist())
+            
+            # Find rows with any NaN values in embeddings
+            nan_mask = np.isnan(embeddings).any(axis=1)
+            nan_count = nan_mask.sum()
+            
+            if nan_count > 0:
+                logging.warning(f"Found {nan_count} embeddings with NaN values in {pathlib.Path(parquet_file).name}")
+                files_with_nans.append(pathlib.Path(parquet_file).name)
+                total_nan_count += nan_count
+                
+                # Remove rows with NaN embeddings
+                df_clean = df[~nan_mask].copy()
+                
+                # Save cleaned version - preserve geometry column type if it's a GeoDataFrame
+                clean_filename = parquet_file.replace('.parquet', '_clean.parquet')
+                if isinstance(df_clean, gpd.GeoDataFrame):
+                    df_clean.to_parquet(clean_filename, index=False)
+                else:
+                    # Convert to GeoDataFrame if it has geometry column
+                    if 'geometry' in df_clean.columns:
+                        df_clean = gpd.GeoDataFrame(df_clean)
+                    df_clean.to_parquet(clean_filename, index=False)
+                cleaned_files.append(clean_filename)
+                
+                logging.info(f"Cleaned {pathlib.Path(parquet_file).name}: {original_count} -> {len(df_clean)} rows")
+            else:
+                # No NaN values, use original file
+                cleaned_files.append(parquet_file)
+        else:
+            logging.warning(f"No 'embedding' column found in {pathlib.Path(parquet_file).name}")
+            cleaned_files.append(parquet_file)
+    
+    # Summary report
+    if total_nan_count > 0:
+        logging.warning(f"NaN SUMMARY:")
+        logging.warning(f"  Total embeddings with NaN values: {total_nan_count}")
+        logging.warning(f"  Files affected: {len(files_with_nans)}")
+        logging.warning(f"  Affected files: {', '.join(files_with_nans)}")
+        logging.warning(f"  Cleaned versions created with '_clean.parquet' suffix")
+    else:
+        logging.info("✅ No NaN values found in any embeddings")
+    
+    return cleaned_files
+
+
 def create_duckdb_index(
     parquet_files: List[str], 
     output_file: str, 
@@ -129,6 +196,9 @@ def create_duckdb_index(
     embedding_dim: int = 64
 ) -> None:
     """Creates a DuckDB database with HNSW and spatial indexes from local parquet files."""
+    
+    # Check and clean embeddings before building database
+    cleaned_parquet_files = check_and_clean_embeddings(parquet_files)
     
     logging.info(f"Creating DuckDB database at {output_file} with {metric} metric...")
     logging.info(f"Using embedding dimension: {embedding_dim}")
@@ -144,7 +214,7 @@ def create_duckdb_index(
     # Convert string paths to Path objects and create proper path strings
     path_strings = [
         f"'{p_str}'"
-        for p_str in (str(pathlib.Path(p).resolve()).replace("\\", "/") for p in parquet_files)
+        for p_str in (str(pathlib.Path(p).resolve()).replace("\\", "/") for p in cleaned_parquet_files)
     ]
     sql_parquet_files_list_str = "[" + ", ".join(path_strings) + "]"
 
@@ -154,7 +224,7 @@ def create_duckdb_index(
         tile_id AS id,
         CAST({embedding_column} AS FLOAT[{embedding_dim}]) as embedding,
         geometry
-    FROM read_parquet({sql_parquet_files_list_str});
+    FROM read_parquet({sql_parquet_files_list_str}, union_by_name=true);
     """
 
     logging.info("Creating table and ingesting data...")
@@ -239,12 +309,31 @@ def main():
             )
 
             newly_processed_files = [f for f in processed_files if f is not None]
+            failed_downloads = len(processed_files) - len(newly_processed_files)
+            
+            if failed_downloads > 0:
+                logging.error(f"Failed to download/process {failed_downloads} out of {len(tasks_to_process)} required files.")
+                logging.error("Cannot proceed with incomplete data. All required files must be successfully downloaded.")
+                sys.exit(1)
+            
             local_parquet_files.extend(newly_processed_files)
+            logging.info(f"Successfully processed all {len(newly_processed_files)} missing files.")
+
+        # Validate we have all expected files
+        expected_file_count = len(mgrs_epsg_map)
+        actual_file_count = len(local_parquet_files)
+        
+        if actual_file_count != expected_file_count:
+            logging.error(f"File count mismatch: Expected {expected_file_count} files but have {actual_file_count} files.")
+            logging.error("Cannot proceed with incomplete data.")
+            sys.exit(1)
 
         if not local_parquet_files:
             logging.error("No data could be processed or found.")
-            return
+            sys.exit(1)
 
+        logging.info(f"Validated all {len(local_parquet_files)} required parquet files are present.")
+        
         # Create DuckDB index from all local parquet files (existing and newly processed)
         create_duckdb_index(local_parquet_files, args.output_db_file, args.metric, embedding_dim=args.embedding_dim)
 

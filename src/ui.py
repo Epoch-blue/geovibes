@@ -99,6 +99,11 @@ class GeoVibes:
         if duckdb_connection is None:
             self.duckdb_connection = duckdb.connect(self.config.duckdb_path, read_only=True)
             self._owns_connection = True
+            
+            # Set memory limits to prevent kernel crashes
+            self.duckdb_connection.execute("SET memory_limit='12GB'")
+            self.duckdb_connection.execute("SET max_memory='12GB'")
+            self.duckdb_connection.execute("SET temp_directory='/tmp'")
         else:
             self.duckdb_connection = duckdb_connection
             self._owns_connection = False
