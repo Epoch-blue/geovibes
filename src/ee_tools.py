@@ -56,8 +56,7 @@ def get_s2_cloud_masked_collection(aoi: ee.Geometry,
 def get_s2_rgb_median(aoi: ee.Geometry,
                       start_date: str = '2024-01-01',
                       end_date: str = '2025-12-31', 
-                      clear_threshold: float = 0.80,
-                      scale_factor: float = 1) -> ee.Image:
+                      clear_threshold: float = 0.80) -> ee.Image:
     """Create median RGB composite from cloud-masked Sentinel-2 imagery.
     
     Args:
@@ -65,13 +64,12 @@ def get_s2_rgb_median(aoi: ee.Geometry,
         start_date: Start date in YYYY-MM-DD format.
         end_date: End date in YYYY-MM-DD format.
         clear_threshold: CloudScore+ threshold (0-1) for pixel quality.
-        scale_factor: Divisor for scaling pixel values.
         
     Returns:
         Median RGB composite with bands B4 (red), B3 (green), B2 (blue).
     """
     collection = get_s2_cloud_masked_collection(aoi, start_date, end_date, clear_threshold)
-    return collection.select(['B4', 'B3', 'B2']).median().divide(scale_factor)
+    return collection.select(['B4', 'B3', 'B2']).median()
 
 
 def get_s2_ndvi_median(aoi: ee.Geometry,

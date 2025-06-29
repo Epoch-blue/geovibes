@@ -71,6 +71,12 @@ class BasemapConfig:
     }
     
     # Earth Engine basemap visualization parameters
+    S2_RGB_VIS_PARAMS = {
+        'min': 0,
+        'max': 3000,
+        'bands': ['B4', 'B3', 'B2']
+    }
+    
     NDVI_VIS_PARAMS = {
         'min': -0.2,
         'max': 0.8,

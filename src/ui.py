@@ -18,7 +18,7 @@ import shapely
 from shapely.geometry import Point
 import webbrowser
 
-from .ee_tools import get_s2_ndvi_median, get_s2_ndwi_median, get_ee_image_url, initialize_ee_with_credentials
+from .ee_tools import get_s2_rgb_median, get_s2_ndvi_median, get_s2_ndwi_median, get_ee_image_url, initialize_ee_with_credentials
 from .ui_config import UIConstants, BasemapConfig, GeoVibesConfig, DatabaseConstants, LayerStyles
 
 warnings.simplefilter("ignore", category=FutureWarning)
@@ -203,13 +203,18 @@ class GeoVibes:
 
 
     def _setup_ee_basemaps(self) -> None:
-        """Set up Earth Engine basemaps (NDVI and NDWI) if available."""
+        """Set up Earth Engine basemaps (Sentinel-2 RGB, NDVI, NDWI) if available."""
         self.basemap_tiles = BasemapConfig.BASEMAP_TILES.copy()
         
         if self.ee_available and self.ee_boundary is not None:
             try:
                 if self.verbose:
-                    print("🛰️ Setting up Earth Engine basemaps (NDVI and NDWI)...")
+                    print("🛰️ Setting up Earth Engine basemaps (S2 RGB, NDVI, NDWI)...")
+                
+                s2_rgb_median = get_s2_rgb_median(
+                    self.ee_boundary, self.config.start_date, self.config.end_date)
+                s2_rgb_url = get_ee_image_url(s2_rgb_median, BasemapConfig.S2_RGB_VIS_PARAMS)
+                self.basemap_tiles['S2_RGB'] = s2_rgb_url
                 
                 ndvi_median = get_s2_ndvi_median(
                     self.ee_boundary, self.config.start_date, self.config.end_date)
@@ -230,7 +235,7 @@ class GeoVibes:
                     print("⚠️  Continuing with basic basemaps only")
         else:
             if not self.ee_available and self.verbose:
-                print("⚠️  Earth Engine not available - NDVI/NDWI basemaps skipped")
+                print("⚠️  Earth Engine not available - S2/NDVI/NDWI basemaps skipped")
 
 
     def _build_map(self, center_y, center_x):
