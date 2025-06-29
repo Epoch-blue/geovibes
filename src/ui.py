@@ -178,9 +178,16 @@ class GeoVibes:
         
         # Add legend
         self.legend = HTML(value=f"""
-            <div style='background: white; padding: 5px; border-radius: 5px; opacity: 0.8;'>
-                <span style='color: {UIConstants.POS_COLOR}; font-weight: bold;'>🔵 Positive</span> | 
-                <span style='color: {UIConstants.NEG_COLOR}; font-weight: bold;'>🟠 Negative</span>
+            <div style='background: white; padding: 5px; border-radius: 5px; opacity: 0.8; font-size: 12px;'>
+                <div><strong>Labels:</strong> 
+                    <span style='color: {UIConstants.POS_COLOR}; font-weight: bold;'>🔵 Positive</span> | 
+                    <span style='color: {UIConstants.NEG_COLOR}; font-weight: bold;'>🟠 Negative</span>
+                </div>
+                <div style='margin-top: 3px;'><strong>Search Results:</strong> 
+                    <span style='color: #00ff00; font-weight: bold;'>🟢 Most Similar</span> → 
+                    <span style='color: #ffff00; font-weight: bold;'>🟡 Medium</span> → 
+                    <span style='color: #ff4444; font-weight: bold;'>🔴 Least Similar</span>
+                </div>
             </div>
         """)
         
@@ -911,21 +918,34 @@ class GeoVibes:
             'geometry': geometries
         })
         
-        # Create GeoJSON for map display
+        # Create GeoJSON for map display with distance-based coloring
         detections_geojson = {
             "type": "FeatureCollection",
             "features": []
         }
         
-        for _, row in search_results_filtered.iterrows():
-            detections_geojson["features"].append({
-                "type": "Feature",
-                "geometry": json.loads(row['geometry_json']),
-                "properties": {"id": str(row['id']), "distance": row['distance']}  # Ensure string type
-            })
+        if not search_results_filtered.empty:
+            # Calculate distance range for color mapping
+            min_distance = search_results_filtered['distance'].min()
+            max_distance = search_results_filtered['distance'].max()
+            
+            for _, row in search_results_filtered.iterrows():
+                # Calculate color based on distance
+                color = UIConstants.distance_to_color(row['distance'], min_distance, max_distance)
+                
+                detections_geojson["features"].append({
+                    "type": "Feature",
+                    "geometry": json.loads(row['geometry_json']),
+                    "properties": {
+                        "id": str(row['id']),
+                        "distance": row['distance'],
+                        "color": color,
+                        "fillColor": color
+                    }
+                })
         
-        # Update the map
-        self.update_layer(self.points, detections_geojson)
+        # Update the map with distance-colored points
+        self._update_search_layer_with_colors(detections_geojson)
 
     def label_point(self, **kwargs):
         """Assign a label and map layer to a clicked map point."""
@@ -1007,6 +1027,24 @@ class GeoVibes:
     def update_layer(self, layer, geojson_data):
         """Update a specific layer with new GeoJSON data."""
         layer.data = geojson_data
+    
+    def _update_search_layer_with_colors(self, geojson_data: Dict) -> None:
+        """Update search results layer with distance-based coloring."""
+        # Define style function that uses per-feature colors
+        def style_function(feature):
+            props = feature.get('properties', {})
+            return {
+                'color': 'black',
+                'radius': UIConstants.SEARCH_POINT_RADIUS,
+                'fillColor': props.get('fillColor', UIConstants.SEARCH_COLOR),
+                'opacity': UIConstants.POINT_OPACITY,
+                'fillOpacity': UIConstants.POINT_FILL_OPACITY,
+                'weight': UIConstants.SEARCH_POINT_WEIGHT
+            }
+        
+        # Update the points layer with new data and style function
+        self.points.data = geojson_data
+        self.points.style_callback = style_function
 
     def update_layers(self):
         if self.pos_ids:

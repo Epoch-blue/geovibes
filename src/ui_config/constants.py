@@ -3,6 +3,7 @@ Constants for the GeoVibes application.
 """
 
 import os
+import numpy as np
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -50,6 +51,47 @@ class UIConstants:
     POSITIVE_LABEL = 1
     NEGATIVE_LABEL = 0
     ERASE_LABEL = -100
+    
+    # Distance-based color mapping
+    DISTANCE_COLORS = {
+        'HIGH_SIMILARITY': '#00ff00',    # Green (low distance, high similarity)
+        'MEDIUM_SIMILARITY': '#ffff00',  # Yellow (medium distance)
+        'LOW_SIMILARITY': '#ff4444',     # Red (high distance, low similarity)
+        'DEFAULT': '#ffe014'             # Default yellow
+    }
+    
+    @staticmethod
+    def distance_to_color(distance: float, min_dist: float, max_dist: float) -> str:
+        """Convert distance value to hex color using a green-yellow-red gradient.
+        
+        Args:
+            distance: Distance value to convert.
+            min_dist: Minimum distance in the dataset.
+            max_dist: Maximum distance in the dataset.
+            
+        Returns:
+            Hex color string representing similarity (green=high, red=low).
+        """
+        if max_dist == min_dist:
+            return UIConstants.DISTANCE_COLORS['MEDIUM_SIMILARITY']
+        
+        # Normalize distance to 0-1 range
+        normalized = (distance - min_dist) / (max_dist - min_dist)
+        normalized = np.clip(normalized, 0, 1)
+        
+        # Create gradient: green (0) -> yellow (0.5) -> red (1)
+        if normalized <= 0.5:
+            # Green to yellow
+            r = int(255 * (normalized * 2))
+            g = 255
+            b = 0
+        else:
+            # Yellow to red  
+            r = 255
+            g = int(255 * (1 - (normalized - 0.5) * 2))
+            b = 0
+        
+        return f'#{r:02x}{g:02x}{b:02x}'
 
 
 class BasemapConfig:
@@ -78,8 +120,8 @@ class BasemapConfig:
     }
     
     NDVI_VIS_PARAMS = {
-        'min': -0.2,
-        'max': 0.8,
+        'min': -0.1,
+        'max': 1.0,
         'palette': ['red', 'yellow', 'green']
     }
     
