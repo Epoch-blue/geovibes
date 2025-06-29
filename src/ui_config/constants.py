@@ -92,6 +92,20 @@ class DatabaseConstants:
     LOAD spatial;
     """
     
+    @classmethod
+    def get_memory_setup_queries(cls):
+        """Get memory configuration queries."""
+        return [
+            f"SET memory_limit='{cls.MEMORY_LIMIT}'",
+            f"SET max_memory='{cls.MAX_MEMORY}'",
+            f"SET temp_directory='{cls.TEMP_DIRECTORY}'"
+        ]
+    
+    # Memory configuration
+    MEMORY_LIMIT = '12GB'
+    MAX_MEMORY = '12GB'
+    TEMP_DIRECTORY = '/tmp'
+    
     # Chunk size for embedding fetching to avoid memory issues
     EMBEDDING_CHUNK_SIZE = 10000
     
