@@ -11,7 +11,7 @@ import geopandas as gpd
 import ipyleaflet as ipyl
 from ipyleaflet import Map, DrawControl
 from IPython.display import display
-from ipywidgets import Button, VBox, HBox, IntSlider, Label, Layout, HTML, ToggleButtons, Accordion, FileUpload, Output
+from ipywidgets import Button, VBox, HBox, IntSlider, Label, Layout, HTML, ToggleButtons, Accordion, FileUpload
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -277,7 +277,6 @@ class GeoVibes:
             layout=Layout(width='100%')
         )
         
-        self.histogram_output = Output(layout=Layout(width='100%', height='150px', display='none'))
         
         self.reset_btn = Button(
             description='🗑️ Reset',
@@ -289,7 +288,6 @@ class GeoVibes:
         search_section = VBox([
             self.search_btn,
             self.neighbors_slider,
-            self.histogram_output,
             self.reset_btn
         ], layout=Layout(padding='5px', margin='0 0 10px 0'))
         
@@ -398,7 +396,6 @@ class GeoVibes:
             'label_toggle': self.label_toggle,
             'selection_mode': self.selection_mode,
             'neighbors_slider': self.neighbors_slider,
-            'histogram_output': self.histogram_output,
             'basemap_buttons': self.basemap_buttons,
             'save_btn': self.save_btn,
             'load_btn': self.load_btn,
@@ -792,12 +789,6 @@ class GeoVibes:
         self.erase_layer.data = empty_geojson
         self.points.data = empty_geojson
         
-        # Hide histogram component
-        self.histogram_output.layout.display = 'none'
-        
-        # Clear histogram output
-        with self.histogram_output:
-            self.histogram_output.clear_output()
         
         # Clear operation status
         self._clear_operation_status()
@@ -959,13 +950,6 @@ class GeoVibes:
         # Update the map with distance-colored points
         self._update_search_layer_with_colors(detections_geojson)
         
-        # Generate and display histogram
-        if not search_results_filtered.empty:
-            distances = search_results_filtered['distance'].values
-            self._generate_distance_histogram(distances)
-            self.histogram_output.layout.display = 'flex'
-        else:
-            self.histogram_output.layout.display = 'none'
 
     def label_point(self, **kwargs):
         """Assign a label and map layer to a clicked map point."""
@@ -1440,26 +1424,6 @@ class GeoVibes:
                 btn.button_style = 'info'  # Blue highlight for active
             else:
                 btn.button_style = ''  # Default style
-
-    def _generate_distance_histogram(self, distances: np.ndarray) -> None:
-        """Generate and display distance histogram."""
-        with self.histogram_output:
-            self.histogram_output.clear_output(wait=True)
-            
-            if len(distances) == 0:
-                return
-            
-            plt.figure(figsize=(8, 3))
-            n_bins = min(30, len(distances) // 10 + 5)  # Adaptive bin count
-            plt.hist(distances, bins=n_bins, alpha=0.7, color='lightblue', edgecolor='black')
-            
-            plt.xlabel('Distance', fontsize=12)
-            plt.tick_params(axis='x', labelsize=11)  # Bigger x-axis ticks
-            plt.gca().set_yticklabels([])  # Remove y-axis labels
-            plt.title(f'Distance Distribution ({len(distances)} points)', fontsize=12)
-            plt.grid(True, alpha=0.3)
-            plt.tight_layout()
-            plt.show()
 
     def close(self):
         """Clean up resources."""
