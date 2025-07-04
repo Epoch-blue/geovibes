@@ -1,6 +1,7 @@
 {
-    "duckdb_path": "/Users/christopherren/geovibes/data/java_land_cosine.db",
-    "boundary_path": "/Users/christopherren/geovibes/geometries/java.geojson",
+    "duckdb_path": "gs://geovibes/databases/google/java_google.db",
+    "boundary_path": "geometries/java.geojson",
     "start_date": "2024-01-01",
-    "end_date": "2025-01-01"
+    "end_date": "2025-01-01",
+    "gcp_project": "demeterlabs-gee"
 }

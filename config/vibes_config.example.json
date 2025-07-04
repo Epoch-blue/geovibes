@@ -1,0 +1,23 @@
+{
+    "_comment": "Example configuration for GeoVibes",
+    "_instructions": "Copy this to vibes_config.json and customize the paths for your setup",
+    
+    "duckdb_path": "gs://your-bucket-name/data/java_land_cosine.db",
+    "boundary_path": "geometries/java.geojson",
+    "start_date": "2024-01-01",
+    "end_date": "2025-01-01",
+    "gcp_project": "your-gcp-project-id",
+    
+    "_alternative_local_setup": {
+        "duckdb_path": "data/java_land_cosine.db",
+        "boundary_path": "geometries/java.geojson",
+        "start_date": "2024-01-01",
+        "end_date": "2025-01-01"
+    },
+    
+    "_notes": {
+        "duckdb_path": "Can be local path or GCS URL (gs://bucket/path/to/file.db)",
+        "boundary_path": "Can be local path or GCS URL for geometry files",
+        "gcp_project": "Required for Earth Engine integration, optional otherwise"
+    }
+} 

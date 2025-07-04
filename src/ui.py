@@ -100,8 +100,36 @@ class GeoVibes:
             baselayer_url = BasemapConfig.BASEMAP_TILES['MAPTILER']
         
         if duckdb_connection is None:
-            self.duckdb_connection = duckdb.connect(self.config.duckdb_path, read_only=True)
-            self._owns_connection = True
+            if self.config.duckdb_path is None:
+                raise ValueError("duckdb_path is required when duckdb_connection is not provided")
+            
+            # Show connection status for GCS paths
+            if DatabaseConstants.is_gcs_path(self.config.duckdb_path):
+                if self.verbose:
+                    print(f"🌐 Connecting to GCS database: {self.config.duckdb_path}")
+                    import os
+                    if os.getenv('GCS_ACCESS_KEY_ID'):
+                        print("🔑 Using HMAC key authentication")
+                    else:
+                        print("🔑 Using default Google Cloud authentication")
+            elif self.verbose:
+                print(f"💾 Connecting to local database: {self.config.duckdb_path}")
+            
+            try:
+                self.duckdb_connection = DatabaseConstants.setup_duckdb_connection(
+                    self.config.duckdb_path, read_only=True)
+                self._owns_connection = True
+                
+                if self.verbose:
+                    print("✅ Database connection established successfully")
+            except Exception as e:
+                if DatabaseConstants.is_gcs_path(self.config.duckdb_path):
+                    error_msg = f"Failed to connect to GCS database: {str(e)}"
+                    if "authentication" in str(e).lower() or "forbidden" in str(e).lower():
+                        error_msg += "\n💡 Check your GCS authentication setup (see GCS_SETUP.md)"
+                    raise RuntimeError(error_msg)
+                else:
+                    raise RuntimeError(f"Failed to connect to local database: {str(e)}")
             
             # Configure memory limits to prevent kernel crashes
             for query in DatabaseConstants.get_memory_setup_queries():
@@ -124,8 +152,20 @@ class GeoVibes:
         else:
             self.ee_boundary = None
         
-        # Setup spatial extension in DuckDB
-        self.duckdb_connection.execute(DatabaseConstants.EXTENSION_SETUP_QUERY)
+        # Setup extensions in DuckDB (spatial and httpfs if needed)
+        extension_queries = DatabaseConstants.get_extension_setup_queries(self.config.duckdb_path)
+        for query in extension_queries:
+            try:
+                self.duckdb_connection.execute(query)
+                if self.verbose and "httpfs" in query:
+                    print("📦 httpfs extension loaded for GCS support")
+                elif self.verbose and "spatial" in query:
+                    print("🗺️  spatial extension loaded for geometry support")
+            except Exception as e:
+                if "httpfs" in query:
+                    raise RuntimeError(f"Failed to load httpfs extension for GCS support: {str(e)}")
+                else:
+                    raise RuntimeError(f"Failed to load required extension: {str(e)}")
 
         # Detect embedding dimension from database
         try:

@@ -5,6 +5,7 @@ Configuration management for GeoVibes.
 import json
 import os
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass
@@ -15,7 +16,7 @@ class GeoVibesConfig:
     boundary_path: str
     start_date: str
     end_date: str
-    gcp_project: str = None
+    gcp_project: Optional[str] = None
     
     @classmethod
     def from_file(cls, config_path: str) -> 'GeoVibesConfig':
@@ -68,6 +69,46 @@ class GeoVibesConfig:
             gcp_project=config_dict.get('gcp_project')
         )
     
+    def _path_exists(self, path: str) -> bool:
+        """Check if a path exists, supporting both local and GCS paths.
+        
+        Args:
+            path: File path (local or GCS URL)
+            
+        Returns:
+            True if path exists, False otherwise
+        """
+        if path.startswith('gs://'):
+            # For GCS paths, validate URL format
+            if not self._is_valid_gcs_url(path):
+                return False
+            # For now, we assume valid GCS URLs exist
+            # In production, you could use gcsfs to check existence:
+            # try:
+            #     import gcsfs
+            #     fs = gcsfs.GCSFileSystem()
+            #     return fs.exists(path)
+            # except ImportError:
+            #     pass
+            return True
+        else:
+            # For local paths, use standard os.path.exists
+            return os.path.exists(path)
+    
+    def _is_valid_gcs_url(self, url: str) -> bool:
+        """Validate GCS URL format.
+        
+        Args:
+            url: GCS URL to validate
+            
+        Returns:
+            True if URL format is valid, False otherwise
+        """
+        import re
+        # Basic GCS URL pattern: gs://bucket-name/path/to/file
+        pattern = r'^gs://[a-z0-9]([a-z0-9\-._]{0,61}[a-z0-9])?(/.*)?$'
+        return bool(re.match(pattern, url))
+    
     def validate(self) -> None:
         """Validate the configuration.
         
@@ -76,10 +117,10 @@ class GeoVibesConfig:
             ValueError: If configuration values are invalid
         """
         # Check that required files exist
-        if not os.path.exists(self.boundary_path):
+        if not self._path_exists(self.boundary_path):
             raise FileNotFoundError(f"Boundary file not found: {self.boundary_path}")
         
-        if not os.path.exists(self.duckdb_path):
+        if not self._path_exists(self.duckdb_path):
             raise FileNotFoundError(f"DuckDB file not found: {self.duckdb_path}")
         
         # Validate date format (basic check)
