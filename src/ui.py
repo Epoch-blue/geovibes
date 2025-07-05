@@ -226,6 +226,7 @@ class GeoVibes:
         self.cached_embeddings = {}
         self.detections_with_embeddings = None
         self.current_operation = None  # Track current operation for status display
+        self.vector_layer = None  # Track custom vector layer
         
         # Build UI
         self.side_panel, self.ui_widgets = self._build_side_panel()
@@ -419,6 +420,18 @@ class GeoVibes:
             database_section_widgets.append(Label('Select Database:'))
             database_section_widgets.append(self.database_dropdown)
 
+        # --- Add Vector Layer section ---
+        self.add_vector_btn = Button(
+            description='📄 Add Vector Layer',
+            layout=Layout(width='100%'),
+            button_style=''
+        )
+        self.vector_file_upload = FileUpload(
+            accept='.geojson,.parquet',
+            multiple=False,
+            layout=Layout(width='100%', display='none')  # Initially hidden
+        )
+        
         # --- External Tools section ---
         self.google_maps_btn = Button(
             description='🌍 Google Maps ↗',
@@ -435,7 +448,7 @@ class GeoVibes:
                 self.selection_mode
             ], layout=Layout(padding='5px')),
             VBox(basemap_section_widgets, layout=Layout(padding='5px')),
-            VBox([self.save_btn, self.load_btn, self.file_upload, self.google_maps_btn], layout=Layout(padding='5px'))
+            VBox([self.save_btn, self.load_btn, self.file_upload, self.add_vector_btn, self.vector_file_upload, self.google_maps_btn], layout=Layout(padding='5px'))
         ]
         
         accordion_titles = ['Label Mode', 'Basemaps', 'Export & Tools']
@@ -489,6 +502,8 @@ class GeoVibes:
             'save_btn': self.save_btn,
             'load_btn': self.load_btn,
             'file_upload': self.file_upload,
+            'add_vector_btn': self.add_vector_btn,
+            'vector_file_upload': self.vector_file_upload,
             'google_maps_btn': self.google_maps_btn,
             'collapse_btn': self.collapse_btn
         }
@@ -613,6 +628,8 @@ class GeoVibes:
         self.save_btn.on_click(self.save_dataset)
         self.load_btn.on_click(self._on_load_click)
         self.file_upload.observe(self._on_file_upload, names=['value'])
+        self.add_vector_btn.on_click(self._on_add_vector_click)
+        self.vector_file_upload.observe(self._on_vector_file_upload, names=['value'])
         self.google_maps_btn.on_click(self._on_google_maps_click)
         
         # Map interactions
@@ -676,6 +693,48 @@ class GeoVibes:
             # Still hide the widget on error
             self.file_upload.layout.display = 'none'
             self.load_btn.description = '📂 Load Dataset'
+
+
+    def _on_add_vector_click(self, b):
+        """Handle add vector layer button click."""
+        # Toggle file upload widget visibility
+        if self.vector_file_upload.layout.display == 'none':
+            self.vector_file_upload.layout.display = 'flex'
+            self.add_vector_btn.description = '📄 Cancel Vector'
+        else:
+            self.vector_file_upload.layout.display = 'none'
+            self.add_vector_btn.description = '📄 Add Vector Layer'
+            # Clear any uploaded files
+            self.vector_file_upload.value = ()
+
+
+    def _on_vector_file_upload(self, change):
+        """Handle vector file upload."""
+        if not change['new']:
+            return
+        
+        # Get the uploaded file - change['new'] is a tuple of uploaded files
+        uploaded_files = change['new']
+        if not uploaded_files:
+            return
+            
+        # Get the first uploaded file
+        uploaded_file = uploaded_files[0]
+        filename = uploaded_file['name']
+        content = uploaded_file['content']
+        
+        try:
+            self._add_vector_layer_from_content(content, filename)
+            # Hide the upload widget and reset button text
+            self.vector_file_upload.layout.display = 'none'
+            self.add_vector_btn.description = '📄 Add Vector Layer'
+            # Clear the upload widget
+            self.vector_file_upload.value = ()
+        except Exception as e:
+            print(f"❌ Error loading vector file: {str(e)}")
+            # Still hide the widget on error
+            self.vector_file_upload.layout.display = 'none'
+            self.add_vector_btn.description = '📄 Add Vector Layer'
 
 
     def _on_basemap_select(self, basemap_name):
@@ -886,6 +945,12 @@ class GeoVibes:
         self.neg_layer.data = empty_geojson
         self.erase_layer.data = empty_geojson
         self.points.data = empty_geojson
+        
+        # Remove vector layer if it exists
+        if self.vector_layer:
+            if self.vector_layer in self.map.layers:
+                self.map.remove_layer(self.vector_layer)
+            self.vector_layer = None
         
         
         # Clear operation status
@@ -1515,6 +1580,102 @@ class GeoVibes:
             print(f"   - Positive labels: {len(self.pos_ids)}")
             print(f"   - Negative labels: {len(self.neg_ids)}")
 
+
+    def _add_vector_layer_from_content(self, content, filename):
+        """Add a vector layer from uploaded file content."""
+        if self.verbose:
+            print(f"📄 Adding vector layer from {filename}...")
+        
+        try:
+            # Convert content to bytes if it's a memoryview
+            if isinstance(content, memoryview):
+                content_bytes = content.tobytes()
+            elif isinstance(content, bytes):
+                content_bytes = content
+            else:
+                content_bytes = bytes(content)
+            
+            # Remove existing vector layer if it exists
+            if self.vector_layer:
+                if self.vector_layer in self.map.layers:
+                    self.map.remove_layer(self.vector_layer)
+                self.vector_layer = None
+            
+            # Determine file type and parse accordingly
+            if filename.lower().endswith('.geojson'):
+                # Parse GeoJSON
+                geojson_data = json.loads(content_bytes.decode('utf-8'))
+                self._add_vector_layer_from_geojson(geojson_data, filename)
+                
+            elif filename.lower().endswith('.parquet'):
+                # Parse GeoParquet using geopandas
+                import io
+                gdf = gpd.read_parquet(io.BytesIO(content_bytes))
+                self._add_vector_layer_from_geodataframe(gdf, filename)
+                
+            else:
+                raise ValueError(f"Unsupported file format. Please use .geojson or .parquet files.")
+                
+        except Exception as e:
+            raise Exception(f"Error processing vector file {filename}: {str(e)}")
+
+
+    def _add_vector_layer_from_geojson(self, geojson_data, filename):
+        """Add vector layer from GeoJSON data."""
+        # Create vector layer with custom styling
+        vector_style = {
+            'color': '#FF6B6B',  # Red outline
+            'weight': 2,
+            'opacity': 0.8,
+            'fillColor': '#FF6B6B',
+            'fillOpacity': 0.3
+        }
+        
+        self.vector_layer = ipyl.GeoJSON(
+            name=f"vector_layer_{filename}",
+            data=geojson_data,
+            style=vector_style
+        )
+        
+        self.map.add_layer(self.vector_layer)
+        
+        # Print summary
+        if self.verbose:
+            feature_count = len(geojson_data.get('features', []))
+            print(f"✅ Vector layer added successfully from {filename}!")
+            print(f"📊 Summary:")
+            print(f"   - Features: {feature_count}")
+
+
+    def _add_vector_layer_from_geodataframe(self, gdf, filename):
+        """Add vector layer from GeoDataFrame."""
+        # Convert GeoDataFrame to GeoJSON
+        geojson_data = json.loads(gdf.to_json())
+        
+        # Create vector layer with custom styling
+        vector_style = {
+            'color': '#FF6B6B',  # Red outline
+            'weight': 2,
+            'opacity': 0.8,
+            'fillColor': '#FF6B6B',
+            'fillOpacity': 0.3
+        }
+        
+        self.vector_layer = ipyl.GeoJSON(
+            name=f"vector_layer_{filename}",
+            data=geojson_data,
+            style=vector_style
+        )
+        
+        self.map.add_layer(self.vector_layer)
+        
+        # Print summary
+        if self.verbose:
+            print(f"✅ Vector layer added successfully from {filename}!")
+            print(f"📊 Summary:")
+            print(f"   - Features: {len(gdf)}")
+            print(f"   - Geometry types: {gdf.geom_type.value_counts().to_dict()}")
+
     def _update_basemap_button_styles(self):
         """Update basemap button styles to highlight current selection."""
         for basemap_name, btn in self.basemap_buttons.items():
@@ -1794,6 +1955,12 @@ class GeoVibes:
         self.neg_layer.data = empty_geojson
         self.erase_layer.data = empty_geojson
         self.points.data = empty_geojson
+        
+        # Remove vector layer if it exists
+        if self.vector_layer:
+            if self.vector_layer in self.map.layers:
+                self.map.remove_layer(self.vector_layer)
+            self.vector_layer = None
         
         # Clear operation status
         self._clear_operation_status()
