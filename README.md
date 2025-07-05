@@ -96,6 +96,45 @@ earthengine authenticate
 
 Follow the authentication flow in your browser. This is only required if you want the NDVI/NDWI basemap options.
 
+### 3. Google Cloud Storage Database Access (Optional - for GCS databases)
+
+GeoVibes can connect to DuckDB databases stored on Google Cloud Storage. If your database is hosted on GCS (e.g., `gs://your-bucket/database.db`), you'll need to set up authentication.
+
+#### Option 1: HMAC Keys (Recommended)
+
+1. **Create HMAC Keys in GCP Console:**
+   - Go to [Cloud Storage Settings](https://console.cloud.google.com/storage/settings)
+   - Click "Interoperability" tab
+   - Click "Create a key" under "Access keys for your user account"
+   - Save the Access Key and Secret
+
+2. **Set Environment Variables:**
+   ```bash
+   export GCS_ACCESS_KEY_ID="your_access_key_here"
+   export GCS_SECRET_ACCESS_KEY="your_secret_key_here"
+   ```
+
+3. **Or create a `.env` file:**
+   ```env
+   GCS_ACCESS_KEY_ID=your_access_key_here
+   GCS_SECRET_ACCESS_KEY=your_secret_key_here
+   MAPTILER_API_KEY=your_maptiler_api_key_here
+   ```
+
+#### Option 2: Default Google Cloud Authentication
+
+If you're running on Google Cloud or have `gcloud` configured:
+
+```bash
+gcloud auth application-default login
+```
+
+#### Security Notes
+
+- **Never commit credentials to version control**
+- Add `.env` to your `.gitignore` file
+- Use environment variables in production
+- Consider using Google Cloud IAM roles for more secure access
 
 ## Generate Embeddings
 

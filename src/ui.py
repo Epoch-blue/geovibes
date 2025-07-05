@@ -1,6 +1,7 @@
 """Interactive map interface for geospatial similarity search using satellite embeddings."""
 
 import json
+import os
 import warnings
 from datetime import datetime
 from typing import Dict, List, Optional, Union, Any
@@ -11,7 +12,7 @@ import geopandas as gpd
 import ipyleaflet as ipyl
 from ipyleaflet import Map, DrawControl
 from IPython.display import display
-from ipywidgets import Button, VBox, HBox, IntSlider, Label, Layout, HTML, ToggleButtons, Accordion, FileUpload
+from ipywidgets import Button, VBox, HBox, IntSlider, Label, Layout, HTML, ToggleButtons, Accordion, FileUpload, Dropdown
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -21,6 +22,7 @@ import webbrowser
 
 from .ee_tools import get_s2_rgb_median, get_s2_ndvi_median, get_s2_ndwi_median, get_ee_image_url, initialize_ee_with_credentials
 from .ui_config import UIConstants, BasemapConfig, GeoVibesConfig, DatabaseConstants, LayerStyles
+from .utils import list_databases_in_directory, get_database_centroid
 
 warnings.simplefilter("ignore", category=FutureWarning)
 
@@ -96,12 +98,56 @@ class GeoVibes:
         
         self.ee_available = initialize_ee_with_credentials(self.config.gcp_project)
         
+        # Initialize database list if directory is provided
+        self.available_databases = []
+        self.current_database_path = None
+        if self.config.duckdb_directory:
+            self.available_databases = list_databases_in_directory(
+                self.config.duckdb_directory, verbose=self.verbose)
+            if self.available_databases:
+                self.current_database_path = self.available_databases[0]
+                if self.verbose:
+                    print(f"📁 Found {len(self.available_databases)} databases in directory")
+            else:
+                if self.verbose:
+                    print("⚠️  No .db files found in directory")
+        elif self.config.duckdb_path:
+            self.current_database_path = self.config.duckdb_path
+        
         if baselayer_url is None:
             baselayer_url = BasemapConfig.BASEMAP_TILES['MAPTILER']
         
         if duckdb_connection is None:
-            self.duckdb_connection = duckdb.connect(self.config.duckdb_path, read_only=True)
-            self._owns_connection = True
+            if self.current_database_path is None:
+                raise ValueError("No database available - either duckdb_path or duckdb_directory must be provided")
+            
+            # Show connection status for GCS paths
+            if DatabaseConstants.is_gcs_path(self.current_database_path):
+                if self.verbose:
+                    print(f"🌐 Connecting to GCS database: {self.current_database_path}")
+                    import os
+                    if os.getenv('GCS_ACCESS_KEY_ID'):
+                        print("🔑 Using HMAC key authentication")
+                    else:
+                        print("🔑 Using default Google Cloud authentication")
+            elif self.verbose:
+                print(f"💾 Connecting to local database: {self.current_database_path}")
+            
+            try:
+                self.duckdb_connection = DatabaseConstants.setup_duckdb_connection(
+                    self.current_database_path, read_only=True)
+                self._owns_connection = True
+                
+                if self.verbose:
+                    print("✅ Database connection established successfully")
+            except Exception as e:
+                if DatabaseConstants.is_gcs_path(self.current_database_path):
+                    error_msg = f"Failed to connect to GCS database: {str(e)}"
+                    if "authentication" in str(e).lower() or "forbidden" in str(e).lower():
+                        error_msg += "\n💡 Check your GCS authentication setup (see GCS_SETUP.md)"
+                    raise RuntimeError(error_msg)
+                else:
+                    raise RuntimeError(f"Failed to connect to local database: {str(e)}")
             
             # Configure memory limits to prevent kernel crashes
             for query in DatabaseConstants.get_memory_setup_queries():
@@ -124,8 +170,21 @@ class GeoVibes:
         else:
             self.ee_boundary = None
         
-        # Setup spatial extension in DuckDB
-        self.duckdb_connection.execute(DatabaseConstants.EXTENSION_SETUP_QUERY)
+        # Setup extensions in DuckDB (spatial and httpfs if needed)
+        if self.current_database_path:
+            extension_queries = DatabaseConstants.get_extension_setup_queries(self.current_database_path)
+            for query in extension_queries:
+                try:
+                    self.duckdb_connection.execute(query)
+                    if self.verbose and "httpfs" in query:
+                        print("📦 httpfs extension loaded for GCS support")
+                    elif self.verbose and "spatial" in query:
+                        print("🗺️  spatial extension loaded for geometry support")
+                except Exception as e:
+                    if "httpfs" in query:
+                        raise RuntimeError(f"Failed to load httpfs extension for GCS support: {str(e)}")
+                    else:
+                        raise RuntimeError(f"Failed to load required extension: {str(e)}")
 
         # Detect embedding dimension from database
         try:
@@ -138,9 +197,12 @@ class GeoVibes:
                 print("⚠️ Using default dimension of 1000")
             self.embedding_dim = 384
 
-        # Get centroid of boundary from geopandas
-        boundary_gdf = gpd.read_file(self.config.boundary_path)
-        center_y, center_x = boundary_gdf.geometry.iloc[0].centroid.y, boundary_gdf.geometry.iloc[0].centroid.x
+        # Warm up GCS database with initial search for better performance
+        if DatabaseConstants.is_gcs_path(self.current_database_path):
+            self._warm_up_gcs_database()
+
+        # Get map center and set up boundary path
+        center_y, center_x = self._setup_boundary_and_center()
         
         # Build map
         self.map = self._build_map(center_y, center_x)
@@ -170,6 +232,9 @@ class GeoVibes:
         
         # Add layers to map
         self._add_map_layers()
+        
+        # Update boundary layer if we have one
+        self._update_boundary_layer()
         
         # Add DrawControl
         self._setup_draw_control()
@@ -339,6 +404,21 @@ class GeoVibes:
             layout=Layout(width='100%', display='none')  # Initially hidden
         )
         
+        # --- Database Selection section ---
+        self.database_dropdown = None
+        database_section_widgets = []
+        if self.available_databases:
+            # Create dropdown with database names (showing just filenames for clarity)
+            database_options = [(os.path.basename(db), db) for db in self.available_databases]
+            self.database_dropdown = Dropdown(
+                options=database_options,
+                value=self.current_database_path,
+                description='',
+                layout=Layout(width='100%')
+            )
+            database_section_widgets.append(Label('Select Database:'))
+            database_section_widgets.append(self.database_dropdown)
+
         # --- External Tools section ---
         self.google_maps_btn = Button(
             description='🌍 Google Maps ↗',
@@ -346,8 +426,8 @@ class GeoVibes:
             button_style=''
         )
         
-        # Build accordion
-        accordion = Accordion(children=[
+        # Build accordion - conditionally include database section
+        accordion_children = [
             VBox([
                 Label('Label Type:'),
                 self.label_toggle,
@@ -356,10 +436,19 @@ class GeoVibes:
             ], layout=Layout(padding='5px')),
             VBox(basemap_section_widgets, layout=Layout(padding='5px')),
             VBox([self.save_btn, self.load_btn, self.file_upload, self.google_maps_btn], layout=Layout(padding='5px'))
-        ])
+        ]
+        
+        accordion_titles = ['Label Mode', 'Basemaps', 'Export & Tools']
+        
+        # Add database section if available
+        if database_section_widgets:
+            accordion_children.insert(0, VBox(database_section_widgets, layout=Layout(padding='5px')))
+            accordion_titles.insert(0, 'Database')
+        
+        accordion = Accordion(children=accordion_children)
         
         # Set titles
-        for i, title in enumerate(['Label Mode', 'Basemaps', 'Export & Tools']):
+        for i, title in enumerate(accordion_titles):
             accordion.set_title(i, title)
         
         # Open label mode by default
@@ -430,14 +519,19 @@ class GeoVibes:
 
     def _add_map_layers(self):
         """Add all necessary layers to the map."""
-        # Region boundary
-        with open(self.config.boundary_path) as f:
-            region_layer = ipyl.GeoJSON(
-                    name="region",
-                    data=json.load(f),
-                    style=LayerStyles.get_region_style()
-                )
-        self.map.add_layer(region_layer)
+        # Region boundary (optional)
+        if hasattr(self, 'effective_boundary_path') and self.effective_boundary_path:
+            try:
+                with open(self.effective_boundary_path) as f:
+                    region_layer = ipyl.GeoJSON(
+                            name="region",
+                            data=json.load(f),
+                            style=LayerStyles.get_region_style()
+                        )
+                self.map.add_layer(region_layer)
+            except Exception as e:
+                if self.verbose:
+                    print(f"⚠️  Could not add boundary layer: {e}")
 
         # Positive layer
         self.pos_layer = ipyl.GeoJSON(
@@ -507,6 +601,10 @@ class GeoVibes:
         # Basemap buttons
         for basemap_name, btn in self.basemap_buttons.items():
             btn.on_click(lambda b, name=basemap_name: self._on_basemap_select(name))
+        
+        # Database dropdown
+        if self.database_dropdown:
+            self.database_dropdown.observe(self._on_database_change, names=['value'])
         
         # Collapse button
         self.collapse_btn.on_click(self._on_toggle_collapse)
@@ -1424,6 +1522,281 @@ class GeoVibes:
                 btn.button_style = 'info'  # Blue highlight for active
             else:
                 btn.button_style = ''  # Default style
+
+    def _construct_boundary_path(self, database_path: str) -> str:
+        """Construct boundary path from database path.
+        
+        Args:
+            database_path: Path to database (e.g., gs://geovibes/databases/google/bali.db)
+            
+        Returns:
+            Constructed boundary path (e.g., gs://geovibes/geometries/bali.geojson)
+        """
+        import os
+        
+        # Extract the database name without extension
+        db_filename = os.path.basename(database_path)  # e.g., "bali.db" or "bali_google.db"
+        db_name_with_ext = os.path.splitext(db_filename)[0]  # e.g., "bali" or "bali_google"
+        
+        # For boundary files, we want just the region name (first part before underscore if any)
+        # e.g., "bali_google" -> "bali", "java_google" -> "java"
+        if '_' in db_name_with_ext:
+            db_name = db_name_with_ext.split('_')[0]
+        else:
+            db_name = db_name_with_ext
+        
+        # Replace the databases part with geometries
+        if database_path.startswith('gs://'):
+            # Handle GCS paths
+            parts = database_path.split('/')
+            # Find the bucket and construct new path
+            bucket = parts[2]  # e.g., "geovibes"
+            boundary_path = f"gs://{bucket}/geometries/{db_name}.geojson"
+        else:
+            # Handle local paths
+            db_dir = os.path.dirname(database_path)
+            # Go up one level and enter geometries folder
+            parent_dir = os.path.dirname(db_dir)
+            boundary_path = os.path.join(parent_dir, 'geometries', f"{db_name}.geojson")
+        
+        return boundary_path
+
+    def _update_ee_boundary(self):
+        """Update Earth Engine boundary based on current effective boundary path."""
+        if not self.ee_available:
+            return
+        
+        if self.effective_boundary_path:
+            try:
+                boundary_gdf = gpd.read_file(self.effective_boundary_path)
+                self.ee_boundary = ee.Geometry(shapely.geometry.mapping(boundary_gdf.union_all()))
+                if self.verbose:
+                    print(f"🛰️ Updated Earth Engine boundary from: {self.effective_boundary_path}")
+            except Exception as e:
+                if self.verbose:
+                    print(f"⚠️  Failed to update Earth Engine boundary: {e}")
+                self.ee_boundary = None
+        else:
+            self.ee_boundary = None
+
+    def _update_boundary_layer(self):
+        """Update or add the boundary layer on the map."""
+        # Remove existing boundary layer if present
+        layers_to_remove = [layer for layer in self.map.layers if getattr(layer, 'name', None) == 'region']
+        for layer in layers_to_remove:
+            self.map.remove_layer(layer)
+        
+        # Add new boundary layer if we have an effective boundary path
+        if hasattr(self, 'effective_boundary_path') and self.effective_boundary_path:
+            try:
+                if self.verbose:
+                    print(f"🗺️  Loading boundary layer: {self.effective_boundary_path}")
+                
+                # Use geopandas to read the file (handles both local and GCS paths)
+                boundary_gdf = gpd.read_file(self.effective_boundary_path)
+                
+                # Convert to GeoJSON format for ipyleaflet
+                boundary_geojson = boundary_gdf.to_json()
+                
+                region_layer = ipyl.GeoJSON(
+                    name="region",
+                    data=json.loads(boundary_geojson),
+                    style=LayerStyles.get_region_style()
+                )
+                self.map.add_layer(region_layer)
+                if self.verbose:
+                    print(f"✅ Boundary layer added successfully")
+            except Exception as e:
+                if self.verbose:
+                    print(f"❌ Could not add boundary layer: {e}")
+
+    def _setup_boundary_and_center(self):
+        """Set up boundary path and get map center coordinates.
+        
+        Returns:
+            Tuple of (center_y, center_x) coordinates
+        """
+        # Determine boundary path
+        boundary_path = self.config.boundary_path
+        if not boundary_path and self.current_database_path:
+            # Auto-construct boundary path from database path
+            boundary_path = self._construct_boundary_path(self.current_database_path)
+        
+        if boundary_path:
+            try:
+                # Use boundary file for centering
+                boundary_gdf = gpd.read_file(boundary_path)
+                center_y, center_x = boundary_gdf.geometry.iloc[0].centroid.y, boundary_gdf.geometry.iloc[0].centroid.x
+                # Store the effective boundary path for later use
+                self.effective_boundary_path = boundary_path
+                if self.verbose:
+                    print(f"📍 Using boundary file: {boundary_path}")
+                return center_y, center_x
+            except Exception as e:
+                if self.verbose:
+                    print(f"⚠️  Could not load boundary file {boundary_path}: {e}")
+                    print("⚠️  Using database centroid for centering")
+                # Fallback to database centroid
+                self.effective_boundary_path = None
+        else:
+            self.effective_boundary_path = None
+        
+        # Use database centroid for centering
+        center_y, center_x = get_database_centroid(self.duckdb_connection, verbose=self.verbose)
+        return center_y, center_x
+
+    def _warm_up_gcs_database(self):
+        """Warm up GCS database with initial search for better performance."""
+        try:
+            if self.verbose:
+                print("🔧 Optimizing database connection...")
+            
+            # Get the first point's embedding from the database
+            first_point_query = """
+            SELECT embedding 
+            FROM geo_embeddings 
+            WHERE embedding IS NOT NULL 
+            LIMIT 1
+            """
+            
+            result = self.duckdb_connection.execute(first_point_query).fetchone()
+            if not result or not result[0]:
+                if self.verbose:
+                    print("⚠️  No embeddings found for warm-up")
+                return
+            
+            first_embedding = result[0]
+            
+            # Run a similarity search with 100 neighbors to warm up the database
+            sql = DatabaseConstants.get_similarity_search_light_query(self.embedding_dim)
+            query_params = [first_embedding, 100]
+            
+            # Execute the warm-up query
+            self.duckdb_connection.execute(sql, query_params).fetchall()
+            
+            if self.verbose:
+                print("✅ Database optimization completed")
+                
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️  Database warm-up failed: {str(e)}")
+
+    def _on_database_change(self, change):
+        """Handle database selection change."""
+        new_database_path = change['new']
+        
+        if new_database_path == self.current_database_path:
+            return  # No change
+        
+        if self.verbose:
+            print(f"🔄 Switching to database: {os.path.basename(new_database_path)}")
+        
+        # Show loading message immediately
+        self._show_operation_status("🔄 Loading database (this can take a couple of seconds)...")
+        
+        try:
+            # Step 1: Quick UI updates - pan map and switch boundary first
+            old_database_path = self.current_database_path
+            self.current_database_path = new_database_path
+            
+            # Update boundary path and recenter map immediately (fast operation)
+            lat, lon = self._setup_boundary_and_center()  # Returns (lat, lon) - center_y, center_x
+            self.map.center = (lat, lon)  # ipyleaflet expects (lat, lon)
+            
+            if self.verbose:
+                print(f"📍 Map recentered to: {lat:.4f}, {lon:.4f}")
+            
+            # Update Earth Engine boundary (also relatively fast)
+            self._update_ee_boundary()
+            
+            # Update boundary layer on map
+            self._update_boundary_layer()
+            
+            # Step 2: Heavy database operations in background
+            self._show_operation_status("🔄 Connecting to new database...")
+            
+            # Close current connection if we own it
+            if hasattr(self, '_owns_connection') and self._owns_connection:
+                if hasattr(self, 'duckdb_connection') and self.duckdb_connection:
+                    self.duckdb_connection.close()
+            
+            # Reset all application state
+            self._reset_all_state()
+            
+            # Establish new connection
+            self.duckdb_connection = DatabaseConstants.setup_duckdb_connection(
+                new_database_path, read_only=True)
+            self._owns_connection = True
+            
+            # Configure memory limits
+            for query in DatabaseConstants.get_memory_setup_queries():
+                self.duckdb_connection.execute(query)
+            
+            # Setup extensions
+            if new_database_path:
+                extension_queries = DatabaseConstants.get_extension_setup_queries(new_database_path)
+                for query in extension_queries:
+                    self.duckdb_connection.execute(query)
+            
+            # Detect embedding dimension
+            self._show_operation_status("🔄 Analyzing database structure...")
+            try:
+                self.embedding_dim = DatabaseConstants.detect_embedding_dimension(self.duckdb_connection)
+                if self.verbose:
+                    print(f"🔍 Detected embedding dimension: {self.embedding_dim}")
+            except ValueError as e:
+                if self.verbose:
+                    print(f"⚠️ Could not detect embedding dimension: {e}")
+                self.embedding_dim = 384
+            
+            # Warm up GCS database if needed
+            if DatabaseConstants.is_gcs_path(new_database_path):
+                self._show_operation_status("🔄 Optimizing database connection...")
+                self._warm_up_gcs_database()
+            
+            # Success!
+            self._show_operation_status(f"✅ Successfully loaded: {os.path.basename(new_database_path)}")
+            if self.verbose:
+                print(f"✅ Successfully switched to database: {os.path.basename(new_database_path)}")
+        
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Failed to switch database: {str(e)}")
+            
+            # Revert to previous database
+            self.current_database_path = old_database_path
+            if self.database_dropdown:
+                self.database_dropdown.value = old_database_path
+            
+            self._show_operation_status(f"❌ Failed to load database: {str(e)}")
+            
+            # Try to restore previous map position
+            try:
+                lat, lon = self._setup_boundary_and_center()
+                self.map.center = (lat, lon)
+            except:
+                pass  # If this fails too, just leave the map where it is
+
+    def _reset_all_state(self):
+        """Reset all application state for database switching."""
+        # Clear labels
+        self.pos_ids = []
+        self.neg_ids = []
+        
+        # Clear cached data
+        self.cached_embeddings = {}
+        self.detections_with_embeddings = None
+        self.query_vector = None
+        
+        # Clear map layers
+        empty_geojson = {"type": "FeatureCollection", "features": []}
+        self.pos_layer.data = empty_geojson
+        self.neg_layer.data = empty_geojson
+        self.erase_layer.data = empty_geojson
+        self.points.data = empty_geojson
+        
+        # Clear operation status
+        self._clear_operation_status()
 
     def close(self):
         """Clean up resources."""

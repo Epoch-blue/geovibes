@@ -140,6 +140,11 @@ class DatabaseConstants:
     LOAD spatial;
     """
     
+    HTTPFS_EXTENSION_SETUP_QUERY = """
+    INSTALL httpfs;
+    LOAD httpfs;
+    """
+    
     @classmethod
     def get_memory_setup_queries(cls):
         """Get memory configuration queries."""
@@ -148,6 +153,108 @@ class DatabaseConstants:
             f"SET max_memory='{cls.MAX_MEMORY}'",
             f"SET temp_directory='{cls.TEMP_DIRECTORY}'"
         ]
+    
+    @classmethod
+    def get_extension_setup_queries(cls, duckdb_path: str):
+        """Get extension setup queries based on database path.
+        
+        Args:
+            duckdb_path: Path to DuckDB database (local or GCS)
+            
+        Returns:
+            List of SQL queries to set up required extensions
+        """
+        queries = [cls.EXTENSION_SETUP_QUERY]
+        
+        # Add httpfs extension if using GCS
+        if cls.is_gcs_path(duckdb_path):
+            queries.insert(0, cls.HTTPFS_EXTENSION_SETUP_QUERY)
+        
+        return queries
+    
+    @classmethod
+    def is_gcs_path(cls, path: str) -> bool:
+        """Check if path is a Google Cloud Storage path.
+        
+        Args:
+            path: Path to check
+            
+        Returns:
+            True if path is GCS URL, False otherwise
+        """
+        return path.startswith('gs://')
+    
+    @classmethod
+    def setup_duckdb_connection(cls, duckdb_path: str, read_only: bool = True):
+        """Set up DuckDB connection for both local and GCS databases.
+        
+        Args:
+            duckdb_path: Path to DuckDB database (local or GCS)
+            read_only: Whether to open in read-only mode
+            
+        Returns:
+            DuckDB connection object
+        """
+        import duckdb
+        
+        if cls.is_gcs_path(duckdb_path):
+            # For GCS paths, create in-memory connection and attach remote database
+            conn = duckdb.connect(':memory:')
+            
+            # Install and load httpfs extension
+            conn.execute(cls.HTTPFS_EXTENSION_SETUP_QUERY)
+            
+            # Set up GCS authentication if credentials are available
+            cls._setup_gcs_auth(conn)
+            
+            # Attach the remote database
+            attach_query = f"ATTACH '{duckdb_path}' AS remote_db (READ_ONLY)"
+            conn.execute(attach_query)
+            
+            # Create view to map table name for transparent access
+            conn.execute("CREATE VIEW geo_embeddings AS SELECT * FROM remote_db.geo_embeddings")
+            
+            return conn
+        else:
+            # For local paths, use direct connection
+            return duckdb.connect(duckdb_path, read_only=read_only)
+    
+    @classmethod
+    def _setup_gcs_auth(cls, conn):
+        """Set up GCS authentication using environment variables.
+        
+        Args:
+            conn: DuckDB connection
+        """
+        import os
+        
+        # Try to get HMAC keys from environment variables
+        gcs_key_id = os.getenv('GCS_ACCESS_KEY_ID')
+        gcs_secret = os.getenv('GCS_SECRET_ACCESS_KEY')
+        
+        if gcs_key_id and gcs_secret:
+            # Create secret using HMAC keys
+            conn.execute(f"""
+                CREATE SECRET (
+                    TYPE gcs,
+                    KEY_ID '{gcs_key_id}',
+                    SECRET '{gcs_secret}'
+                );
+            """)
+        else:
+            # Try to use default Google Cloud authentication
+            # This will work if running on GCP or if gcloud is configured
+            try:
+                conn.execute("""
+                    CREATE SECRET (
+                        TYPE gcs,
+                        PROVIDER credential_chain
+                    );
+                """)
+            except Exception:
+                # If no authentication available, continue without auth
+                # This may work for public buckets or if other auth is configured
+                pass
     
     # Memory configuration
     MEMORY_LIMIT = '12GB'
@@ -384,3 +491,5 @@ class LayerStyles:
                 "fillOpacity": 0.5
             }
         } 
+
+
