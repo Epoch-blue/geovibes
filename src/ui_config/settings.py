@@ -12,10 +12,11 @@ from typing import Optional
 class GeoVibesConfig:
     """Configuration for GeoVibes application."""
     
-    duckdb_path: str
-    boundary_path: str
-    start_date: str
-    end_date: str
+    duckdb_path: Optional[str] = None
+    duckdb_directory: Optional[str] = None
+    boundary_path: Optional[str] = None
+    start_date: str = "2024-01-01"
+    end_date: str = "2025-01-01"
     gcp_project: Optional[str] = None
     
     @classmethod
@@ -38,18 +39,37 @@ class GeoVibesConfig:
         with open(config_path, 'r') as f:
             config_data = json.load(f)
         
-        # Validate required fields
-        required_fields = ['duckdb_path', 'boundary_path', 'start_date', 'end_date']
+        # Check for required database path (either single file or directory)
+        has_duckdb_path = 'duckdb_path' in config_data
+        has_duckdb_directory = 'duckdb_directory' in config_data
+        
+        if not has_duckdb_path and not has_duckdb_directory:
+            raise ValueError("Either 'duckdb_path' or 'duckdb_directory' must be provided")
+        
+        # Validate other required fields
+        required_fields = ['start_date', 'end_date']
         missing_fields = [field for field in required_fields if field not in config_data]
         
         if missing_fields:
             raise ValueError(f"Missing required configuration fields: {missing_fields}")
         
-        # Include optional gcp_project field
-        config_instance = cls(**{k: v for k, v in config_data.items() if k in required_fields})
+        # Create config instance with all available fields
+        config_dict = {
+            'start_date': config_data['start_date'],
+            'end_date': config_data['end_date']
+        }
+        
+        # Add optional fields if present
+        if has_duckdb_path:
+            config_dict['duckdb_path'] = config_data['duckdb_path']
+        if has_duckdb_directory:
+            config_dict['duckdb_directory'] = config_data['duckdb_directory']
+        if 'boundary_path' in config_data:
+            config_dict['boundary_path'] = config_data['boundary_path']
         if 'gcp_project' in config_data:
-            config_instance.gcp_project = config_data['gcp_project']
-        return config_instance
+            config_dict['gcp_project'] = config_data['gcp_project']
+        
+        return cls(**config_dict)
     
     @classmethod
     def from_dict(cls, config_dict: dict) -> 'GeoVibesConfig':
@@ -116,12 +136,19 @@ class GeoVibesConfig:
             FileNotFoundError: If required files don't exist
             ValueError: If configuration values are invalid
         """
-        # Check that required files exist
-        if not self._path_exists(self.boundary_path):
+        # Check that either duckdb_path or duckdb_directory is provided
+        if not self.duckdb_path and not self.duckdb_directory:
+            raise ValueError("Either duckdb_path or duckdb_directory must be provided")
+        
+        # Check paths exist if provided
+        if self.boundary_path and not self._path_exists(self.boundary_path):
             raise FileNotFoundError(f"Boundary file not found: {self.boundary_path}")
         
-        if not self._path_exists(self.duckdb_path):
+        if self.duckdb_path and not self._path_exists(self.duckdb_path):
             raise FileNotFoundError(f"DuckDB file not found: {self.duckdb_path}")
+        
+        if self.duckdb_directory and not self._path_exists(self.duckdb_directory):
+            raise FileNotFoundError(f"DuckDB directory not found: {self.duckdb_directory}")
         
         # Validate date format (basic check)
         import datetime

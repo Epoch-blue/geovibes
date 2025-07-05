@@ -3,7 +3,7 @@ Utility functions for GeoVibes.
 """
 
 import os
-from typing import Dict, Any
+from typing import Dict, Any, List
 from .ui_config.constants import DatabaseConstants
 
 
@@ -84,4 +84,166 @@ def print_gcs_setup_help():
     print("3. Or use gcloud authentication:")
     print("   gcloud auth application-default login")
     print("4. See GCS_SETUP.md for detailed instructions")
-    print() 
+    print()
+
+
+def list_databases_in_directory(directory_path: str, verbose: bool = False) -> List[str]:
+    """List DuckDB database files in a directory.
+    
+    Args:
+        directory_path: Path to directory (local or GCS)
+        verbose: Whether to print debug information
+        
+    Returns:
+        List of database file paths
+    """
+    
+    databases = []
+    
+    if directory_path.startswith('gs://'):
+        # Handle GCS directory
+        databases = _list_gcs_databases(directory_path, verbose)
+    else:
+        # Handle local directory
+        databases = _list_local_databases(directory_path, verbose)
+    
+    if verbose:
+        print(f"Found {len(databases)} database(s) in {directory_path}")
+    
+    return sorted(databases)
+
+
+def _list_local_databases(directory_path: str, verbose: bool = False) -> List[str]:
+    """List local DuckDB database files."""
+    import glob
+    
+    databases = []
+    
+    try:
+        # Look for .db files
+        pattern = os.path.join(directory_path, "*.db")
+        db_files = glob.glob(pattern)
+        
+        for db_file in db_files:
+            if os.path.isfile(db_file):
+                databases.append(db_file)
+                if verbose:
+                    print(f"  Found: {db_file}")
+    except Exception as e:
+        if verbose:
+            print(f"Error listing local databases: {e}")
+    
+    return databases
+
+
+def _list_gcs_databases(directory_path: str, verbose: bool = False) -> List[str]:
+    """List GCS DuckDB database files."""
+    import subprocess
+    
+    databases = []
+    
+    try:
+        # Try using gsutil to list files
+        if not directory_path.endswith('/'):
+            directory_path += '/'
+        
+        pattern = directory_path + "*.db"
+        result = subprocess.run(['gsutil', 'ls', pattern], 
+                              capture_output=True, text=True, timeout=30)
+        
+        if result.returncode == 0:
+            for line in result.stdout.strip().split('\n'):
+                if line.strip() and line.endswith('.db'):
+                    databases.append(line.strip())
+                    if verbose:
+                        print(f"  Found: {line.strip()}")
+        else:
+            if verbose:
+                print(f"gsutil failed: {result.stderr.strip()}")
+                
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        if verbose:
+            print(f"gsutil not available or timed out: {e}")
+        
+        # Fallback: try gcsfs if available
+        try:
+            import gcsfs
+            fs = gcsfs.GCSFileSystem()
+            
+            # Remove gs:// prefix for gcsfs
+            path_without_prefix = directory_path.replace('gs://', '')
+            if not path_without_prefix.endswith('/'):
+                path_without_prefix += '/'
+            
+            files = fs.glob(path_without_prefix + "*.db")
+            for file_path in files:
+                full_path = f"gs://{file_path}"
+                databases.append(full_path)
+                if verbose:
+                    print(f"  Found: {full_path}")
+                    
+        except ImportError:
+            if verbose:
+                print("gcsfs not available for GCS directory listing")
+        except Exception as e:
+            if verbose:
+                print(f"gcsfs error: {e}")
+    
+    return databases
+
+
+def get_database_centroid(duckdb_connection, verbose: bool = False) -> tuple:
+    """Get the centroid of all points in the database.
+    
+    Args:
+        duckdb_connection: DuckDB connection
+        verbose: Whether to print debug information
+        
+    Returns:
+        Tuple of (latitude, longitude) for map center
+    """
+    try:
+        # Try to get centroid from database geometries
+        centroid_query = """
+        SELECT 
+            ST_Y(ST_Centroid(ST_Union(geometry))) as lat,
+            ST_X(ST_Centroid(ST_Union(geometry))) as lon
+        FROM (
+            SELECT geometry 
+            FROM geo_embeddings 
+            LIMIT 10000
+        )
+        """
+        
+        result = duckdb_connection.execute(centroid_query).fetchone()
+        
+        if result and result[0] is not None and result[1] is not None:
+            lat, lon = result[0], result[1]
+            if verbose:
+                print(f"📍 Database centroid: {lat:.4f}, {lon:.4f}")
+            return lat, lon
+        else:
+            # Fallback: get average of individual point coordinates
+            avg_query = """
+            SELECT 
+                AVG(ST_Y(geometry)) as avg_lat,
+                AVG(ST_X(geometry)) as avg_lon
+            FROM geo_embeddings
+            LIMIT 1000
+            """
+            
+            result = duckdb_connection.execute(avg_query).fetchone()
+            if result and result[0] is not None and result[1] is not None:
+                lat, lon = result[0], result[1]
+                if verbose:
+                    print(f"📍 Database center (avg): {lat:.4f}, {lon:.4f}")
+                return lat, lon
+            
+    except Exception as e:
+        if verbose:
+            print(f"⚠️  Could not get database centroid: {e}")
+    
+    # Ultimate fallback: center of world
+    if verbose:
+        print("📍 Using default center (0, 0)")
+    return 0.0, 0.0 

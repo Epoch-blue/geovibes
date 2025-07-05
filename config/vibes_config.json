@@ -1,6 +1,5 @@
 {
-    "duckdb_path": "gs://geovibes/databases/google/java_google.db",
-    "boundary_path": "geometries/java.geojson",
+    "duckdb_directory": "gs://geovibes/databases/google",
     "start_date": "2024-01-01",
     "end_date": "2025-01-01",
     "gcp_project": "demeterlabs-gee"
