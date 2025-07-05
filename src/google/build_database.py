@@ -507,7 +507,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Process Google Satellite GeoJSON files and create a DuckDB index.")
     parser.add_argument("roi_file", help="Path to the ROI file (e.g., aoi.geojson).")
     parser.add_argument("output_dir", help="Directory to save output files (local path or gs://bucket/path or s3://bucket/path).")
-    parser.add_argument("output_db_file", help="Path for the output DuckDB database file (local path or gs://bucket/path or s3://bucket/path).")
+    parser.add_argument("output_db_dir", help="Directory for the output DuckDB database file (local path or gs://bucket/path or s3://bucket/path).")
     parser.add_argument("--mgrs_reference_file", default="gs://geovibes/geometries/mgrs_tiles.parquet", help="Path to the MGRS grid reference file.")
     parser.add_argument("--gcs_bucket", default="geovibes", help="GCS bucket to use for the embeddings.")
     parser.add_argument("--metric", default="cosine", choices=["cosine", "l2sq", "inner_product"], help="Distance metric for HNSW index.")
@@ -516,6 +516,24 @@ def main() -> None:
     args = parser.parse_args()
 
     setup_logging()
+
+    # Extract region name from ROI file and construct database filename
+    # Handle both local and cloud paths
+    if is_cloud_path(args.roi_file):
+        # For cloud paths, extract filename manually
+        roi_basename = args.roi_file.rstrip('/').split('/')[-1].rsplit('.', 1)[0]
+    else:
+        roi_basename = pathlib.Path(args.roi_file).stem
+    
+    db_filename = f"{roi_basename}_google.db"
+    
+    # Construct full output database path
+    if is_cloud_path(args.output_db_dir):
+        args.output_db_file = f"{args.output_db_dir.rstrip('/')}/{db_filename}"
+    else:
+        args.output_db_file = str(pathlib.Path(args.output_db_dir) / db_filename)
+    
+    logging.info(f"Database will be saved as: {args.output_db_file}")
 
     output_dir_is_cloud = is_cloud_path(args.output_dir)
     output_db_is_cloud = is_cloud_path(args.output_db_file)
