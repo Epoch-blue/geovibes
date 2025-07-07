@@ -1,45 +1,34 @@
 #!/usr/bin/env python3
-"""
-Modal-based tile embedding inference script.
-Processes tile images from GCS and generates embeddings using configurable timm models.
-"""
 
 import argparse
-import io
 import json
 import logging
 import os
 import re
-import tempfile
 import time
-from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import modal
 from modal import Secret
 
-# Core processing dependencies
 import torch
 import timm
 import numpy as np
 from PIL import Image
 import pandas as pd
+import glob
+import mercantile
 import pyarrow as pa
 import pyarrow.parquet as pq
-import mercantile
+from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
-import boto3
-from botocore.exceptions import ClientError
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Modal app setup
 app = modal.App("tile-embeddings")
 
-# Define Modal image with all required dependencies
 image = modal.Image.debian_slim().pip_install([
     "torch>=2.0.0",
     "torchvision>=0.15.0", 
@@ -55,10 +44,6 @@ image = modal.Image.debian_slim().pip_install([
 
 
 def parse_tile_from_filename(filename: str) -> Optional[Tuple[int, int, int]]:
-    """
-    Parse tile coordinates from filename like 'tile_14_13292_8548.png'
-    Returns (zoom, x, y) or None if parsing fails
-    """
     pattern = r'tile_(\d+)_(\d+)_(\d+)\.'
     match = re.search(pattern, filename)
     
@@ -70,143 +55,90 @@ def parse_tile_from_filename(filename: str) -> Optional[Tuple[int, int, int]]:
         return None
 
 
-class TileImageDataset:
-    """
-    Optimized dataset for loading tile images from GCS with parallel downloads
-    """
+class MountedTileDataset(Dataset):
     
-    def __init__(self, gcs_bucket: str, gcs_prefix: str, s3_client, transforms, max_files: Optional[int] = None, num_workers: int = 8):
-        self.gcs_bucket = gcs_bucket
-        self.gcs_prefix = gcs_prefix
-        self.s3_client = s3_client
+    def __init__(self, mount_path: str, transforms, max_files: Optional[int] = None):
+        self.mount_path = mount_path
         self.transforms = transforms
-        self.num_workers = num_workers
-        self.valid_files = []
-        self.tile_coords = []
+        self.max_files = max_files
         
-        # List and filter image files
-        self._discover_files(max_files)
+        logger.info(f"Discovering files in {self.mount_path}...")
+        all_files = []
         
-        logger.info(f"Dataset initialized with {len(self.valid_files)} valid tile images")
-        logger.info(f"Using {num_workers} workers for parallel downloads")
-    
-    def _discover_files(self, max_files: Optional[int] = None):
-        """Discover and filter valid tile image files from GCS"""
-        try:
-            paginator = self.s3_client.get_paginator('list_objects_v2')
-            page_iterator = paginator.paginate(
-                Bucket=self.gcs_bucket,
-                Prefix=self.gcs_prefix
-            )
-            
-            count = 0
-            for page in page_iterator:
-                if 'Contents' in page:
-                    for obj in page['Contents']:
-                        key = obj['Key']
-                        if key.lower().endswith(('.png', '.jpg', '.jpeg')):
-                            coords = parse_tile_from_filename(key)
-                            if coords is not None:
-                                self.valid_files.append(key)
-                                self.tile_coords.append(coords)
-                                count += 1
-                                
-                                if max_files and count >= max_files:
-                                    return
-                                    
-        except ClientError as e:
-            logger.error(f"Error listing GCS objects: {e}")
-            raise
+        pattern = os.path.join(self.mount_path, "**/*.png")
+        image_files = glob.glob(pattern, recursive=True)
+        
+        for jpeg_ext in ["*.jpg", "*.jpeg"]:
+            pattern = os.path.join(self.mount_path, f"**/{jpeg_ext}")
+            image_files.extend(glob.glob(pattern, recursive=True))
+        
+        count = 0
+        for filepath in image_files:
+            filename = os.path.basename(filepath)
+            coords = parse_tile_from_filename(filename)
+            if coords is not None:
+                all_files.append((filepath, coords))
+                count += 1
+                
+                if self.max_files and count >= self.max_files:
+                    break
+        
+        self.file_list = all_files
+        logger.info(f"Discovered {len(all_files)} valid tile images")
     
     def __len__(self):
-        return len(self.valid_files)
+        return len(self.file_list)
     
-    def _download_single_image(self, idx: int) -> Dict[str, Any]:
-        """Download and process a single image"""
+    def __getitem__(self, idx):
+        filepath, coords = self.file_list[idx]
+        
         try:
-            key = self.valid_files[idx]
-            coords = self.tile_coords[idx]
-            
-            # Download image from GCS
-            response = self.s3_client.get_object(Bucket=self.gcs_bucket, Key=key)
-            img_data = response['Body'].read()
-            
-            # Load and transform image
-            img = Image.open(io.BytesIO(img_data)).convert('RGB')
+            img = Image.open(filepath).convert('RGB')
             img_tensor = self.transforms(img)
             
             return {
                 'image': img_tensor,
-                'key': key,
+                'filepath': filepath,
                 'coords': coords,
-                'valid': True,
-                'idx': idx
+                'valid': True
             }
             
         except Exception as e:
-            logger.warning(f"Failed to load image {key}: {e}")
+            logger.warning(f"Failed to load image {filepath}: {e}")
             return {
-                'image': torch.zeros(3, 224, 224),  # Dummy tensor
-                'key': self.valid_files[idx],
-                'coords': self.tile_coords[idx],
-                'valid': False,
-                'idx': idx
+                'image': torch.zeros(3, 224, 224),
+                'filepath': filepath,
+                'coords': coords,
+                'valid': False
             }
     
-    def load_image_batch(self, start_idx: int, batch_size: int) -> List[Dict[str, Any]]:
-        """Load a batch of images from GCS using parallel downloads"""
-        end_idx = min(start_idx + batch_size, len(self.valid_files))
-        indices = list(range(start_idx, end_idx))
-        
-        # Use ThreadPoolExecutor for parallel downloads
-        batch_data = [None] * len(indices)
-        
-        with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
-            # Submit all download tasks
-            future_to_idx = {executor.submit(self._download_single_image, idx): i 
-                           for i, idx in enumerate(indices)}
-            
-            # Collect results as they complete
-            for future in as_completed(future_to_idx):
-                result_idx = future_to_idx[future]
-                try:
-                    result = future.result()
-                    batch_data[result_idx] = result
-                except Exception as e:
-                    logger.error(f"Error in parallel download: {e}")
-                    # Create dummy entry
-                    orig_idx = indices[result_idx]
-                    batch_data[result_idx] = {
-                        'image': torch.zeros(3, 224, 224),
-                        'key': self.valid_files[orig_idx],
-                        'coords': self.tile_coords[orig_idx],
-                        'valid': False,
-                        'idx': orig_idx
-                    }
-        
-        return batch_data
 
 
-def prepare_tile_data(embeddings: np.ndarray, image_keys: List[str], tile_coords: List[Tuple[int, int, int]]) -> List[Dict[str, Any]]:
-    """Prepare tile data with embeddings and geometries"""
+def custom_collate_fn(batch):
+    images = torch.stack([item['image'] for item in batch])
+    filepaths = [item['filepath'] for item in batch]
+    coords = [item['coords'] for item in batch]
+    valid = torch.tensor([item['valid'] for item in batch])
+    
+    return {
+        'image': images,
+        'filepath': filepaths,
+        'coords': coords,
+        'valid': valid
+    }
+
+
+def prepare_tile_data(embeddings: np.ndarray, image_filepaths: List[str], tile_coords: List[Tuple[int, int, int]]) -> List[Dict[str, Any]]:
     logger.info("Preparing tile data with geometries...")
     
     tile_data = []
     
-    for i, (embedding, key, coords) in enumerate(zip(embeddings, image_keys, tile_coords)):
+    for i, (embedding, filepath, coords) in enumerate(zip(embeddings, image_filepaths, tile_coords)):
         zoom, x, y = coords
-        
-        # Get tile bounds using mercantile
         tile_bounds = mercantile.bounds(x, y, zoom)
-        
-        # Calculate tile center
         center_lon = (tile_bounds.west + tile_bounds.east) / 2
         center_lat = (tile_bounds.south + tile_bounds.north) / 2
-        
-        # Create WKT point geometry for tile center
         geometry_wkt = f"POINT({center_lon} {center_lat})"
-        
-        # Create tile ID
         tile_id = f"{zoom}_{x}_{y}"
         
         tile_data.append({
@@ -216,7 +148,7 @@ def prepare_tile_data(embeddings: np.ndarray, image_keys: List[str], tile_coords
             'y': y,
             'embedding': embedding.tolist(),
             'geometry_wkt': geometry_wkt,
-            'image_key': key,
+            'image_filepath': filepath,
             'west': tile_bounds.west,
             'south': tile_bounds.south,
             'east': tile_bounds.east,
@@ -232,11 +164,9 @@ def prepare_tile_data(embeddings: np.ndarray, image_keys: List[str], tile_coords
     return tile_data
 
 
-def write_parquet_to_gcs(tile_data: List[Dict[str, Any]], output_gcs_path: str, s3_client, chunk_size: int = 10000):
-    """Write tile data to parquet files in GCS"""
-    logger.info(f"Writing {len(tile_data)} records to {output_gcs_path}")
+def write_parquet_chunk(tile_data: List[Dict[str, Any]], output_gcs_path: str, file_counter: int):
+    logger.info(f"Writing chunk {file_counter} with {len(tile_data)} records to {output_gcs_path}")
     
-    # Parse GCS path
     if not output_gcs_path.startswith('gs://'):
         raise ValueError("Output path must start with 'gs://'")
     
@@ -244,74 +174,58 @@ def write_parquet_to_gcs(tile_data: List[Dict[str, Any]], output_gcs_path: str, 
     bucket = path_parts[0]
     prefix = path_parts[1] if len(path_parts) > 1 else ""
     
-    # Split data into chunks and write multiple parquet files
-    for chunk_idx in range(0, len(tile_data), chunk_size):
-        chunk_data = tile_data[chunk_idx:chunk_idx + chunk_size]
-        
-        # Create DataFrame
-        df = pd.DataFrame(chunk_data)
-        
-        # Convert to parquet
-        table = pa.Table.from_pandas(df)
-        
-        # Write to temporary file
-        with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp_file:
-            pq.write_table(table, tmp_file.name)
-            
-            # Upload to GCS
-            chunk_key = f"{prefix}/embeddings_chunk_{chunk_idx:06d}.parquet"
-            try:
-                s3_client.upload_file(tmp_file.name, bucket, chunk_key)
-                logger.info(f"Uploaded chunk {chunk_idx//chunk_size + 1} to gs://{bucket}/{chunk_key}")
-            finally:
-                os.unlink(tmp_file.name)
+    df = pd.DataFrame(tile_data)
+    chunk_filename = f"embeddings_chunk_{file_counter:06d}.parquet"
+    
+    if prefix:
+        output_dir = f"/gcs-mount/{prefix}"
+        os.makedirs(output_dir, exist_ok=True)
+        output_file = f"{output_dir}/{chunk_filename}"
+    else:
+        output_file = f"/gcs-mount/{chunk_filename}"
+    
+    table = pa.Table.from_pandas(df)
+    pq.write_table(table, output_file)
+    
+    logger.info(f"Wrote chunk {file_counter} to {output_file}")
 
 
 @app.function(
     image=image,
     gpu="T4",
-    secrets=[Secret.from_name("gcs-hmac-credentials")],
+    secrets=[Secret.from_name("gcs-aws-hmac-credentials")],
+    cpu=16,
     timeout=3600,
-    memory=8192
+    memory=8192,
+    region='us',
+    volumes={
+        "/gcs-mount": modal.CloudBucketMount(
+            bucket_name="geovibes",
+            bucket_endpoint_url="https://storage.googleapis.com",
+            secret=Secret.from_name("gcs-aws-hmac-credentials"),
+        )
+    }
 )
 def process_tile_embeddings(
     input_gcs_path: str,
     output_gcs_path: str,
     model_name: str = "resnet34.a3_in1k",
-    batch_size: int = 256,  # Increased from 64 to better utilize T4 GPU
+    batch_size: int = 256,
     max_files: Optional[int] = None,
     chunk_size: int = 10000,
-    num_workers: int = 8  # Number of parallel download threads
+    num_workers: int = 16,
+    amp: bool = False
 ):
-    """
-    Main function to process tile embeddings using Modal.
-    
-    Args:
-        input_gcs_path: GCS path to input tile images (e.g., gs://bucket/path/to/tiles)
-        output_gcs_path: GCS path for output parquet files
-        model_name: timm model name to use for embeddings
-        batch_size: Batch size for processing (default: 256, optimized for T4 GPU)
-        max_files: Maximum number of files to process (for testing)
-        chunk_size: Number of records per parquet file
-        num_workers: Number of parallel download threads (default: 8)
-    """
     
     logger.info(f"Starting tile embedding processing")
     logger.info(f"Input: {input_gcs_path}")
     logger.info(f"Output: {output_gcs_path}")
     logger.info(f"Model: {model_name}")
     logger.info(f"Batch size: {batch_size}")
+    logger.info(f"AMP enabled: {amp}")
     
-    # Configure S3 client for GCS
-    s3_client = boto3.client(
-        "s3",
-        region_name="auto",
-        endpoint_url="https://storage.googleapis.com",
-        aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
-        aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"]
-    )
+    torch.backends.cuda.matmul.allow_tf32 = True
     
-    # Parse input GCS path
     if not input_gcs_path.startswith('gs://'):
         raise ValueError("Input path must start with 'gs://'")
     
@@ -319,7 +233,8 @@ def process_tile_embeddings(
     bucket = path_parts[0]
     prefix = path_parts[1] if len(path_parts) > 1 else ""
     
-    # Load model
+    input_mount_path = f"/gcs-mount/{prefix}" if prefix else "/gcs-mount"
+    
     logger.info(f"Loading model: {model_name}")
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
@@ -327,81 +242,125 @@ def process_tile_embeddings(
         model = timm.create_model(
             model_name,
             pretrained=True,
-            num_classes=0,  # Remove classifier
+            num_classes=0,
         )
         model = model.eval().to(device)
         
-        # Get model specific transforms
         data_config = timm.data.resolve_model_data_config(model)
         transforms = timm.data.create_transform(**data_config, is_training=False)
         
         logger.info(f"Model loaded. Feature dimension: {model.num_features}")
+        logger.info(f"Using batch size: {batch_size}")
         
     except Exception as e:
         logger.error(f"Failed to load model {model_name}: {e}")
         raise
     
-    # Create dataset
-    logger.info("Initializing dataset...")
-    dataset = TileImageDataset(bucket, prefix, s3_client, transforms, max_files, num_workers)
+    logger.info("Creating dataset for mounted filesystem access...")
+    dataset = MountedTileDataset(input_mount_path, transforms, max_files)
     
-    if len(dataset) == 0:
-        logger.warning("No valid tile images found!")
-        return
+    dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        pin_memory=True if device.type == 'cuda' else False,
+        persistent_workers=True,
+        prefetch_factor=4,
+        collate_fn=custom_collate_fn
+    )
     
-    # Process images in batches
-    logger.info(f"Processing {len(dataset)} images in batches of {batch_size}")
+    logger.info(f"Starting streaming inference with DataLoader (batch_size={batch_size}, workers={num_workers})")
+    logger.info("Using mounted cloud storage for output files")
     
-    all_embeddings = []
-    all_keys = []
-    all_coords = []
+    batch_embeddings = []
+    batch_keys = []
+    batch_coords = []
+    total_processed = 0
+    file_counter = 0
     
     start_time = time.time()
+    processed_count = 0
+    batch_end_time = time.time()
     
     with torch.no_grad():
-        for batch_start in tqdm(range(0, len(dataset), batch_size), desc="Processing batches"):
-            batch_data = dataset.load_image_batch(batch_start, batch_size)
-            
-            # Filter valid images
-            valid_batch = [item for item in batch_data if item['valid']]
-            
-            if not valid_batch:
-                continue
-            
-            # Stack images into batch tensor
-            batch_images = torch.stack([item['image'] for item in valid_batch]).to(device)
-            
-            # Extract embeddings
-            batch_embeddings = model(batch_images)
-            batch_embeddings = batch_embeddings.cpu().numpy()
-            
-            # Store results
-            for i, item in enumerate(valid_batch):
-                all_embeddings.append(batch_embeddings[i])
-                all_keys.append(item['key'])
-                all_coords.append(item['coords'])
-            
-            # Clear GPU memory
-            if device.type == 'cuda':
-                torch.cuda.empty_cache()
+        for batch_idx, batch in enumerate(tqdm(dataloader, desc="Streaming GPU inference")):
+            try:
+                batch_start_time = time.time()
+                loader_lag = batch_start_time - batch_end_time
+                
+                valid_mask = batch['valid']
+                valid_images = batch['image'][valid_mask]
+                valid_filepaths = [batch['filepath'][i] for i in range(len(batch['filepath'])) if valid_mask[i]]
+                valid_coords = [batch['coords'][i] for i in range(len(batch['coords'])) if valid_mask[i]]
+                
+                if len(valid_images) == 0:
+                    batch_end_time = time.time()
+                    continue
+                
+                batch_tensor = valid_images.to(device)
+                
+                if amp:
+                    with torch.cuda.amp.autocast():
+                        model_embeddings = model(batch_tensor)
+                    model_embeddings = model_embeddings.half().cpu().numpy()
+                else:
+                    model_embeddings = model(batch_tensor)
+                    model_embeddings = model_embeddings.cpu().numpy()
+                
+                batch_embeddings.extend(model_embeddings)
+                batch_keys.extend(valid_filepaths)
+                batch_coords.extend(valid_coords)
+                
+                processed_count += len(valid_images)
+                batch_end_time = time.time()
+                
+                if (batch_idx + 1) % 100 == 0:
+                    if batch_embeddings:
+                        embeddings_array = np.array(batch_embeddings)
+                        tile_data = prepare_tile_data(embeddings_array, batch_keys, batch_coords)
+                        write_parquet_chunk(tile_data, output_gcs_path, file_counter)
+                        total_processed += len(batch_embeddings)
+                        file_counter += 1
+                        batch_embeddings = []
+                        batch_keys = []
+                        batch_coords = []
+                        logger.info(f"Wrote chunk {file_counter} with {len(tile_data)} records. Total processed: {total_processed}")
+                
+                if (batch_idx + 1) % 10 == 0:
+                    elapsed = time.time() - start_time
+                    rate = processed_count / elapsed if elapsed > 0 else 0
+                    logger.info(f"Processed {processed_count} images ({rate:.1f} img/s), loader lag: {loader_lag:.3f}s")
+                    
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower():
+                    logger.error(f"GPU OOM error on batch {batch_idx}. Try reducing batch size.")
+                    if device.type == 'cuda':
+                        torch.cuda.empty_cache()
+                    raise
+                else:
+                    logger.error(f"CUDA error on batch {batch_idx}: {e}")
+                    raise
+    
+    if batch_embeddings:
+        embeddings_array = np.array(batch_embeddings)
+        tile_data = prepare_tile_data(embeddings_array, batch_keys, batch_coords)
+        write_parquet_chunk(tile_data, output_gcs_path, file_counter)
+        total_processed += len(batch_embeddings)
+        file_counter += 1
+        logger.info(f"Wrote final chunk {file_counter} with {len(tile_data)} records. Total processed: {total_processed}")
     
     total_time = time.time() - start_time
     logger.info(f"Embedding extraction completed in {total_time:.1f} seconds")
-    logger.info(f"Average speed: {len(all_embeddings) / total_time:.1f} images/second")
-    
-    # Prepare tile data with geometries
-    embeddings_array = np.array(all_embeddings)
-    tile_data = prepare_tile_data(embeddings_array, all_keys, all_coords)
-    
-    # Write results to GCS
-    write_parquet_to_gcs(tile_data, output_gcs_path, s3_client, chunk_size)
+    logger.info(f"Average speed: {total_processed / total_time:.1f} images/second")
+    logger.info(f"Total files written: {file_counter}")
     
     logger.info("Processing complete!")
     return {
-        "processed_images": len(all_embeddings),
+        "processed_images": total_processed,
         "output_path": output_gcs_path,
         "model_used": model_name,
-        "processing_time": total_time
+        "processing_time": total_time,
+        "files_written": file_counter
     }
 
 
@@ -413,30 +372,16 @@ def main(
     batch_size: int = 256,
     max_files: int = None,
     chunk_size: int = 10000,
-    num_workers: int = 8,
+    num_workers: int = 16,
+    amp: bool = False,
     config: str = None
 ):
-    """
-    Local entrypoint for running the Modal function
     
-    Args:
-        input_gcs_path: GCS path to input tile images (e.g., gs://bucket/path/to/tiles)
-        output_gcs_path: GCS path for output parquet files
-        model_name: timm model name to use for embeddings (default: resnet34.a3_in1k)
-        batch_size: Batch size for processing (default: 256, optimized for T4 GPU)
-        max_files: Maximum number of files to process (for testing)
-        chunk_size: Number of records per parquet file (default: 10000)
-        num_workers: Number of parallel download threads (default: 8)
-        config: Path to JSON config file with parameters
-    """
-    
-    # Load config file if provided
     config_params = {}
     if config:
         with open(config, 'r') as f:
             config_params = json.load(f)
     
-    # Override config with command line args
     params = {
         "input_gcs_path": input_gcs_path,
         "output_gcs_path": output_gcs_path,
@@ -445,22 +390,20 @@ def main(
         "max_files": max_files,
         "chunk_size": chunk_size,
         "num_workers": num_workers,
+        "amp": amp,
         **config_params
     }
     
-    # Remove None values
     params = {k: v for k, v in params.items() if v is not None}
     
     print(f"Running with parameters: {params}")
     
-    # Run the Modal function
     result = process_tile_embeddings.remote(**params)
     
     print(f"Processing complete! Results: {result}")
 
 
 if __name__ == "__main__":
-    # Fallback for direct Python execution
     parser = argparse.ArgumentParser(description="Process tile images and generate embeddings using Modal")
     
     parser.add_argument(
@@ -485,7 +428,7 @@ if __name__ == "__main__":
         "--batch-size",
         type=int,
         default=256,
-        help="Batch size for processing (default: 256, optimized for T4 GPU)"
+        help="Batch size for processing (default: 256)"
     )
     
     parser.add_argument(
@@ -504,8 +447,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num-workers",
         type=int,
-        default=8,
-        help="Number of parallel download threads (default: 8)"
+        default=16,
+        help="Number of parallel download threads (default: 16)"
+    )
+    
+    parser.add_argument(
+        "--amp",
+        action="store_true",
+        help="Use automatic mixed precision"
     )
     
     parser.add_argument(
@@ -515,13 +464,11 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    # Load config file if provided
     config = {}
     if args.config:
         with open(args.config, 'r') as f:
             config = json.load(f)
     
-    # Override config with command line args
     params = {
         "input_gcs_path": args.input_gcs_path,
         "output_gcs_path": args.output_gcs_path,
@@ -530,10 +477,10 @@ if __name__ == "__main__":
         "max_files": args.max_files,
         "chunk_size": args.chunk_size,
         "num_workers": args.num_workers,
+        "amp": args.amp,
         **config
     }
     
-    # Remove None values
     params = {k: v for k, v in params.items() if v is not None}
     
     print(f"Running with parameters: {params}")
