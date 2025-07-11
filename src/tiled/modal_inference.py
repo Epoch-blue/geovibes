@@ -7,7 +7,6 @@ import os
 import re
 import time
 from typing import List, Tuple, Optional, Dict, Any
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import modal
 from modal import Secret
@@ -15,7 +14,9 @@ from modal import Secret
 import torch
 import timm
 import numpy as np
-from PIL import Image
+from joblib import Parallel, delayed
+import torchvision.io as tvio
+import torchvision.transforms.functional as F
 import pandas as pd
 import glob
 import mercantile
@@ -27,7 +28,7 @@ from tqdm import tqdm
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = modal.App("tile-embeddings")
+app = modal.App("tile-embedding-decode-large-batch")
 
 image = modal.Image.debian_slim().pip_install([
     "torch>=2.0.0",
@@ -39,7 +40,8 @@ image = modal.Image.debian_slim().pip_install([
     "mercantile>=1.2.0",
     "tqdm>=4.64.0",
     "boto3>=1.26.0",
-    "numpy>=1.24.0"
+    "numpy>=1.24.0",
+    "joblib>=1.2.0"
 ])
 
 
@@ -68,20 +70,23 @@ class MountedTileDataset(Dataset):
         pattern = os.path.join(self.mount_path, "**/*.png")
         image_files = glob.glob(pattern, recursive=True)
         
-        for jpeg_ext in ["*.jpg", "*.jpeg"]:
-            pattern = os.path.join(self.mount_path, f"**/{jpeg_ext}")
-            image_files.extend(glob.glob(pattern, recursive=True))
+        logger.info(f"Found {len(image_files)} image files")
         
-        count = 0
-        for filepath in image_files:
+        logger.info("Parsing tile coordinates from filenames...")
+        
+        def process_file(filepath):
             filename = os.path.basename(filepath)
             coords = parse_tile_from_filename(filename)
             if coords is not None:
-                all_files.append((filepath, coords))
-                count += 1
-                
-                if self.max_files and count >= self.max_files:
-                    break
+                return (filepath, coords)
+            return None
+        
+        results = Parallel(n_jobs=-1, verbose=10)(
+            delayed(process_file)(filepath) for filepath in image_files)
+        all_files = [result for result in results if result is not None]
+        
+        if self.max_files and len(all_files) > self.max_files:
+            all_files = all_files[:self.max_files]
         
         self.file_list = all_files
         logger.info(f"Discovered {len(all_files)} valid tile images")
@@ -93,23 +98,33 @@ class MountedTileDataset(Dataset):
         filepath, coords = self.file_list[idx]
         
         try:
-            img = Image.open(filepath).convert('RGB')
-            img_tensor = self.transforms(img)
-            
+            # 1. zero-copy read from disk (runs in C, GIL released)
+            img_bytes = tvio.read_file(filepath)                         # Tensor(uint8)
+
+            # 2. PNG/JPEG → RGB tensor, shape = (C, H, W), dtype = uint8
+            img_tensor = tvio.decode_image(img_bytes,
+                                        mode=tvio.ImageReadMode.RGB)  # Tensor(uint8)
+
+            # 3. to float32   0-1 range
+            img_tensor = img_tensor.float().div_(255.0)                  # Tensor(float32)
+
+            # 4. If your timm/torchvision transforms expect PIL, convert once here
+            img_pil = F.to_pil_image(img_tensor, mode="RGB")             # PIL.Image
+            img_tensor = self.transforms(img_pil)                        # final tensor
+
             return {
-                'image': img_tensor,
-                'filepath': filepath,
-                'coords': coords,
-                'valid': True
+                "image": img_tensor,
+                "filepath": filepath,
+                "coords": coords,
+                "valid": True,
             }
-            
         except Exception as e:
             logger.warning(f"Failed to load image {filepath}: {e}")
             return {
-                'image': torch.zeros(3, 224, 224),
-                'filepath': filepath,
-                'coords': coords,
-                'valid': False
+                "image": torch.zeros(3, 224, 224),
+                "filepath": filepath,
+                "coords": coords,
+                "valid": False,
             }
     
 
@@ -194,9 +209,9 @@ def write_parquet_chunk(tile_data: List[Dict[str, Any]], output_gcs_path: str, f
     image=image,
     gpu="T4",
     secrets=[Secret.from_name("gcs-aws-hmac-credentials")],
-    cpu=16,
-    timeout=3600,
-    memory=8192,
+    cpu=8,
+    timeout=86400,
+    memory=32000,
     region='us',
     volumes={
         "/gcs-mount": modal.CloudBucketMount(
@@ -265,7 +280,7 @@ def process_tile_embeddings(
         num_workers=num_workers,
         pin_memory=True if device.type == 'cuda' else False,
         persistent_workers=True,
-        prefetch_factor=4,
+        prefetch_factor=8,
         collate_fn=custom_collate_fn
     )
     
@@ -283,7 +298,8 @@ def process_tile_embeddings(
     batch_end_time = time.time()
     
     with torch.no_grad():
-        for batch_idx, batch in enumerate(tqdm(dataloader, desc="Streaming GPU inference")):
+        for batch_idx, batch in enumerate(
+            tqdm(dataloader, desc="Streaming GPU inference")):
             try:
                 batch_start_time = time.time()
                 loader_lag = batch_start_time - batch_end_time
