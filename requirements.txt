@@ -22,3 +22,4 @@ lonboard
 duckdb>1.0.0
 rasterio
 google-cloud-storage
+s3fs
