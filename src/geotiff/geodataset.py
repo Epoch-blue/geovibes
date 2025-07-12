@@ -2,12 +2,9 @@ from collections.abc import Callable
 import geopandas as gpd
 import numpy as np
 import rasterio
-import rasterio.transform
-import rasterio.windows
 from rasterio.features import geometry_window
 import torch
 from rasterio.enums import Resampling
-from shapely.geometry import box
 from rasterio.env import Env
 import logging
 import time
@@ -16,7 +13,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-class GeoDataFrameDatasetOptimized(torch.utils.data.Dataset):
+class GeotiffTileDataset(torch.utils.data.Dataset):
     """Optimized Torch Dataset with memory mapping and caching."""
 
     def __init__(

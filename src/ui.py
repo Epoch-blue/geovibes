@@ -39,7 +39,7 @@ class GeoVibes:
     
     @classmethod
     def from_config(cls, config_path, verbose=False, **kwargs):
-        """Create a GeoLabeler instance from a configuration file.
+        """Create a GeoVibes instance from a configuration file (deprecated).
         
         Args:
             config_path: Path to JSON configuration file
@@ -47,16 +47,56 @@ class GeoVibes:
             **kwargs: Additional keyword arguments to override config values
         
         Returns:
-            GeoLabeler instance
+            GeoVibes instance
         """
+        if verbose:
+            print("⚠️  from_config() is deprecated. Use GeoVibes() with individual parameters instead.")
         return cls(config_path=config_path, verbose=verbose, **kwargs)
+    
+    @classmethod
+    def create(cls, 
+              duckdb_path: Optional[str] = None,
+              duckdb_directory: Optional[str] = None,
+              boundary_path: Optional[str] = None,
+              start_date: str = "2024-01-01",
+              end_date: str = "2025-01-01",
+              gcp_project: Optional[str] = None,
+              verbose: bool = False,
+              **kwargs):
+        """Create a GeoVibes instance with explicit parameters.
+        
+        Args:
+            duckdb_path: Path to DuckDB database file
+            duckdb_directory: Directory containing multiple DuckDB database files
+            boundary_path: Path to boundary GeoJSON file
+            start_date: Start date in YYYY-MM-DD format for Earth Engine basemaps
+            end_date: End date in YYYY-MM-DD format for Earth Engine basemaps
+            gcp_project: Google Cloud Project ID for Earth Engine authentication
+            verbose: Enable detailed progress messages
+            **kwargs: Additional arguments
+        
+        Returns:
+            GeoVibes instance
+        """
+        return cls(
+            duckdb_path=duckdb_path,
+            duckdb_directory=duckdb_directory,
+            boundary_path=boundary_path,
+            start_date=start_date,
+            end_date=end_date,
+            gcp_project=gcp_project,
+            verbose=verbose,
+            **kwargs
+        )
     def __init__(
             self, 
-            geojson_path: Optional[str] = None, 
+            duckdb_path: Optional[str] = None,
+            duckdb_directory: Optional[str] = None,
+            boundary_path: Optional[str] = None,
             start_date: Optional[str] = None, 
             end_date: Optional[str] = None,
+            gcp_project: Optional[str] = None,
             duckdb_connection: Optional[duckdb.DuckDBPyConnection] = None, 
-            duckdb_path: Optional[str] = None, 
             config: Optional[Dict] = None, 
             config_path: Optional[str] = None,
             baselayer_url: Optional[str] = None, 
@@ -65,35 +105,55 @@ class GeoVibes:
         """Initialize GeoVibes interface.
         
         Args:
-            geojson_path: Path to boundary GeoJSON file.
-            start_date: Start date in YYYY-MM-DD format.
-            end_date: End date in YYYY-MM-DD format.
-            duckdb_connection: Existing DuckDB connection to reuse.
             duckdb_path: Path to DuckDB database file.
-            config: Configuration dictionary.
-            config_path: Path to JSON configuration file.
+            duckdb_directory: Directory containing multiple DuckDB database files.
+            boundary_path: Path to boundary GeoJSON file.
+            start_date: Start date in YYYY-MM-DD format for Earth Engine basemaps.
+            end_date: End date in YYYY-MM-DD format for Earth Engine basemaps.
+            gcp_project: Google Cloud Project ID for Earth Engine authentication.
+            duckdb_connection: Existing DuckDB connection to reuse.
+            config: Configuration dictionary (deprecated, use individual parameters).
+            config_path: Path to JSON configuration file (deprecated, use individual parameters).
             baselayer_url: Custom basemap tile URL.
             verbose: Enable detailed progress messages.
+            **kwargs: Additional arguments for backwards compatibility.
         """
         self.verbose = verbose
         if self.verbose:
             print("Initializing GeoVibes...")
         
+        # Handle backwards compatibility with config files
         if config_path is not None:
+            if self.verbose:
+                print("⚠️  config_path is deprecated. Use individual parameters instead.")
             self.config = GeoVibesConfig.from_file(config_path)
             self.config.validate()
         elif config is not None:
+            if self.verbose:
+                print("⚠️  config dict is deprecated. Use individual parameters instead.")
             self.config = GeoVibesConfig.from_dict(config)
             self.config.validate()
         else:
-            if geojson_path is None or start_date is None or end_date is None:
-                raise ValueError("Required parameters missing. Provide either config_path, config dict, or individual parameters.")
+            # Use individual parameters to create config
             self.config = GeoVibesConfig(
                 duckdb_path=duckdb_path,
-                boundary_path=geojson_path,
+                duckdb_directory=duckdb_directory,
+                boundary_path=boundary_path,
                 start_date=start_date,
-                end_date=end_date
+                end_date=end_date,
+                gcp_project=gcp_project
             )
+            
+            # Only validate if we have the minimum required parameters
+            if duckdb_path is None and duckdb_directory is None:
+                raise ValueError("Either duckdb_path or duckdb_directory must be provided")
+            
+            # Set defaults for optional parameters
+            if start_date is None:
+                self.config.start_date = "2024-01-01"
+            if end_date is None:
+                self.config.end_date = "2025-01-01"
+            
             self.config.validate()
         
         self.ee_available = initialize_ee_with_credentials(self.config.gcp_project)

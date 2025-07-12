@@ -152,8 +152,9 @@ def create_stacked_raster(band_paths: List[str], output_path: str,
         'dtype': 'float32',
         'compress': 'lzw',
         'tiled': True,
-        'blockxsize': 256,
-        'blockysize': 256
+        # set this small because our tiles are currently small (~25 pixels)
+        'blockxsize': 64,
+        'blockysize': 64
     })
     
     with rasterio.open(output_path, 'w', **profile) as dst:

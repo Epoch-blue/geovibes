@@ -16,14 +16,14 @@ from torch.ao.quantization import quantize_dynamic
 from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log, retry_if_exception_type
 
 try:
-    from .geodataset import GeoDataFrameDatasetOptimized
+    from .geodataset import GeotiffTileDataset
     from .transforms import RescaledImageNetTransform
     from .raster import find_band_files, create_stacked_raster, get_raster_info
 except ImportError:
     import sys
     import os
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from geodataset import GeoDataFrameDatasetOptimized
+    from geodataset import GeotiffTileDataset
     from transforms import RescaledImageNetTransform
     from raster import find_band_files, create_stacked_raster, get_raster_info
 
@@ -202,7 +202,7 @@ def main(
     print("Creating GeoDataFrameDataset...")
     dataset_start = time.time()
     logger.info(f"Creating dataset with {len(tiles_gdf)} geometries...")
-    dataset = GeoDataFrameDatasetOptimized(
+    dataset = GeoTiffTileDataset(
         path=stacked_path,
         geometries_gdf=tiles_gdf,
         transforms=transform_pipeline,
