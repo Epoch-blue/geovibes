@@ -11,6 +11,7 @@ from shapely.geometry import box
 from rasterio.env import Env
 import logging
 import time
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +25,9 @@ class GeoDataFrameDatasetOptimized(torch.utils.data.Dataset):
         geometries_gdf: gpd.GeoDataFrame,  # GeoDataFrame with geometries
         transforms: Callable | None = None,
         target_size: tuple[int, int] = (224, 224),  # Target size for all patches
+        target_resolution: Optional[int] = None, # Target resolution to resample to
         use_memmap: bool = True,  # Use memory mapping
-        cache_windows: bool = True,  # Cache window calculations
+        cache_windows: bool = False,  # Cache a`ll` window calculations
     ) -> None:
         """Initialize the dataset.
 
@@ -34,6 +36,7 @@ class GeoDataFrameDatasetOptimized(torch.utils.data.Dataset):
             geometries_gdf: GeoDataFrame containing polygon geometries to extract.
             transforms: The transforms to apply to the image.
             target_size: Target size (height, width) for all extracted patches.
+            target_resolution: Target resolution (in meters) to resample the patch to.
             use_memmap: Whether to use memory mapping for reading.
             cache_windows: Whether to cache window calculations.
         """
@@ -41,6 +44,7 @@ class GeoDataFrameDatasetOptimized(torch.utils.data.Dataset):
         self.transforms = transforms
         self.target_size = target_size
         self.use_memmap = use_memmap
+        self.target_resolution = target_resolution
         
         # Configure rasterio environment for optimal performance
         self.env_kwargs = {
@@ -55,6 +59,7 @@ class GeoDataFrameDatasetOptimized(torch.utils.data.Dataset):
                 self.crs = src.crs
                 self.transform = src.transform
                 self.count = src.count
+                self.native_resolution = src.res[0]
                 
                 # Ensure geometries are in the same CRS as the raster
                 if geometries_gdf.crs != self.crs:
@@ -68,6 +73,9 @@ class GeoDataFrameDatasetOptimized(torch.utils.data.Dataset):
             self._precalculate_windows()
         
         assert len(self) > 0, "No geometries provided"
+        
+        # Log native tile size for the first geometry
+        self._log_native_tile_size()
 
     def _precalculate_windows(self):
         """Pre-calculate all windows for faster access."""
@@ -87,11 +95,42 @@ class GeoDataFrameDatasetOptimized(torch.utils.data.Dataset):
         elapsed = time.time() - start_time
         logger.info(f"Window pre-calculation completed in {elapsed:.2f}s")
 
+    def _log_native_tile_size(self):
+        """Log the native tile size for the first geometry (for debugging)."""
+        try:
+            with Env(**self.env_kwargs):
+                with rasterio.open(self.path) as src:
+                    first_geometry = self.geometries_gdf.iloc[0].geometry
+                    window = geometry_window(src, [first_geometry])
+                    
+                    # Read at native resolution to see actual size
+                    data = src.read(
+                        boundless=False,
+                        window=window,
+                        fill_value=0,
+                        masked=False
+                    )
+                    
+                    # Get geometry bounds and calculate expected size
+                    geom_bounds = first_geometry.bounds  # (minx, miny, maxx, maxy)
+                    width_meters = geom_bounds[2] - geom_bounds[0]
+                    height_meters = geom_bounds[3] - geom_bounds[1]
+                    resolution = src.res[0]
+                    expected_width = int(width_meters / resolution)
+                    expected_height = int(height_meters / resolution)
+                    
+                    logger.info(f"Raster info: resolution={resolution}m, CRS={src.crs}")
+                    logger.info(f"Geometry bounds: {geom_bounds} (width={width_meters:.1f}m, height={height_meters:.1f}m)")
+                    logger.info(f"Expected size at {resolution}m: {expected_height}x{expected_width} pixels")
+                    logger.info(f"Window: row_off={window.row_off}, col_off={window.col_off}, height={window.height}, width={window.width}")
+                    logger.info(f"Native tile size for first geometry: {data.shape} (channels, height, width)")
+        except Exception as e:
+            logger.warning(f"Could not determine native tile size: {e}")
+
     def read_window_from_geometry(
         self,
         geometry,
         index: int,
-        image_size: tuple[int, int] | None = None,
         interpolation: Resampling = Resampling.bilinear,
     ) -> tuple[np.ndarray, dict]:
         """Read the window corresponding to a geometry with optimizations."""
@@ -105,36 +144,29 @@ class GeoDataFrameDatasetOptimized(torch.utils.data.Dataset):
                 with rasterio.open(self.path) as src:
                     window = geometry_window(src, [geometry])
         
-        # Configure read options
-        if image_size is None:
-            out_shape = (self.count, self.target_size[0], self.target_size[1])
-        else:
-            out_shape = (self.count, image_size[0], image_size[1])
+        logger.debug(f"Reading window for geometry {index} at native resolution, window: {window}")
         
-        logger.debug(f"Reading window for geometry {index}, shape: {out_shape}")
-        
+        # Determine output shape for resampling if target_resolution is set
+        out_shape = None
+        if self.target_resolution and self.native_resolution != self.target_resolution:
+            scale_factor = self.native_resolution / self.target_resolution
+            out_height = int(window.height * scale_factor)
+            out_width = int(window.width * scale_factor)
+            out_shape = (self.count, out_height, out_width)
+            logger.debug(f"Resampling window from native {self.native_resolution}m to {self.target_resolution}m. New shape: {out_shape}")
+
         # Read with optimized settings
         read_start = time.time()
         with Env(**self.env_kwargs):
             with rasterio.open(self.path, 'r') as src:
-                # Use memory mapping if enabled
-                if self.use_memmap:
-                    data = src.read(
-                        boundless=False,
-                        window=window,
-                        fill_value=0,
-                        out_shape=out_shape,
-                        resampling=interpolation,
-                        masked=False  # Avoid mask overhead
-                    )
-                else:
-                    data = src.read(
-                        boundless=False,
-                        window=window,
-                        fill_value=0,
-                        out_shape=out_shape,
-                        resampling=interpolation
-                    )
+                data = src.read(
+                    boundless=False,
+                    window=window,
+                    out_shape=out_shape,  # Resample here if needed
+                    resampling=interpolation,
+                    fill_value=0,
+                    masked=False
+                )
         
         read_elapsed = time.time() - read_start
         if read_elapsed > 0.1:  # Log slow reads
@@ -173,7 +205,7 @@ class GeoDataFrameDatasetOptimized(torch.utils.data.Dataset):
         
         # Read window
         read_start = time.time()
-        x, geom_info = self.read_window_from_geometry(geometry, index)
+        x, _ = self.read_window_from_geometry(geometry, index)
         read_elapsed = time.time() - read_start
         logger.debug(f"Window read for index {index}: {read_elapsed:.4f}s")
         

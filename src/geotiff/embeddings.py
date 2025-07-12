@@ -28,7 +28,7 @@ except ImportError:
     from geodataset import GeoDataFrameDatasetOptimized
 
 # Set up logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
@@ -265,6 +265,12 @@ def create_stacked_geotiff(band_paths: List[str], output_path: str, target_resol
         width = template.width
         height = template.height
         
+        print(f"Template band info:")
+        print(f"  Resolution: {template.res[0]}m")
+        print(f"  Original dimensions: {width}x{height}")
+        print(f"  CRS: {template.crs}")
+        print(f"  Bounds: {template.bounds}")
+        
         if template.res[0] != target_resolution:
             scale_factor = template.res[0] / target_resolution
             width = int(width * scale_factor)
@@ -273,6 +279,10 @@ def create_stacked_geotiff(band_paths: List[str], output_path: str, target_resol
             transform = rasterio.transform.from_bounds(
                 left, bottom, right, top, width, height
             )
+            print(f"  Scaling from {template.res[0]}m to {target_resolution}m (factor: {scale_factor:.3f})")
+            print(f"  New dimensions: {width}x{height}")
+        else:
+            print(f"  No scaling needed, already at {target_resolution}m resolution")
     
     profile.update({
         'count': len(band_paths),
@@ -334,6 +344,7 @@ def main(
     model_name: str = "resnet18",
     batch_size: int = 64,
     num_workers: int = 12,
+    target_resolution: int = 10,
     enable_quantization: bool = True,
     enable_compile: bool = True
 ) -> None:
@@ -373,9 +384,9 @@ def main(
     print(f"Tile boundary from tiles_file: {overall_bounds}")
 
 
-    stacked_path = os.path.join(local_dir, f"{mgrs_tile_id}_stacked.tif")
-    print(f"Creating stacked GeoTIFF: {stacked_path}")
-    create_stacked_geotiff(band_paths, stacked_path)
+    stacked_path = os.path.join(local_dir, f"{mgrs_tile_id}_stacked_{target_resolution}m.tif")
+    print(f"Creating stacked GeoTIFF: {stacked_path} at {target_resolution}m resolution")
+    create_stacked_geotiff(band_paths, stacked_path, target_resolution=target_resolution)
     
     
     print(f"Loaded {len(tiles_gdf)} polygons from shapefile")
@@ -398,8 +409,9 @@ def main(
         path=stacked_path,
         geometries_gdf=tiles_gdf,
         transforms=transform_pipeline,
+        target_resolution=target_resolution,
         use_memmap=True,
-        cache_windows=True
+        cache_windows=False
     )
     dataset_elapsed = time.time() - dataset_start
     logger.info(f"Dataset creation completed in {dataset_elapsed:.2f}s")
@@ -413,7 +425,7 @@ def main(
         shuffle=False,
         pin_memory=False,  # No CUDA
         persistent_workers=True,
-        prefetch_factor=4,
+        prefetch_factor=6,
         worker_init_fn=worker_init_fn
     )
     dataloader_elapsed = time.time() - dataloader_start
@@ -454,31 +466,16 @@ def main(
     tile_ids = []
     geometry_indices = []
     
-    # Use inference mode for maximum performance
     with torch.inference_mode():
-        batch_count = 0
         for batch in tqdm(dataloader, desc="Processing tiles"):
-            batch_start_time = time.time()
-            logger.info(f"Processing batch {batch_count}")
-            
-            # Extract batch data
-            extract_start = time.time()
             images = batch['image']
             batch_tile_ids = batch['tile_id']
             batch_geom_indices = batch['geometry_index']
-            extract_elapsed = time.time() - extract_start
-            logger.debug(f"Batch {batch_count}: Data extraction took {extract_elapsed:.4f}s")
-            logger.debug(f"Batch {batch_count}: Images shape: {images.shape}")
             
             # CPU inference
-            inference_start = time.time()
             batch_embeddings = model(images)
-            inference_elapsed = time.time() - inference_start
-            logger.debug(f"Batch {batch_count}: Model inference took {inference_elapsed:.4f}s")
-            logger.debug(f"Batch {batch_count}: Embeddings shape: {batch_embeddings.shape}")
             
             # Convert and store results
-            store_start = time.time()
             embeddings.append(batch_embeddings.numpy())
             
             # Handle both tensor and list cases for tile_ids
@@ -488,13 +485,7 @@ def main(
                 tile_ids.extend(batch_tile_ids)
                 
             geometry_indices.extend(batch_geom_indices.numpy().tolist())
-            store_elapsed = time.time() - store_start
-            logger.debug(f"Batch {batch_count}: Result storage took {store_elapsed:.4f}s")
-            
-            batch_total_elapsed = time.time() - batch_start_time
-            logger.info(f"Batch {batch_count} completed in {batch_total_elapsed:.3f}s (extract: {extract_elapsed:.3f}s, inference: {inference_elapsed:.3f}s, store: {store_elapsed:.3f}s)")
-            
-            batch_count += 1
+
     
     embeddings = np.vstack(embeddings)
     
@@ -593,6 +584,8 @@ if __name__ == "__main__":
                        help='Model name for timm')
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
     parser.add_argument('--num_workers', type=int, default=12, help='Number of workers')
+    parser.add_argument('--target_resolution', type=int, default=10, 
+                       help='Target resolution for processing')
     parser.add_argument('--no_quantization', action='store_true', 
                        help='Disable INT8 quantization')
     parser.add_argument('--no_compile', action='store_true',
@@ -610,6 +603,7 @@ if __name__ == "__main__":
         model_name=args.model_name,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
+        target_resolution=args.target_resolution,
         enable_quantization=not args.no_quantization,
         enable_compile=not args.no_compile
     )

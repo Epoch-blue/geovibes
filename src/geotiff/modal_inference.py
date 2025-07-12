@@ -7,11 +7,14 @@ import os
 import glob
 import zipfile
 import tempfile
-from typing import Optional
+from typing import Optional, List
 from pathlib import Path
 
 import modal
 from modal import Secret
+import geopandas as gpd
+
+MGRS_ID_COLUMN = 'mgrs_id'
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -50,13 +53,35 @@ image = (
         "pyogrio>=0.7.0",
     ])
     .add_local_dir("src/geotiff", "/root/geotiff")
-    .run_commands([
-        "echo 'Testing GDAL installation...'",
-        "gdalinfo --version",
-        "python -c 'import rasterio; print(f\"Rasterio version: {rasterio.__version__}\")'",
-        "python -c 'import geopandas; print(f\"Geopandas version: {geopandas.__version__}\")'",
-    ])
 )
+
+
+def get_mgrs_tiles_from_roi(roi_file: str, mgrs_tiles_file: str = "geometries/mgrs_tiles.parquet") -> List[str]:
+    """Intersect ROI with MGRS tiles to get list of MGRS tile IDs to process."""
+    logger.info(f"Loading ROI from: {roi_file}")
+    roi_gdf = gpd.read_file(roi_file)
+    
+    logger.info(f"Loading MGRS tiles from: {mgrs_tiles_file}")
+    mgrs_gdf = gpd.read_parquet(mgrs_tiles_file)
+    
+    # Ensure both are in the same CRS
+    if roi_gdf.crs is not None and mgrs_gdf.crs is not None and roi_gdf.crs != mgrs_gdf.crs:
+        logger.info(f"Converting ROI from {roi_gdf.crs} to {mgrs_gdf.crs}")
+        roi_gdf = roi_gdf.to_crs(mgrs_gdf.crs)
+    elif roi_gdf.crs is None:
+        logger.warning("ROI file has no CRS defined")
+    elif mgrs_gdf.crs is None:
+        logger.warning("MGRS tiles file has no CRS defined")
+    
+    # Get union of all ROI geometries
+    roi_union = roi_gdf.unary_union
+
+    intersecting = mgrs_gdf[mgrs_gdf.intersects(roi_union)]
+    
+    mgrs_ids = intersecting[MGRS_ID_COLUMN].tolist()
+    logger.info(f"Found {len(mgrs_ids)} MGRS tiles intersecting with ROI: {mgrs_ids}")
+    
+    return mgrs_ids
 
 
 def find_tileset_for_mgrs(mgrs_id: str, tiles_dir: str) -> Optional[str]:
@@ -104,7 +129,8 @@ def find_tileset_for_mgrs(mgrs_id: str, tiles_dir: str) -> Optional[str]:
             bucket_name="geovibes",
             bucket_endpoint_url="https://storage.googleapis.com",
             secret=Secret.from_name("gcs-aws-hmac-credentials"),
-        )
+        ),
+        "/modal_vol": modal.Volume.from_name("geovibes-modal")
     }
 )
 def process_mgrs_geotiff_embeddings(
@@ -113,10 +139,11 @@ def process_mgrs_geotiff_embeddings(
     output_base_path: str,
     local_dir: str = "imagery/s2",
     date_range: str = "2024-01-01_2025-01-01",
-    bands = None,
+    bands_json: Optional[str] = None,
     model_name: str = "resnet18",
     batch_size: int = 64,
     num_workers: int = 12,
+    target_resolution: int = 10,
     enable_quantization: bool = True,
     enable_compile: bool = False
 ):
@@ -124,13 +151,19 @@ def process_mgrs_geotiff_embeddings(
     
     import sys
     import geopandas as gpd
+    import json
     
+    bands: Optional[List[str]] = json.loads(bands_json) if bands_json is not None else None
+
     # Add local directories to path
     sys.path.insert(0, '/root')
     
-    # Import from the copied modules
-    from geotiff.generate_geotiff_embeddings import main
-    
+    from geotiff.embeddings import main
+    import torch
+    import torch.multiprocessing as mp
+    mp.set_start_method("spawn", force=True)
+    torch.multiprocessing.set_sharing_strategy("file_system")
+        
     # Debug: List files to ensure mount worked
     logger.info("Checking mounted files:")
     if os.path.exists('/root/geotiff'):
@@ -138,9 +171,6 @@ def process_mgrs_geotiff_embeddings(
         logger.info(f"Files in /root/geotiff: {files}")
     else:
         logger.error("Mount directory /root/geotiff not found!")
-    
-    if bands is None:
-        bands = ["B04", "B03", "B02"]
     
     logger.info(f"Using bands: {bands}")
     
@@ -153,7 +183,7 @@ def process_mgrs_geotiff_embeddings(
     logger.info(f"Model: {model_name}")
     
     # Find tileset file for this MGRS ID
-    tiles_gcs_dir = f"/gcs-mount/{tiles_dir.lstrip('gs://').lstrip('geovibes/')}"
+    tiles_gcs_dir = os.path.join("/gcs-mount", tiles_dir)
     tileset_file = find_tileset_for_mgrs(mgrs_tile_id, tiles_gcs_dir)
     
     if not tileset_file:
@@ -161,9 +191,10 @@ def process_mgrs_geotiff_embeddings(
     
     logger.info(f"Found tileset: {tileset_file}")
     
-    # Set up local working directory
-    work_dir = f"/tmp/{mgrs_tile_id}"
+    # Set up working directory on Modal volume
+    work_dir = f"/modal_vol/{mgrs_tile_id}"
     os.makedirs(work_dir, exist_ok=True)
+    logger.info(f"Using Modal volume working directory: {work_dir}")
     
     # Extract/copy tileset to local directory
     logger.info("Extracting tileset...")
@@ -213,22 +244,62 @@ def process_mgrs_geotiff_embeddings(
     logger.info(f"Using tileset: {shapefile_local_path}")
     
     # Set up GCS mounted directory for imagery
-    gcs_local_dir = f"/gcs-mount/{local_dir.lstrip('gs://').lstrip('geovibes/')}"
-    logger.info(f"Using GCS mounted directory: {gcs_local_dir}")
+    gcs_imagery_dir = os.path.join("/gcs-mount", local_dir)
+    logger.info(f"Using GCS mounted directory for imagery: {gcs_imagery_dir}")
     
-    # Set up output paths
-    output_gcs_path = f"{output_base_path.rstrip('/')}/{mgrs_tile_id}_embeddings.parquet"
-    output_local_path = f"{work_dir}/output.parquet"
+    # Copy band files from GCS to Modal volume for processing
+    logger.info("Copying band files to Modal volume...")
+    if bands is None:
+        bands = ["B4", "B3", "B2"]  # Default bands
+    band_file_patterns = [f"{mgrs_tile_id}_{band}_{date_range}.tif" for band in bands]
+    copied_files = []
+    
+    for pattern in band_file_patterns:
+        gcs_band_file = os.path.join(gcs_imagery_dir, pattern)
+        modal_band_file = os.path.join(work_dir, pattern)
+        
+        if os.path.exists(gcs_band_file):
+            os.system(f"cp '{gcs_band_file}' '{modal_band_file}'")
+            copied_files.append(modal_band_file)
+            logger.info(f"Copied {pattern} to Modal volume")
+        else:
+            logger.warning(f"Band file not found: {gcs_band_file}")
+    
+    if not copied_files:
+        logger.error(f"No band files found for {mgrs_tile_id} in {gcs_imagery_dir}")
+        if os.path.exists(gcs_imagery_dir):
+            available_files = [f for f in os.listdir(gcs_imagery_dir) if mgrs_tile_id in f][:10]
+            logger.info(f"Available files with {mgrs_tile_id}: {available_files}")
+        raise FileNotFoundError(f"No band files found for {mgrs_tile_id}")
+    
+    # Set up output paths - write directly to GCS mount
+    if output_base_path.startswith('gs://'):
+        # Remove gs://bucketname/ prefix and construct GCS mount path
+        # gs://geovibes/embeddings/resnet18 -> /gcs-mount/embeddings/resnet18
+        path_without_bucket = output_base_path.replace('gs://geovibes/', '')
+        gcs_output_dir = os.path.join("/gcs-mount", path_without_bucket)
+        final_output_path = os.path.join(gcs_output_dir, f"{mgrs_tile_id}_embeddings.parquet")
+        output_gcs_path = f"{output_base_path.rstrip('/')}/{mgrs_tile_id}_embeddings.parquet"
+    else:
+        # Local path in bucket
+        gcs_output_dir = os.path.join("/gcs-mount", output_base_path)
+        final_output_path = os.path.join(gcs_output_dir, f"{mgrs_tile_id}_embeddings.parquet")
+        output_gcs_path = f"gs://geovibes/{output_base_path.rstrip('/')}/{mgrs_tile_id}_embeddings.parquet"
+    
+    # Create output directory if needed
+    os.makedirs(gcs_output_dir, exist_ok=True)
+    logger.info(f"Writing output directly to GCS: {final_output_path}")
     
     # Call the main function from generate_geotiff_embeddings
+    # Now all processing happens on the Modal volume, output goes directly to GCS
     try:
         main(
             mgrs_tile_id=mgrs_tile_id,
             bands=bands,
             date_range=date_range,
-            local_dir=gcs_local_dir,
+            local_dir=work_dir,  # Use Modal volume work directory
             tiles_file=shapefile_local_path,
-            output_path=output_local_path,
+            output_path=final_output_path,  # Write directly to GCS mount
             model_name=model_name,
             batch_size=batch_size,
             num_workers=num_workers,
@@ -236,23 +307,10 @@ def process_mgrs_geotiff_embeddings(
             enable_compile=enable_compile
         )
         
-        # Copy output to GCS
-        logger.info("Copying output to GCS...")
-        if output_gcs_path.startswith('gs://'):
-            gcs_output_path = output_gcs_path[5:]  # Remove 'gs://'
-            gcs_mount_output_path = f"/gcs-mount/{gcs_output_path}"
-        else:
-            # Assume it's a relative path within the bucket
-            gcs_mount_output_path = f"/gcs-mount/{output_gcs_path}"
-        
-        # Create output directory if needed
-        os.makedirs(os.path.dirname(gcs_mount_output_path), exist_ok=True)
-        os.system(f"cp '{output_local_path}' '{gcs_mount_output_path}'")
-        
         logger.info(f"Output saved to: {output_gcs_path}")
         
         # Get result info
-        result_gdf = gpd.read_parquet(output_local_path)
+        result_gdf = gpd.read_parquet(final_output_path)
         processed_patches = len(result_gdf)
         feature_dimension = len(result_gdf['embedding'].iloc[0]) if len(result_gdf) > 0 else 0
         
@@ -278,14 +336,15 @@ def process_mgrs_geotiff_embeddings(
 @app.local_entrypoint()
 def main(
     config: str,
-    tiles_dir: str = None,
-    output_base_path: str = None,
-    local_dir: str = None,
+    roi_file: Optional[str] = None,
+    tiles_dir: Optional[str] = None,
+    output_base_path: Optional[str] = None,
+    local_dir: Optional[str] = None,
     date_range: str = "2024-01-01_2025-01-01",
-    bands = None,
     model_name: str = "resnet18",
     batch_size: int = 64,
     num_workers: int = 12,
+    target_resolution: int = 10,
     enable_quantization: bool = True,
     enable_compile: bool = False
 ):
@@ -296,20 +355,28 @@ def main(
     with open(config, 'r') as f:
         config_params = json.load(f)
     
-    # Extract MGRS IDs from config (required)
-    mgrs_ids = config_params.get("mgrs_ids")
-    if not mgrs_ids:
-        raise ValueError("Config file must contain 'mgrs_ids' field with list of MGRS tile IDs")
+    # Get MGRS IDs either from ROI intersection or config
+    roi_file = config_params.get("roi_file", roi_file)
+    if roi_file:
+        logger.info(f"Determining MGRS tiles from ROI file: {roi_file}")
+        mgrs_tiles_file = config_params.get("mgrs_tiles_file", "geometries/mgrs_tiles.parquet")
+        mgrs_ids = get_mgrs_tiles_from_roi(roi_file, mgrs_tiles_file)
+    else:
+        # Fall back to explicit mgrs_ids from config
+        mgrs_ids = config_params.get("mgrs_ids")
+        if not mgrs_ids:
+            raise ValueError("Config file must contain either 'roi_file' or 'mgrs_ids' field")
     
     # Override parameters with config values if provided
     tiles_dir = config_params.get("tiles_dir", tiles_dir)
     output_base_path = config_params.get("output_base_path", output_base_path)
     local_dir = config_params.get("local_dir", local_dir or "imagery/s2")
     date_range = config_params.get("date_range", date_range)
-    bands = config_params.get("bands", bands)
+    bands = config_params.get("bands")
     model_name = config_params.get("model_name", model_name)
     batch_size = config_params.get("batch_size", batch_size)
     num_workers = config_params.get("num_workers", num_workers)
+    target_resolution = config_params.get("target_resolution", target_resolution)
     enable_quantization = config_params.get("enable_quantization", enable_quantization)
     enable_compile = config_params.get("enable_compile", enable_compile)
     
@@ -318,9 +385,6 @@ def main(
         raise ValueError("tiles_dir must be provided either in config or as command line argument")
     if not output_base_path:
         raise ValueError("output_base_path must be provided either in config or as command line argument")
-    
-    if bands is None:
-        bands = ["B04", "B03", "B02"]
     
     logger.info(f"Launching {len(mgrs_ids)} Modal inference jobs...")
     logger.info(f"MGRS IDs: {mgrs_ids}")
@@ -331,17 +395,19 @@ def main(
     
     # Launch jobs for each MGRS ID
     results = []
+    bands_json = json.dumps(bands) if bands is not None else None
     for mgrs_id in mgrs_ids:
         job = process_mgrs_geotiff_embeddings.spawn(
             mgrs_tile_id=mgrs_id,
             tiles_dir=tiles_dir,
             output_base_path=output_base_path,
-            local_dir=local_dir,
+            local_dir=local_dir or "imagery/s2",
             date_range=date_range,
-            bands=bands,
+            bands_json=bands_json,
             model_name=model_name,
             batch_size=batch_size,
             num_workers=num_workers,
+            target_resolution=target_resolution,
             enable_quantization=enable_quantization,
             enable_compile=enable_compile
         )
@@ -372,7 +438,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config",
         required=True,
-        help="Path to JSON config file containing mgrs_ids and other parameters"
+        help="Path to JSON config file containing roi_file/mgrs_ids and other parameters"
+    )
+    
+    parser.add_argument(
+        "--roi-file",
+        help="Path to ROI geometry file (geojson/shapefile/geoparquet) to intersect with MGRS tiles (overrides config)"
     )
     
     parser.add_argument(
@@ -397,13 +468,6 @@ if __name__ == "__main__":
     )
     
     parser.add_argument(
-        "--bands",
-        nargs='+',
-        default=["B4", "B3", "B2"],
-        help="Sentinel-2 bands to use (default: B4 B3 B2)"
-    )
-    
-    parser.add_argument(
         "--model-name",
         default="resnet18",
         help="timm model name to use for embeddings (default: resnet18)"
@@ -424,6 +488,13 @@ if __name__ == "__main__":
     )
     
     parser.add_argument(
+        "--target-resolution",
+        type=int,
+        default=10,
+        help="Target resolution for processing (default: 10)"
+    )
+
+    parser.add_argument(
         "--no-quantization",
         action="store_true",
         help="Disable INT8 quantization"
@@ -439,14 +510,15 @@ if __name__ == "__main__":
     
     params = {
         "config": args.config,
+        "roi_file": args.roi_file,
         "tiles_dir": args.tiles_dir,
         "output_base_path": args.output_base_path,
         "local_dir": args.local_dir,
         "date_range": args.date_range,
-        "bands": args.bands,
         "model_name": args.model_name,
         "batch_size": args.batch_size,
         "num_workers": args.num_workers,
+        "target_resolution": args.target_resolution,
         "enable_quantization": not args.no_quantization,
         "enable_compile": not args.no_compile
     }

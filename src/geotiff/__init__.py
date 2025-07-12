@@ -1,5 +1,5 @@
 # Make geotiff a proper Python package
-from . import generate_geotiff_embeddings
-from . import batch_inference
+from . import embeddings
+from . import modal_inference
 
-__all__ = ['generate_geotiff_embeddings', 'batch_inference']
+__all__ = ['embeddings', 'modal_inference']
