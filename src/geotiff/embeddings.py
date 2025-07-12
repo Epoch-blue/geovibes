@@ -4,6 +4,7 @@ from typing import List, Tuple
 import multiprocessing as mp
 import logging
 import time
+import random
 
 import geopandas as gpd
 import numpy as np
@@ -442,8 +443,30 @@ def main(
         logger.error(f"Failed to access first dataset item: {e}")
         raise
     
-    print(f"Loading {model_name} model...")
-    model = timm.create_model(model_name, pretrained=True, num_classes=0)
+    # Load model with retry logic
+    model = None
+    max_retries = 20
+    base_delay = 2  # seconds
+    max_jitter = 3  # seconds
+
+    for attempt in range(max_retries):
+        try:
+            print(f"Loading {model_name} model (attempt {attempt + 1}/{max_retries})...")
+            model = timm.create_model(model_name, pretrained=True, num_classes=0)
+            print("Model loaded successfully.")
+            break  # Exit loop if successful
+        except Exception as e:
+            print(f"Failed to load model on attempt {attempt + 1}: {e}")
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt) + random.uniform(0, max_jitter)
+                print(f"Retrying in {delay:.2f} seconds...")
+                time.sleep(delay)
+            else:
+                print("Max retries reached. Failed to load model.")
+                raise  # Re-raise the last exception
+
+    if model is None:
+        raise RuntimeError("Failed to load model after multiple retries.")
     
     # Create example input for optimization
     example_input = torch.randn(1, 3, 224, 224)

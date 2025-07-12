@@ -49,8 +49,8 @@ class GeoDataFrameDatasetOptimized(torch.utils.data.Dataset):
         # Configure rasterio environment for optimal performance
         self.env_kwargs = {
             'GDAL_DISABLE_READDIR_ON_OPEN': 'EMPTY_DIR',
-            'GDAL_NUM_THREADS': 'ALL_CPUS',
-            'GDAL_CACHEMAX': 512  # MB as integer
+            'GDAL_NUM_THREADS': 1,
+            'GDAL_CACHEMAX': 128  # MB as integer
         }
         
         with Env(**self.env_kwargs):
@@ -133,60 +133,104 @@ class GeoDataFrameDatasetOptimized(torch.utils.data.Dataset):
         index: int,
         interpolation: Resampling = Resampling.bilinear,
     ) -> tuple[np.ndarray, dict]:
-        """Read the window corresponding to a geometry with optimizations."""
+        """
+        Read the window corresponding to a geometry, handling edges by padding.
         
-        # Use cached window if available
-        if index in self._window_cache:
-            window = self._window_cache[index]
-        else:
-            logger.debug(f"Computing window for geometry {index} (not cached)")
-            with Env(**self.env_kwargs):
-                with rasterio.open(self.path) as src:
-                    window = geometry_window(src, [geometry])
-        
-        logger.debug(f"Reading window for geometry {index} at native resolution, window: {window}")
-        
-        # Determine output shape for resampling if target_resolution is set
-        out_shape = None
-        if self.target_resolution and self.native_resolution != self.target_resolution:
-            scale_factor = self.native_resolution / self.target_resolution
-            out_height = int(window.height * scale_factor)
-            out_width = int(window.width * scale_factor)
-            out_shape = (self.count, out_height, out_width)
-            logger.debug(f"Resampling window from native {self.native_resolution}m to {self.target_resolution}m. New shape: {out_shape}")
-
-        # Read with optimized settings
+        This method first checks if padding is necessary. If the geometry is
+        fully contained within the raster, it performs a direct read. Otherwise,
+        it calculates the required padding and applies it using reflection.
+        """
         read_start = time.time()
+        
         with Env(**self.env_kwargs):
             with rasterio.open(self.path, 'r') as src:
-                data = src.read(
-                    boundless=False,
-                    window=window,
-                    out_shape=out_shape,  # Resample here if needed
-                    resampling=interpolation,
-                    fill_value=0,
-                    masked=False
-                )
+                # Get the window clipped to raster bounds.
+                clipped_window = geometry_window(src, [geometry], boundless=False)
+                if index not in self._window_cache:
+                    self._window_cache[index] = clipped_window
+
+                # Determine resampling scale, if any.
+                scale_factor = 1.0
+                if self.target_resolution and self.native_resolution != self.target_resolution:
+                    scale_factor = self.native_resolution / self.target_resolution
+                
+                # Calculate the expected shape based on the geometry's metric size.
+                geom_bounds = geometry.bounds
+                expected_height = int(round((geom_bounds[3] - geom_bounds[1]) / self.native_resolution * scale_factor))
+                expected_width = int(round((geom_bounds[2] - geom_bounds[0]) / self.native_resolution * scale_factor))
+                
+                # Calculate the shape of the data we can actually read.
+                read_height = int(clipped_window.height * scale_factor)
+                read_width = int(clipped_window.width * scale_factor)
+                
+                # Check if the readable window is smaller than the geometry's full extent,
+                # allowing a 1-pixel tolerance for rounding differences.
+                needs_padding = (read_height < expected_height - 1) or (read_width < expected_width - 1)
+
+                if not needs_padding:
+                    # Optimized path: Geometry is not on an edge. Read directly.
+                    out_shape = (self.count, expected_height, expected_width)
+                    data = src.read(
+                        boundless=False,
+                        window=clipped_window,
+                        out_shape=out_shape,
+                        resampling=interpolation,
+                        fill_value=0,
+                        masked=False
+                    )
+                else:
+                    # Padding path: Geometry is on an edge.
+                    logger.debug(f"Applying padding for geometry {index}.")
+                    full_window = geometry_window(src, [geometry], boundless=True)
+
+                    # Read the partial data available.
+                    data = src.read(
+                        boundless=False,
+                        window=clipped_window,
+                        out_shape=(self.count, read_height, read_width),
+                        resampling=interpolation,
+                        fill_value=0,
+                        masked=False
+                    )
+                    
+                    # Calculate padding based on the difference between the full and clipped windows.
+                    top_offset = clipped_window.row_off - full_window.row_off
+                    left_offset = clipped_window.col_off - full_window.col_off
+                    
+                    pad_top = int(top_offset * scale_factor)
+                    pad_left = int(left_offset * scale_factor)
+                    pad_bottom = expected_height - data.shape[1] - pad_top
+                    pad_right = expected_width - data.shape[2] - pad_left
+                    
+                    padding = (
+                        (0, 0),
+                        (max(0, pad_top), max(0, pad_bottom)),
+                        (max(0, pad_left), max(0, pad_right)),
+                    )
+                    
+                    data = np.pad(data, padding, mode='reflect')
+
+                # Final crop/pad to ensure exact target size due to rounding.
+                current_h, current_w = data.shape[-2:]
+                if current_h != expected_height or current_w != expected_width:
+                    final_data = np.zeros((self.count, expected_height, expected_width), dtype=data.dtype)
+                    h_copy = min(current_h, expected_height)
+                    w_copy = min(current_w, expected_width)
+                    final_data[:, :h_copy, :w_copy] = data[:, :h_copy, :w_copy]
+                    data = final_data
         
         read_elapsed = time.time() - read_start
-        if read_elapsed > 0.1:  # Log slow reads
+        if read_elapsed > 0.1:
             logger.warning(f"Slow read for geometry {index}: {read_elapsed:.3f}s")
         
-        # Get bounds of the window in pixel coordinates
-        col_off = window.col_off
-        row_off = window.row_off
-        width = window.width
-        height = window.height
-        
-        # Store geometry info
         geom_info = {
             'geometry': geometry,
             'index': index,
-            'window': window,
-            'bounds_pixel': (col_off, row_off, col_off + width, row_off + height)
+            'window': clipped_window,
+            'bounds_pixel': (clipped_window.col_off, clipped_window.row_off, clipped_window.col_off + clipped_window.width, clipped_window.row_off + clipped_window.height)
         }
         
-        logger.debug(f"Successfully read window for geometry {index}, data shape: {data.shape}")
+        logger.debug(f"Successfully read and padded window for geometry {index}, final data shape: {data.shape}")
         return data, geom_info
 
     def __len__(self) -> int:
