@@ -13,6 +13,7 @@ import geopandas as gpd
 import numpy as np
 from tqdm import tqdm
 from google.cloud import storage
+from joblib import Parallel, delayed
 
 
 def setup_logging():
@@ -209,7 +210,8 @@ def create_duckdb_index(
     con.execute(create_table_sql)
     ingest_time = time.time() - start_time
 
-    row_count = con.execute("SELECT COUNT(*) FROM geo_embeddings;").fetchone()[0]
+    row_count_result = con.execute("SELECT COUNT(*) FROM geo_embeddings;").fetchone()
+    row_count = row_count_result[0] if row_count_result else 0
     logging.info(f"Ingested {row_count} rows in {ingest_time:.2f} seconds")
 
     if row_count > 0:
@@ -256,28 +258,49 @@ def upload_to_gcs(local_file: str, gcs_path: str) -> None:
     logging.info(f"Upload complete: {gcs_path}")
 
 
-def download_gcs_files(gcs_paths: List[str], temp_dir: str) -> List[str]:
-    """Download parquet files from GCS to a temporary directory."""
-    storage_client = storage.Client()
-    local_paths = []
-    
-    for gcs_path in tqdm(gcs_paths, desc="Downloading files from GCS"):
+def _download_single_gcs_file(gcs_path: str, temp_dir: str) -> Optional[str]:
+    """Helper function to download a single file from GCS for parallel execution."""
+    try:
+        storage_client = storage.Client()
         if not gcs_path.startswith('gs://'):
-            raise ValueError(f"Invalid GCS path: {gcs_path}")
-        
-        # Parse bucket and blob
+            logging.error(f"Invalid GCS path provided to worker: {gcs_path}")
+            return None
+
         path_parts = gcs_path[5:].split('/', 1)
         bucket_name = path_parts[0]
         blob_name = path_parts[1]
-        
-        # Download to temp directory
         local_filename = os.path.join(temp_dir, os.path.basename(blob_name))
+
+        if os.path.exists(local_filename):
+            return local_filename
+
         bucket = storage_client.bucket(bucket_name)
         blob = bucket.blob(blob_name)
         blob.download_to_filename(local_filename)
-        local_paths.append(local_filename)
-        
-    return local_paths
+        return local_filename
+    except Exception as e:
+        logging.error(f"Failed to download {gcs_path} in worker: {e}")
+        return None
+
+def download_gcs_files(gcs_paths: List[str], temp_dir: str) -> List[str]:
+    """Download parquet files from GCS to a temporary directory in parallel."""
+    logging.info(f"Downloading {len(gcs_paths)} files in parallel using joblib...")
+    
+    local_paths = Parallel(n_jobs=-1)(
+        delayed(_download_single_gcs_file)(gcs_path, temp_dir)
+        for gcs_path in tqdm(gcs_paths, desc="Queueing GCS downloads")
+    )
+    
+    # Filter out None results from failed downloads
+    successful_downloads = [path for path in local_paths if path is not None]
+    
+    if len(successful_downloads) != len(gcs_paths):
+        logging.warning(
+            f"Failed to download {len(gcs_paths) - len(successful_downloads)} files. "
+            "Check logs for errors."
+        )
+
+    return successful_downloads
 
 
 def list_gcs_parquet_files(gcs_path: str) -> List[str]:
