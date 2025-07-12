@@ -173,10 +173,8 @@ def check_gee_asset_exists(asset_id: str) -> bool:
             print(f"Warning: Not authenticated to check asset existence: {asset_id}")
             return False
         else:
-            print(f"Warning: Could not check asset existence for {asset_id}: {e.stderr or 'Unknown error'}")
             return False
     except Exception as e:
-        print(f"Warning: Error checking asset existence for {asset_id}: {str(e)}")
         return False
 
 
@@ -512,7 +510,8 @@ EXAMPLE:
             if args.debug:
                 print(f"Processing GEE asset for {tile_name}...")
             
-            if check_gee_asset_exists(asset_id):
+            asset_exists = check_gee_asset_exists(asset_id)
+            if asset_exists:
                 if args.debug:
                     print(f"  Skipping asset creation for {tile_name}, already exists.")
                 gee_results.append({
@@ -523,6 +522,7 @@ EXAMPLE:
                 })
                 continue
 
+            print(f"Asset does not already exist, launching ingestion task for {asset_id}")
             if args.debug:
                 print(f"Creating GEE asset for {tile_name} from {gcs_uri}")
             
