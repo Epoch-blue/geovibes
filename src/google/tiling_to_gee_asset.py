@@ -2,113 +2,23 @@
 Generate a grid of tiles over an MGRS tile and save it as a GeoParquet file.
 """
 import argparse
-from dataclasses import dataclass, field
-
-import geopandas as gpd
-import numpy as np
-import pyproj
-import shapely.geometry
-import shapely.ops
-import pandas as pd
-import pyproj
 import os
+import shutil
+import subprocess
 import tempfile
 import zipfile
-import subprocess
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).parent.parent.parent))
+
+import geopandas as gpd
+import pyproj
+import shapely.ops
 from google.cloud import storage
-from tqdm import tqdm
-import shutil
 from joblib import Parallel, delayed
 
-
-def get_crs_from_tile(tile_series: pd.Series) -> str:
-    """
-    Get the CRS from a tile series by reading the 'epsg' column.
-    """
-    try:
-        epsg_code = tile_series['epsg']
-        return f"EPSG:{epsg_code}"
-    except KeyError:
-        raise ValueError("Input series must have an 'epsg' column.")
-
-
-@dataclass
-class MGRSTileGrid:
-    """Class for tracking a MGRS tile grid"""
-    mgrs_tile_id: str
-    crs: str
-    tilesize: int
-    overlap: int
-    resolution: float
-    prefix: str = field(init=False)
-
-    def __post_init__(self):
-        self.prefix = f"{self.mgrs_tile_id}_{self.crs.split(':')[-1]}_{self.tilesize}_{self.overlap}_{int(self.resolution)}"
-
-
-def chip_mgrs_tile(tile_series: pd.Series, mgrs_tile_grid: MGRSTileGrid, source_crs: pyproj.CRS) -> gpd.GeoDataFrame:
-    """
-    Top level function to generate chips over an MGRS tile
-    """
-    xform_utm = pyproj.Transformer.from_crs(source_crs, mgrs_tile_grid.crs, always_xy=True)
-    tile_geom_utm = shapely.ops.transform(xform_utm.transform, tile_series.geometry)
-
-    eff_tilesize = mgrs_tile_grid.tilesize * mgrs_tile_grid.resolution
-    eff_overlap = mgrs_tile_grid.overlap * mgrs_tile_grid.resolution
-    grid_spacing = eff_tilesize - eff_overlap
-
-    bounds_utm = tile_geom_utm.bounds
-    sw_utm = bounds_utm[0], bounds_utm[1]
-    ne_utm = bounds_utm[2], bounds_utm[3]
-
-    x_diff = ne_utm[0] - sw_utm[0]
-    y_diff = ne_utm[1] - sw_utm[1]
-
-    x_samples = round(x_diff / grid_spacing) + 1
-    y_samples = round(y_diff / grid_spacing) + 1
-
-    xs = np.arange(0, x_samples) * grid_spacing + sw_utm[0]
-    ys = np.arange(0, y_samples) * grid_spacing + sw_utm[1]
-
-    x_grid, y_grid = np.meshgrid(xs, ys)
-
-    return generate_chips(
-        x_samples=x_samples,
-        y_samples=y_samples,
-        x_grid=x_grid,
-        y_grid=y_grid,
-        eff_tilesize=eff_tilesize,
-        mgrs_tile_grid=mgrs_tile_grid,
-        tile_geom_utm=tile_geom_utm,
-    )
-
-
-def generate_chips(
-    x_samples: int,
-    y_samples: int,
-    x_grid: np.ndarray,
-    y_grid: np.ndarray,
-    eff_tilesize: float,
-    mgrs_tile_grid: MGRSTileGrid,
-    tile_geom_utm: shapely.geometry.Polygon,
-) -> gpd.GeoDataFrame:
-    """
-    Generate chips over a grid and return them as a GeoDataFrame.
-    """
-    tiles = []
-    for i in range(x_samples):
-        for j in range(y_samples):
-            x, y = x_grid[j, i], y_grid[j, i]
-            geom = shapely.geometry.Point(x, y).buffer(eff_tilesize / 2, cap_style=3)
-
-            if tile_geom_utm.intersects(geom):
-                tile = {
-                    'geometry': geom,
-                    'tile_id': f"{mgrs_tile_grid.mgrs_tile_id}_{mgrs_tile_grid.tilesize}_{mgrs_tile_grid.overlap}_{int(mgrs_tile_grid.resolution)}_{j}_{i}"
-                }
-                tiles.append(tile)
-
-    return gpd.GeoDataFrame(tiles, crs=mgrs_tile_grid.crs)
+from src.tiling import MGRSTileGrid, chip_mgrs_tile, get_crs_from_tile
 
 
 def write_tiles_to_geoparquet(tiles: gpd.GeoDataFrame, tile_name: str, output_dir: str = "."):
@@ -148,19 +58,15 @@ def create_local_shapefile_zip(tiles: gpd.GeoDataFrame, tile_name: str, output_d
     """
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Save shapefile to temp dir
             shapefile_path = os.path.join(tmpdir, f"{tile_name}.shp")
             tiles.to_file(shapefile_path, driver='ESRI Shapefile')
 
-            # Zip the shapefile components
             zip_path = os.path.join(tmpdir, f"{tile_name}.zip")
             with zipfile.ZipFile(zip_path, 'w') as zipf:
                 for ext in ['.shp', '.shx', '.dbf', '.prj', '.cpg']:
                     source_file = f"{shapefile_path[:-4]}{ext}"
                     if os.path.exists(source_file):
                         zipf.write(source_file, arcname=os.path.basename(source_file))
-
-            # Save zipped shapefile locally
             output_zip_path = os.path.join(output_dir, f"{tile_name}.zip")
             shutil.copy(zip_path, output_zip_path)
             
@@ -214,21 +120,63 @@ def create_gee_asset(gcs_uri: str, gee_asset_path: str, tile_name: str):
         return (True, f"Started GEE task: {task_id}", task_id)
         
     except subprocess.CalledProcessError as e:
-        return (False, f"GEE upload failed: {e.stderr}", "")
+        error_msg = e.stderr.strip() if e.stderr else "No error details available"
+        stdout_msg = e.stdout.strip() if e.stdout else ""
+        
+        if "not authenticated" in error_msg.lower() or "not authenticated" in stdout_msg.lower():
+            error_msg = "Not authenticated. Please run 'earthengine authenticate' first."
+        elif "permission" in error_msg.lower() or "permission" in stdout_msg.lower():
+            error_msg = f"Permission denied. Check access to: {gee_asset_path}"
+        elif "already exists" in error_msg.lower() or "already exists" in stdout_msg.lower():
+            error_msg = f"Asset already exists: {asset_id}"
+        elif "invalid" in error_msg.lower() or "invalid" in stdout_msg.lower():
+            error_msg = f"Invalid asset path or GCS URI. Asset: {asset_id}, GCS: {gcs_uri}"
+        elif not error_msg and not stdout_msg:
+            error_msg = f"Command failed with exit code {e.returncode}. Check 'earthengine' is installed and authenticated."
+        
+        full_error = f"GEE upload failed: {error_msg}"
+        if stdout_msg and stdout_msg != error_msg:
+            full_error += f" | Output: {stdout_msg}"
+            
+        return (False, full_error, "")
     except Exception as e:
-        return (False, f"GEE upload failed: {str(e)}", "")
+        return (False, f"GEE upload failed: {str(e)} (Type: {type(e).__name__})", "")
+
+
+def check_earthengine_auth():
+    """Check if earthengine CLI is installed and authenticated."""
+    try:
+        result = subprocess.run(['earthengine', 'ls'], capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            return (True, "Earthengine CLI is authenticated")
+        else:
+            error_msg = result.stderr.strip() if result.stderr else "Unknown error"
+            return (False, f"Earthengine authentication failed: {error_msg}")
+    except FileNotFoundError:
+        return (False, "Earthengine CLI not found. Please install the earthengine-api package.")
+    except subprocess.TimeoutExpired:
+        return (False, "Earthengine CLI timeout - may be authentication issue")
+    except Exception as e:
+        return (False, f"Error checking earthengine: {str(e)}")
 
 
 def check_gee_asset_exists(asset_id: str) -> bool:
     """Check if a GEE asset already exists."""
     try:
         command = ['earthengine', 'asset', 'info', asset_id]
-        subprocess.run(command, check=True, capture_output=True, text=True)
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
         return True
-    except subprocess.CalledProcessError:
-        return False
-    except Exception:
-        # If any other error occurs, assume it doesn't exist to be safe
+    except subprocess.CalledProcessError as e:
+        if "does not exist" in (e.stderr or "").lower():
+            return False
+        elif "not authenticated" in (e.stderr or "").lower():
+            print(f"Warning: Not authenticated to check asset existence: {asset_id}")
+            return False
+        else:
+            print(f"Warning: Could not check asset existence for {asset_id}: {e.stderr or 'Unknown error'}")
+            return False
+    except Exception as e:
+        print(f"Warning: Error checking asset existence for {asset_id}: {str(e)}")
         return False
 
 
@@ -241,24 +189,13 @@ def batch_upload_to_gcs(local_files: list, gcs_bucket: str, gcs_prefix: str, deb
         if not local_files:
             return (True, "No files to upload")
         
-        # Build gcloud command for batch upload
         gcs_dest = f"gs://{gcs_bucket}/{gcs_prefix}/" if gcs_prefix else f"gs://{gcs_bucket}/"
-        
-        # Use gcloud storage cp - it automatically uses parallel uploads for multiple files
         command = ['gcloud', 'storage', 'cp']
-        
-        # Add all local files
         command.extend(local_files)
-        
-        # Add destination
         command.append(gcs_dest)
-        
         if debug:
             print(f"Running: {' '.join(command)}")
-        
-        # Run command and allow output to stream to console
         result = subprocess.run(command, check=True)
-        
         return (True, f"Successfully uploaded {len(local_files)} files")
         
     except subprocess.CalledProcessError as e:
@@ -302,7 +239,6 @@ def process_single_tile(tile_series, source_crs, tilesize, overlap, resolution, 
             resolution=resolution,
         )
         
-        # Check if file already exists in GCS (only if uploading to GCS/GEE)
         if gcs_bucket and gee_asset_path:
             blob_name = f"{gcs_prefix}/{grid.prefix}.zip" if gcs_prefix else f"{grid.prefix}.zip"
             if check_gcs_file_exists(gcs_bucket, blob_name):
@@ -316,7 +252,6 @@ def process_single_tile(tile_series, source_crs, tilesize, overlap, resolution, 
                     'tile_name': grid.prefix
                 }
         
-        # Check if local zip file already exists
         local_zip_path = os.path.join(output_dir, f"{grid.prefix}.zip")
         if os.path.exists(local_zip_path):
             return {
@@ -329,13 +264,11 @@ def process_single_tile(tile_series, source_crs, tilesize, overlap, resolution, 
                 'tile_name': grid.prefix
             }
         
-        # Generate chips
         tiles = chip_mgrs_tile(tile_series, grid, source_crs=source_crs)
         initial_chip_count = len(tiles)
         if debug:
             print(f"    Generated {initial_chip_count} initial chips for {tile_id}")
 
-        # Filter by ROI if provided
         if roi_geometry and len(tiles) > 0:
             transformer = pyproj.Transformer.from_crs(roi_crs, grid.crs, always_xy=True)
             roi_utm = shapely.ops.transform(transformer.transform, roi_geometry)
@@ -350,7 +283,6 @@ def process_single_tile(tile_series, source_crs, tilesize, overlap, resolution, 
         
         if final_chip_count > 0:
             if gcs_bucket and gee_asset_path:
-                # Create local zipped shapefile for later upload
                 if debug:
                     print(f"    Creating local zip for {final_chip_count} chips for {tile_id}...")
                 success, zip_message, zip_path = create_local_shapefile_zip(tiles, grid.prefix, output_dir)
@@ -359,7 +291,6 @@ def process_single_tile(tile_series, source_crs, tilesize, overlap, resolution, 
                     if debug:
                         print(f"    Zip creation success for {tile_id}: {zip_message}")
                 else:
-                    # Return as failed if zip creation failed
                     if debug:
                         print(f"    Zip creation failed for {tile_id}: {zip_message}")
                     return {
@@ -417,7 +348,7 @@ EXAMPLE:
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--input_file", type=str, required=True, help="Path to GeoParquet or GeoJSON file with MGRS tile geometries.")
+    parser.add_argument("--mgrs_tile_file", type=str, required=True, help="Path to GeoParquet or GeoJSON file with MGRS tile geometries.")
     parser.add_argument("--roi_file", type=str, help="Path to a GeoJSON/GeoParquet file to filter MGRS tiles.")
     parser.add_argument("--tilesize", type=int, default=25, help="Tile size in pixels.")
     parser.add_argument("--overlap", type=int, default=0, help="Overlap in pixels.")
@@ -427,17 +358,17 @@ EXAMPLE:
     parser.add_argument("--gcs_bucket", type=str, default='geovibes', help="GCS bucket name to upload zipped shapefiles to.")
     parser.add_argument("--gcs_prefix", type=str, default='tiles', help="GCS prefix/folder within the bucket.")
     parser.add_argument("--gee_asset_path", type=str, default='projects/demeterlabs-gee/assets/tiles', help="GEE asset path for table uploads (e.g., 'users/username/folder').")
-    parser.add_argument("--n_jobs", type=int, default=1, help="Number of parallel jobs to run. Use -1 for all available cores.")
+    parser.add_argument("--n_jobs", type=int, default=-1, help="Number of parallel jobs to run. Use -1 for all available cores.")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode for troubleshooting.")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
 
     try:
-        if args.input_file.endswith(".parquet"):
-            mgrs_gdf = gpd.read_parquet(args.input_file)
-        elif args.input_file.endswith(".geojson"):
-            mgrs_gdf = gpd.read_file(args.input_file)
+        if args.mgrs_tile_file.endswith(".parquet"):
+            mgrs_gdf = gpd.read_parquet(args.mgrs_tile_file)
+        elif args.mgrs_tile_file.endswith(".geojson"):
+            mgrs_gdf = gpd.read_file(args.mgrs_tile_file)
         else:
             raise ValueError("Input file must be a .parquet or .geojson file.")
     except Exception as e:
@@ -468,7 +399,6 @@ EXAMPLE:
     else:
         roi_crs = None
 
-    # Prepare tile data for parallel processing
     tile_list = [row for _, row in mgrs_gdf.iterrows()]
     
     print("\n" + "="*80)
@@ -484,7 +414,6 @@ EXAMPLE:
     else:
         print("No GCS/GEE configuration - local files only")
     
-    # Process tiles in parallel
     results = Parallel(n_jobs=args.n_jobs, verbose=10)(
         delayed(process_single_tile)(
             tile_series=tile_series,
@@ -496,14 +425,13 @@ EXAMPLE:
             roi_geometry=roi_geometry,
             roi_crs=roi_crs,
             output_dir=args.output_dir,
-            gcs_bucket=args.gcs_bucket,  # Always pass for file existence check
+            gcs_bucket=args.gcs_bucket,
             gcs_prefix=args.gcs_prefix,
             gee_asset_path=args.gee_asset_path,
             debug=args.debug
         ) for tile_series in tile_list
     )
     
-    # Print summary of Phase 1
     print("\n" + "="*80)
     print("PHASE 1 SUMMARY")
     print("="*80)
@@ -530,16 +458,13 @@ EXAMPLE:
         for result in failed_tiles:
             print(f"  - {result['tile_id']}: {result['message']}")
     
-    # Get list of files available for upload (newly created + existing local files)
     files_to_upload = [r for r in results if r['success'] and 'zip_path' in r and r['zip_path']]
     
-    # Get list of files already in GCS, ready for GEE asset creation
     files_for_gee_creation = [
         {'tile_name': r['tile_name'], 'gcs_uri': r['message'].split(' ')[-1]}
         for r in results if r['success'] and 'already exists in GCS' in r['message']
     ]
     
-    # Phase 2: Batch upload to GCS
     if args.gcs_bucket and args.gee_asset_path and files_to_upload:
         print("\n" + "="*80)
         print("PHASE 2: BATCH UPLOAD TO GCS")
@@ -548,14 +473,12 @@ EXAMPLE:
         gcs_path = f"gs://{args.gcs_bucket}/{args.gcs_prefix}/" if args.gcs_prefix else f"gs://{args.gcs_bucket}/"
         print(f"Uploading {len(files_to_upload)} files to {gcs_path}")
         
-        # Use gcloud to upload all files at once
         local_files = [r['zip_path'] for r in files_to_upload]
         success, message = batch_upload_to_gcs(local_files, args.gcs_bucket, args.gcs_prefix, args.debug)
         
         if success:
             print("✅ Batch upload to GCS successful!")
             
-            # Add successfully uploaded files to the GEE creation queue
             for result in files_to_upload:
                 filename = os.path.basename(result['zip_path'])
                 gcs_blob_path = f"{args.gcs_prefix}/{filename}" if args.gcs_prefix else filename
@@ -567,11 +490,18 @@ EXAMPLE:
         else:
             print(f"❌ Batch upload to GCS failed: {message}")
 
-    # Phase 3: Create GEE assets
     if args.gcs_bucket and args.gee_asset_path and files_for_gee_creation:
         print("\n" + "="*80)
         print("PHASE 3: CREATING GEE ASSETS")
         print("="*80)
+        
+        auth_success, auth_message = check_earthengine_auth()
+        if not auth_success:
+            print(f"❌ {auth_message}")
+            print("Please resolve authentication issues before proceeding with GEE asset creation.")
+            return
+        else:
+            print(f"✅ {auth_message}")
         
         gee_results = []
         for item in files_for_gee_creation:
@@ -582,7 +512,6 @@ EXAMPLE:
             if args.debug:
                 print(f"Processing GEE asset for {tile_name}...")
             
-            # Check if GEE asset already exists
             if check_gee_asset_exists(asset_id):
                 if args.debug:
                     print(f"  Skipping asset creation for {tile_name}, already exists.")
@@ -594,7 +523,6 @@ EXAMPLE:
                 })
                 continue
 
-            # Create GEE asset if it doesn't exist
             if args.debug:
                 print(f"Creating GEE asset for {tile_name} from {gcs_uri}")
             
@@ -606,7 +534,6 @@ EXAMPLE:
                 'task_id': task_id if gee_success else None
             })
         
-        # Print GEE results summary
         successful_assets = [r for r in gee_results if r['success'] and r['task_id'] != 'existing']
         skipped_assets = [r for r in gee_results if r['task_id'] == 'existing']
         failed_assets = [r for r in gee_results if not r['success']]
@@ -619,6 +546,12 @@ EXAMPLE:
             print(f"\nFailed GEE assets:")
             for result in failed_assets:
                 print(f"  - {result['tile_name']}: {result['message']}")
+            
+            print(f"\n💡 Troubleshooting tips:")
+            print(f"   - Ensure you're authenticated: earthengine authenticate")
+            print(f"   - Check asset path permissions: {args.gee_asset_path}")
+            print(f"   - Verify GCS files exist and are accessible")
+            print(f"   - Check for network connectivity issues")
         
         if successful_assets and args.debug:
             print(f"\nSuccessful GEE assets:")
