@@ -1,187 +1,38 @@
 import os
 from argparse import ArgumentParser
-from typing import List, Tuple
+from typing import List
 import multiprocessing as mp
 import logging
 import time
-import random
 
 import geopandas as gpd
 import numpy as np
-import rasterio
-import rasterio.enums
-import rasterio.transform
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import timm
-import kornia as K
 from torch.ao.quantization import quantize_dynamic
+from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log, retry_if_exception_type
 
 try:
     from .geodataset import GeoDataFrameDatasetOptimized
+    from .transforms import RescaledImageNetTransform
+    from .raster import find_band_files, create_stacked_raster, get_raster_info
 except ImportError:
-    # When running as a script, use absolute import
     import sys
     import os
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from geodataset import GeoDataFrameDatasetOptimized
+    from transforms import RescaledImageNetTransform
+    from raster import find_band_files, create_stacked_raster, get_raster_info
 
-# Set up logging
 logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
-# Optimized pure PyTorch rescale intensity
-class RescaleIntensityOptimized(nn.Module):
-    """Rescale intensity values using pure PyTorch operations."""
-    
-    def __init__(self, out_min_max: Tuple = (0, 1), percentiles: Tuple = (2, 98)):
-        super().__init__()
-        self.out_min, self.out_max = out_min_max
-        self.percentiles = torch.tensor(percentiles, dtype=torch.float32)
-        
-    def forward(self, tensor: torch.Tensor) -> torch.Tensor:
-        start_time = time.time()
-        logger.debug(f"RescaleIntensity: Starting with tensor shape {tensor.shape}")
-        
-        # Handle different tensor shapes
-        original_shape = tensor.shape
-        
-        shape_start = time.time()
-        if len(original_shape) == 3:
-            # [C, H, W] -> [1, C, H, W]
-            tensor = tensor.unsqueeze(0)
-            logger.debug(f"RescaleIntensity: Unsqueezed 3D tensor to {tensor.shape}")
-        elif len(original_shape) == 5:
-            # [B, C, 1, H, W] -> [B, C, H, W]
-            tensor = tensor.squeeze(2)
-            logger.debug(f"RescaleIntensity: Squeezed 5D tensor to {tensor.shape}")
-        shape_elapsed = time.time() - shape_start
-        logger.debug(f"RescaleIntensity: Shape handling took {shape_elapsed:.4f}s")
-        
-        batch_size, channels = tensor.shape[:2]
-        
-        # Flatten spatial dimensions for percentile calculation
-        flatten_start = time.time()
-        tensor_flat = tensor.view(batch_size, channels, -1)
-        flatten_elapsed = time.time() - flatten_start
-        logger.debug(f"RescaleIntensity: Flatten took {flatten_elapsed:.4f}s, shape: {tensor_flat.shape}")
-        
-        # Calculate percentiles per channel
-        percentile_start = time.time()
-        lower = torch.quantile(tensor_flat, self.percentiles[0] / 100.0, dim=2, keepdim=True)
-        upper = torch.quantile(tensor_flat, self.percentiles[1] / 100.0, dim=2, keepdim=True)
-        percentile_elapsed = time.time() - percentile_start
-        logger.debug(f"RescaleIntensity: Percentile calculation took {percentile_elapsed:.4f}s")
-        
-        # Reshape back to spatial dimensions
-        reshape_start = time.time()
-        lower = lower.view(batch_size, channels, 1, 1)
-        upper = upper.view(batch_size, channels, 1, 1)
-        reshape_elapsed = time.time() - reshape_start
-        logger.debug(f"RescaleIntensity: Reshape took {reshape_elapsed:.4f}s")
-        
-        # Clamp and normalize
-        clamp_start = time.time()
-        tensor = torch.clamp(tensor, lower, upper)
-        in_range = upper - lower
-        
-        # Avoid division by zero
-        in_range = torch.where(in_range == 0, torch.ones_like(in_range), in_range)
-        
-        # Normalize to [0, 1] then scale to output range
-        tensor = (tensor - lower) / in_range
-        out_range = self.out_max - self.out_min
-        tensor = tensor * out_range + self.out_min
-        clamp_elapsed = time.time() - clamp_start
-        logger.debug(f"RescaleIntensity: Clamp and normalize took {clamp_elapsed:.4f}s")
-        
-        # Restore original shape if needed
-        restore_start = time.time()
-        if len(original_shape) == 3:
-            tensor = tensor.squeeze(0)
-            logger.debug(f"RescaleIntensity: Restored to 3D shape {tensor.shape}")
-        restore_elapsed = time.time() - restore_start
-        logger.debug(f"RescaleIntensity: Shape restore took {restore_elapsed:.4f}s")
-        
-        total_elapsed = time.time() - start_time
-        if total_elapsed > 0.1:
-            logger.warning(f"RescaleIntensity: Slow transform took {total_elapsed:.3f}s")
-        else:
-            logger.debug(f"RescaleIntensity: Total time {total_elapsed:.4f}s")
-        
-        return tensor
-
-
-# Optimized transform pipeline
-class OptimizedTransform(nn.Module):
-    """Fully vectorized transform pipeline."""
-    
-    def __init__(self):
-        super().__init__()
-        self.rescale = RescaleIntensityOptimized((0, 1), (2, 98))
-        self.resize = K.geometry.Resize((224, 224))
-        # Use torch transforms for better compatibility
-        self.mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
-        self.std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
-    
-    @torch.no_grad()
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        start_time = time.time()
-        logger.debug(f"OptimizedTransform: Starting with tensor shape {x.shape}")
-        
-        # Handle single sample vs batch
-        batch_start = time.time()
-        is_single = len(x.shape) == 3
-        if is_single:
-            x = x.unsqueeze(0)  # Add batch dimension
-            logger.debug(f"OptimizedTransform: Added batch dimension, shape: {x.shape}")
-        batch_elapsed = time.time() - batch_start
-        logger.debug(f"OptimizedTransform: Batch handling took {batch_elapsed:.4f}s")
-        
-        # Apply rescaling
-        rescale_start = time.time()
-        logger.debug(f"OptimizedTransform: Applying rescale transform...")
-        x = self.rescale(x)
-        rescale_elapsed = time.time() - rescale_start
-        logger.debug(f"OptimizedTransform: Rescale took {rescale_elapsed:.4f}s, output shape: {x.shape}")
-        
-        # Apply resizing
-        resize_start = time.time()
-        logger.debug(f"OptimizedTransform: Applying resize transform...")
-        x = self.resize(x)
-        resize_elapsed = time.time() - resize_start
-        logger.debug(f"OptimizedTransform: Resize took {resize_elapsed:.4f}s, output shape: {x.shape}")
-        
-        # Manual normalization to avoid Kornia issues
-        norm_start = time.time()
-        logger.debug(f"OptimizedTransform: Applying normalization...")
-        x = (x - self.mean) / self.std
-        norm_elapsed = time.time() - norm_start
-        logger.debug(f"OptimizedTransform: Normalization took {norm_elapsed:.4f}s")
-        
-        # Remove batch dimension if needed
-        squeeze_start = time.time()
-        if is_single:
-            x = x.squeeze(0)  # Remove batch dimension
-            logger.debug(f"OptimizedTransform: Removed batch dimension, final shape: {x.shape}")
-        squeeze_elapsed = time.time() - squeeze_start
-        logger.debug(f"OptimizedTransform: Squeeze handling took {squeeze_elapsed:.4f}s")
-        
-        total_elapsed = time.time() - start_time
-        if total_elapsed > 0.2:
-            logger.warning(f"OptimizedTransform: Slow transform pipeline took {total_elapsed:.3f}s")
-        else:
-            logger.debug(f"OptimizedTransform: Total pipeline time {total_elapsed:.4f}s")
-        
-        return x
-
-
 def worker_init_fn(worker_id):
     """Initialize worker with proper thread settings."""
-    # Get total CPU count and calculate threads per worker
     cpu_count = mp.cpu_count()
     worker_info = torch.utils.data.get_worker_info()
     if worker_info is not None:
@@ -190,140 +41,71 @@ def worker_init_fn(worker_id):
     else:
         threads_per_worker = 1
     
-    # Set thread count for this worker
     torch.set_num_threads(threads_per_worker)
     
-    # Also set OMP threads
     os.environ['OMP_NUM_THREADS'] = str(threads_per_worker)
     os.environ['MKL_NUM_THREADS'] = str(threads_per_worker)
 
 
-class MultiResolutionBandStacker:
-    """Handle Sentinel-2 bands with different resolutions."""
-    
-    BAND_RESOLUTIONS = {
-        'B01': 60, 'B02': 10, 'B03': 10, 'B04': 10,
-        'B05': 20, 'B06': 20, 'B07': 20, 'B08': 10,
-        'B8A': 20, 'B09': 60, 'B10': 60, 'B11': 20, 'B12': 20
-    }
-    
-    def __init__(self, target_resolution: int = 10):
-        self.target_resolution = target_resolution
+@retry(
+    stop=stop_after_attempt(20),
+    wait=wait_exponential(multiplier=2, min=2, max=300),
+    retry=retry_if_exception_type((ConnectionError, TimeoutError, OSError, RuntimeError, Exception)),
+    before_sleep=before_sleep_log(logger, logging.WARNING)
+)
+def load_model_with_retry(model_name: str):
+    """Load a timm model with exponential backoff retry logic."""
+    logger.info(f"Loading {model_name} model...")
+    try:
+        model = timm.create_model(model_name, pretrained=True, num_classes=0)
+        logger.info("Model loaded successfully.")
+        return model
+    except Exception as e:
+        logger.error(f"Failed to load model {model_name}: {e}")
+        raise
 
 
-def get_gcs_files(mgrs_tile_id: str, bands: List[str], date_range: str, 
-                  local_dir: str) -> List[str]:
-    """Get GeoTIFF file paths from local directory (which might be a mount or regular directory)."""
-    file_paths = []
-    
-    for band in bands:
-        # Try different naming patterns
-        patterns = [
-            f"{mgrs_tile_id}_{band}_{date_range}.tif",  # Original pattern
-            f"{mgrs_tile_id}_{band.upper()}_{date_range}.tif",  # Uppercase band
-            f"{mgrs_tile_id}_{band.lower()}_{date_range}.tif",  # Lowercase band
-            f"{mgrs_tile_id}_B{band[-1]}_{date_range}.tif" if band.startswith('B') else None,  # Just number
-            f"{mgrs_tile_id}_B{band[-2:]}_{date_range}.tif" if band.startswith('B') and len(band) > 2 else None,  # Two digit
-        ]
-        
-        found = False
-        for pattern in patterns:
-            if pattern is None:
-                continue
-                
-            # Check in main directory
-            file_path = os.path.join(local_dir, pattern)
-            if os.path.exists(file_path):
-                print(f"Found file: {file_path}")
-                file_paths.append(file_path)
-                found = True
-                break
-                
-            # Check in imagery/s2 subdirectory
-            alt_path = os.path.join(local_dir, "imagery", "s2", pattern)
-            if os.path.exists(alt_path):
-                print(f"Found file: {alt_path}")
-                file_paths.append(alt_path)
-                found = True
-                break
-        
-        if not found:
-            print(f"Warning: No file found for band {band} in {local_dir}")
-            print(f"  Tried patterns: {[p for p in patterns if p is not None]}")
-    
-    return file_paths
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=1, max=30),
+    retry=retry_if_exception_type((ConnectionError, TimeoutError, OSError, IOError)),
+    before_sleep=before_sleep_log(logger, logging.WARNING)
+)
+def read_tiles_file_with_retry(tiles_file: str):
+    """Read tiles file with retry logic for remote file access."""
+    logger.info(f"Reading tiles from: {tiles_file}")
+    try:
+        return gpd.read_file(tiles_file)
+    except Exception as e:
+        logger.error(f"Failed to read tiles file {tiles_file}: {e}")
+        raise
 
 
-def create_stacked_geotiff(band_paths: List[str], output_path: str, target_resolution: int = 10) -> str:
-    """Create a multi-band stacked GeoTIFF from individual band files, skip if exists."""
-    if os.path.exists(output_path):
-        print(f"Stacked GeoTIFF already exists, skipping: {output_path}")
-        return output_path
-    
-    with rasterio.open(band_paths[0]) as template:
-        profile = template.profile.copy()
-        transform = template.transform
-        width = template.width
-        height = template.height
-        
-        print(f"Template band info:")
-        print(f"  Resolution: {template.res[0]}m")
-        print(f"  Original dimensions: {width}x{height}")
-        print(f"  CRS: {template.crs}")
-        print(f"  Bounds: {template.bounds}")
-        
-        if template.res[0] != target_resolution:
-            scale_factor = template.res[0] / target_resolution
-            width = int(width * scale_factor)
-            height = int(height * scale_factor)
-            left, bottom, right, top = template.bounds
-            transform = rasterio.transform.from_bounds(
-                left, bottom, right, top, width, height
-            )
-            print(f"  Scaling from {template.res[0]}m to {target_resolution}m (factor: {scale_factor:.3f})")
-            print(f"  New dimensions: {width}x{height}")
-        else:
-            print(f"  No scaling needed, already at {target_resolution}m resolution")
-    
-    profile.update({
-        'count': len(band_paths),
-        'width': width,
-        'height': height,
-        'transform': transform,
-        'dtype': 'float32',
-        'compress': 'lzw',  # Add compression
-        'tiled': True,      # Enable tiling for better access patterns
-        'blockxsize': 512,
-        'blockysize': 512
-    })
-    
-    with rasterio.open(output_path, 'w', **profile) as dst:
-        for i, band_path in enumerate(band_paths):
-            with rasterio.open(band_path) as src:
-                if src.res[0] != target_resolution:
-                    scale_factor = src.res[0] / target_resolution
-                    new_width = int(src.width * scale_factor)
-                    new_height = int(src.height * scale_factor)
-                    data = src.read(1, out_shape=(new_height, new_width), 
-                                  resampling=rasterio.enums.Resampling.bilinear)
-                else:
-                    data = src.read(1)
-                dst.write(data.astype('float32'), i + 1)
-    
-    return output_path
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=1, max=30),
+    retry=retry_if_exception_type((ConnectionError, TimeoutError, OSError, IOError)),
+    before_sleep=before_sleep_log(logger, logging.WARNING)
+)
+def save_results_with_retry(results_gdf, output_path: str):
+    """Save results to parquet with retry logic for remote file writes."""
+    logger.info(f"Saving embeddings to: {output_path}")
+    try:
+        results_gdf.to_parquet(output_path, index=False, compression='snappy')
+        logger.info(f"Successfully saved to: {output_path}")
+    except Exception as e:
+        logger.error(f"Failed to save results to {output_path}: {e}")
+        raise
 
 
 def optimize_model(model: nn.Module, example_input: torch.Tensor, enable_compile: bool = True) -> nn.Module:
-    """Optimize model for CPU inference."""
+    """Optimize model for CPU inference with optional torch.compile."""
     model.eval()
     
-    # Only try torch.compile if explicitly enabled and available
     if enable_compile and hasattr(torch, 'compile'):
         try:
             print("Compiling model with torch.compile...")
-            # Use reduce-overhead mode for better compatibility
             model = torch.compile(model, mode="reduce-overhead")
-            # Warm up with inference mode
             with torch.inference_mode():
                 _ = model(example_input)
             print("Model compilation successful")
@@ -349,13 +131,30 @@ def main(
     enable_quantization: bool = True,
     enable_compile: bool = True
 ) -> None:
-    """Generate embeddings for Sentinel-2 imagery with CPU optimizations."""
+    """
+    Generate embeddings for Sentinel-2 imagery using deep learning models.
     
-    # Set global thread settings
+    This function processes Sentinel-2 satellite imagery to generate feature embeddings
+    using pretrained computer vision models. It handles multi-band raster stacking,
+    geometric tiling, data loading, and model inference with CPU optimizations.
+    
+    Args:
+        mgrs_tile_id: MGRS tile identifier (e.g., '33TUN')
+        bands: List of Sentinel-2 band identifiers to process
+        date_range: Date range string for file identification
+        local_dir: Local directory containing the band files
+        tiles_file: Path to file containing tile geometries
+        output_path: Path where embedding results will be saved
+        model_name: Name of the pretrained model to use (timm format)
+        batch_size: Batch size for inference
+        num_workers: Number of data loading workers
+        target_resolution: Target spatial resolution in meters
+        enable_quantization: Whether to apply INT8 quantization
+        enable_compile: Whether to use torch.compile optimization
+    """
     cpu_count = mp.cpu_count()
     print(f"System has {cpu_count} CPU cores")
     
-    # Reserve some threads for main process
     main_threads = max(1, cpu_count - num_workers)
     torch.set_num_threads(main_threads)
     
@@ -368,7 +167,7 @@ def main(
         return
     
     print(f"Getting GeoTIFF files from: {local_dir}")
-    band_paths = get_gcs_files(mgrs_tile_id, bands, date_range, local_dir)
+    band_paths = find_band_files(mgrs_tile_id, bands, date_range, local_dir)
 
     print(f"No bands found for MGRS tile {mgrs_tile_id} in {local_dir}")
     print("Attempting to extract tile boundary from tiles_file...")
@@ -376,9 +175,8 @@ def main(
     # Load tiles file to get the boundary
     print(f"Loading tiles from: {tiles_file}")
 
-    print(f"Reading tiles from: {tiles_file}")
-    tiles_gdf = gpd.read_file(tiles_file)
-    print(f"Successfully read file directly from GCS: {tiles_file}")
+    tiles_gdf = read_tiles_file_with_retry(tiles_file)
+    print(f"Successfully read file: {tiles_file}")
 
     # Get the overall boundary of all tiles
     overall_bounds = tiles_gdf.total_bounds  # [minx, miny, maxx, maxy]
@@ -387,21 +185,19 @@ def main(
 
     stacked_path = os.path.join(local_dir, f"{mgrs_tile_id}_stacked_{target_resolution}m.tif")
     print(f"Creating stacked GeoTIFF: {stacked_path} at {target_resolution}m resolution")
-    create_stacked_geotiff(band_paths, stacked_path, target_resolution=target_resolution)
+    create_stacked_raster(band_paths, stacked_path, target_resolution=target_resolution)
     
     
     print(f"Loaded {len(tiles_gdf)} polygons from shapefile")
     
-    # Ensure tiles_gdf has proper CRS
-    with rasterio.open(stacked_path) as src:
-        raster_crs = src.crs
+    raster_info = get_raster_info(stacked_path)
+    raster_crs = raster_info['crs']
     
     if tiles_gdf.crs != raster_crs:
         print(f"Converting tiles from {tiles_gdf.crs} to {raster_crs}")
         tiles_gdf = tiles_gdf.to_crs(raster_crs)
     
-    # Create optimized transform
-    transform_pipeline = OptimizedTransform()
+    transform_pipeline = RescaledImageNetTransform()
     
     print("Creating GeoDataFrameDataset...")
     dataset_start = time.time()
@@ -443,30 +239,7 @@ def main(
         logger.error(f"Failed to access first dataset item: {e}")
         raise
     
-    # Load model with retry logic
-    model = None
-    max_retries = 20
-    base_delay = 2  # seconds
-    max_jitter = 3  # seconds
-
-    for attempt in range(max_retries):
-        try:
-            print(f"Loading {model_name} model (attempt {attempt + 1}/{max_retries})...")
-            model = timm.create_model(model_name, pretrained=True, num_classes=0)
-            print("Model loaded successfully.")
-            break  # Exit loop if successful
-        except Exception as e:
-            print(f"Failed to load model on attempt {attempt + 1}: {e}")
-            if attempt < max_retries - 1:
-                delay = base_delay * (2 ** attempt) + random.uniform(0, max_jitter)
-                print(f"Retrying in {delay:.2f} seconds...")
-                time.sleep(delay)
-            else:
-                print("Max retries reached. Failed to load model.")
-                raise  # Re-raise the last exception
-
-    if model is None:
-        raise RuntimeError("Failed to load model after multiple retries.")
+    model = load_model_with_retry(model_name)
     
     # Create example input for optimization
     example_input = torch.randn(1, 3, 224, 224)
@@ -575,8 +348,7 @@ def main(
     results_gdf = results_gdf.set_geometry('centroid_wgs84')
     results_gdf = results_gdf.rename_geometry('geometry')
     
-    print(f"Saving embeddings to: {output_path}")
-    results_gdf.to_parquet(output_path, index=False, compression='snappy')
+    save_results_with_retry(results_gdf, output_path)
     
     print(f"Generated {len(embeddings)} embeddings for {mgrs_tile_id}")
     print(f"Output saved to: {output_path}")

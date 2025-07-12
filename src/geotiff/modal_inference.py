@@ -51,6 +51,7 @@ image = (
         "joblib>=1.2.0",
         "kornia>=0.7.0",
         "pyogrio>=0.7.0",
+        "tenacity>=8.0.0",
     ])
     .add_local_dir("src/geotiff", "/root/geotiff")
 )

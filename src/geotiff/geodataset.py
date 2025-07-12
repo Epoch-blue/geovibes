@@ -47,10 +47,15 @@ class GeoDataFrameDatasetOptimized(torch.utils.data.Dataset):
         self.target_resolution = target_resolution
         
         # Configure rasterio environment for optimal performance
+        # currently we download the geotiff to a local directory, maybe we should change this to read windows from the cloud directly
         self.env_kwargs = {
             'GDAL_DISABLE_READDIR_ON_OPEN': 'EMPTY_DIR',
             'GDAL_NUM_THREADS': 1,
-            'GDAL_CACHEMAX': 128  # MB as integer
+            'GDAL_CACHEMAX': 128,  # MB as integer
+            'AWS_NO_SIGN_REQUEST': 'YES',
+            'GDAL_MAX_RAW_BLOCK_CACHE_SIZE': '200000000',
+            'GDAL_SWATH_SIZE': '200000000',
+            'VSI_CURL_CACHE_SIZE': '200000000',
         }
         
         with Env(**self.env_kwargs):
