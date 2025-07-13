@@ -6,7 +6,7 @@ particularly Sentinel-2 data, including band discovery, stacking, and resampling
 """
 
 import os
-from typing import List, Dict
+from typing import Any, List, Dict
 
 import rasterio
 import rasterio.enums
@@ -173,7 +173,7 @@ def create_stacked_raster(band_paths: List[str], output_path: str,
     return output_path
 
 
-def get_raster_info(raster_path: str) -> Dict[str, any]:
+def get_raster_info(raster_path: str) -> Dict[str, Any]:
     """
     Extract metadata information from a raster file.
     

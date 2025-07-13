@@ -202,7 +202,7 @@ def main(
     print("Creating GeoDataFrameDataset...")
     dataset_start = time.time()
     logger.info(f"Creating dataset with {len(tiles_gdf)} geometries...")
-    dataset = GeoTiffTileDataset(
+    dataset = GeotiffTileDataset(
         path=stacked_path,
         geometries_gdf=tiles_gdf,
         transforms=transform_pipeline,
