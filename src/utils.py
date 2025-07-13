@@ -195,8 +195,6 @@ def _list_gcs_databases(directory_path: str, verbose: bool = False) -> List[str]
             raise RuntimeError(f"gcsfs error: {e}")
 
     return databases
-    
-    return databases
 
 
 def get_database_centroid(duckdb_connection, verbose: bool = False) -> tuple:
