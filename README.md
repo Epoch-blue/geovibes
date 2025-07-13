@@ -105,8 +105,6 @@ vibes = GeoVibes(
     verbose=True)
 ```
 
-
-
 ### Setup
 Create a `.env` file in the repository root with your [MapTiler](https://cloud.maptiler.com/) API key:
 ```
@@ -197,21 +195,6 @@ earthengine authenticate
 gcloud auth login
 gcloud config set project your-project-id
 ```
-
-## Configuration
-
-Create a config file pointing to your generated database and region boundary:
-
-```json
-{
-    "duckdb_path": "path/to/your/embeddings.db",
-    "boundary_path": "path/to/your/region.geojson", 
-    "start_date": "2024-01-01",
-    "end_date": "2024-12-31"
-}
-```
-
-The dates specify the temporal range of imagery used for embeddings and NDVI/NDWI basemap generation.
 
 ## Performance & Limitations
 
