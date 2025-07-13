@@ -146,53 +146,26 @@ def _list_gcs_databases(directory_path: str, verbose: bool = False) -> List[str]
     Returns:
         List of database file paths
     """
-    import subprocess
     
     databases = []
     
-    try:
-        # Try using gsutil to list files
-        if not directory_path.endswith('/'):
-            directory_path += '/'
-        
-        pattern = directory_path + "*.db"
-        result = subprocess.run(['gsutil', 'ls', pattern], 
-                              capture_output=True, text=True, timeout=30)
-        
-        if result.returncode == 0:
-            for line in result.stdout.strip().split('\n'):
-                if line.strip() and line.endswith('.db'):
-                    databases.append(line.strip())
-                    if verbose:
-                        print(f"  Found: {line.strip()}")
-        else:
-            raise RuntimeError(f"gsutil failed: {result.stderr.strip()}")
 
-    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+    import gcsfs
+    fs = gcsfs.GCSFileSystem()
+    
+    # Remove gs:// prefix for gcsfs
+    path_without_prefix = directory_path.replace('gs://', '')
+    if not path_without_prefix.endswith('/'):
+        path_without_prefix += '/'
+    
+    files = fs.glob(path_without_prefix + "*.db")
+    for file_path in files:
+        full_path = f"gs://{file_path}"
+        databases.append(full_path)
         if verbose:
-            print(f"gsutil not available or timed out: {e}")
-        
-        # Fallback: try gcsfs if available
-        try:
-            import gcsfs
-            fs = gcsfs.GCSFileSystem()
-            
-            # Remove gs:// prefix for gcsfs
-            path_without_prefix = directory_path.replace('gs://', '')
-            if not path_without_prefix.endswith('/'):
-                path_without_prefix += '/'
-            
-            files = fs.glob(path_without_prefix + "*.db")
-            for file_path in files:
-                full_path = f"gs://{file_path}"
-                databases.append(full_path)
-                if verbose:
-                    print(f"  Found: {full_path}")
+            print(f"  Found: {full_path}")
 
-        except ImportError:
-            raise RuntimeError("gcsfs not available for GCS directory listing")
-        except Exception as e:
-            raise RuntimeError(f"gcsfs error: {e}")
+
 
     return databases
 

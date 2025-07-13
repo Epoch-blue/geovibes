@@ -9,67 +9,14 @@ This repo was originally inspired by the [Earth Genome notebook tooling](https:/
 
 ## Architecture
 
-The GeoVibes system uses a layered architecture designed for efficient memory management and safe processing of large-scale geospatial similarity search:
+The GeoVibes system is designed for efficient large-scale geospatial similarity search. The core of the system is a DuckDB database that stores vector embeddings and their corresponding geometries.
 
-```mermaid
-graph TB
-    subgraph DataPipeline["🔄 Data Pipeline"]
-        ROI["🗺️ Region of Interest<br/>(GeoJSON/GeoParquet)"]
-        MGRS["📍 MGRS Grid<br/>Reference"]
-        Embeddings["🛰️ Google Satellite<br/>Embeddings (GEE)"]
-        Processing["⚙️ Processing<br/>(GCS → Local Parquet)"]
-        IndexDB["🗃️ DuckDB Index<br/>(HNSW + RTree)"]
-    end
-    
-    subgraph UI["🖥️ User Interface"]
-        MapClick["📍 Map Click<br/>Point Selection"]
-        PolygonDraw["🔗 Polygon Draw<br/>Bulk Selection"]
-        SearchBtn["🔍 Search Button"]
-        LabelToggle["🏷️ Label Toggle<br/>Pos/Neg/Erase"]
-        SaveLoad["💾 Save/Load Dataset"]
-    end
-    
-    subgraph Core["⚡ Core Processing"]
-        LabelLists["📋 Label Lists<br/>pos_ids[] & neg_ids[]"]
-        CachedEmbeds["🧠 Cached Embeddings<br/>cached_embeddings{}"]
-        QueryVector["🧮 Query Vector<br/>2×pos_avg - neg_avg"]
-        SearchResults["📊 Search Results<br/>similarity + spatial"]
-    end
-    
-    %% Data Pipeline Flow
-    ROI --> MGRS
-    MGRS --> Embeddings
-    Embeddings --> Processing
-    Processing --> IndexDB
-    
-    %% Interactive Search Flow
-    IndexDB ==> CachedEmbeds
-    MapClick ==> LabelLists
-    PolygonDraw ==> LabelLists
-    LabelToggle ==> LabelLists
-    LabelLists ==> CachedEmbeds
-    CachedEmbeds ==> QueryVector
-    SearchBtn ==> QueryVector
-    QueryVector ==> IndexDB
-    IndexDB ==> SearchResults
-    SearchResults ==> MapClick
-    
-    %% Feedback Loop
-    SearchResults -.->|"Click to Label"| LabelLists
-    
-    %% Data Persistence
-    SaveLoad <==> CachedEmbeds
-    SaveLoad <==> LabelLists
-    
-    classDef pipelineClass fill:#fff3e0,stroke:#e65100,stroke-width:3px,font-size:14px
-    classDef uiClass fill:#e1f5fe,stroke:#01579b,stroke-width:3px,font-size:14px
-    classDef coreClass fill:#f3e5f5,stroke:#4a148c,stroke-width:3px,font-size:14px
-    classDef dbClass fill:#e8f5e8,stroke:#1b5e20,stroke-width:3px,font-size:14px
-    
-    class ROI,MGRS,Embeddings,Processing,IndexDB pipelineClass
-    class MapClick,PolygonDraw,SearchBtn,LabelToggle,SaveLoad uiClass
-    class LabelLists,CachedEmbeds,QueryVector,SearchResults coreClass
-```
+The database is built using the script in `src/database.py` and is optimized for performance with the following features:
+-   **Vector Similarity Search (VSS):** It uses DuckDB's `vss` extension for efficient similarity search on high-dimensional vector embeddings.
+-   **HNSW Index:** A Hierarchical Navigable Small World (HNSW) index is created on the embeddings for fast approximate nearest neighbor search. This is ideal for finding "similar" vibes quickly.
+-   **R-Tree Index:** A spatial index (R-Tree) is built on the geometries of the embeddings. This allows for fast spatial querying, like finding all points within a drawn polygon.
+
+This combination of vector and spatial indexing allows GeoVibes to perform complex queries that combine both content-based similarity and geographic location.
 
 ## Prerequisites
 
@@ -136,6 +83,55 @@ gcloud auth application-default login
 - Use environment variables in production
 - Consider using Google Cloud IAM roles for more secure access
 
+
+## Interactive Vibe Checking
+
+The `vibe_checker.ipynb` notebook provides the main interface for geospatial similarity search. You will either need to access `.db` files on GCS via `httpfs` or, simply download the .db files to a local folder, or make your own.
+For example:
+
+```bash
+mkdir -p local_databases && gsutil -m cp "gs://geovibes/databases/google/*.db" local_databases/
+```
+
+will create a `local_databases` directory and download all the Google Embedding .db files in that GCS drive.
+You can then checkout the vibes using the notebook by passing this directory to it, along with a start and end date and a GCP project:
+
+```python
+vibes = GeoVibes(
+    duckdb_directory = '/Users/christopherren/geovibes/local_databases',
+    start_date = '2024-01-01',
+    end_date = '2025-01-01',
+    gcp_project='demeterlabs-gee',
+    verbose=True)
+```
+
+
+
+### Setup
+Create a `.env` file in the repository root with your [MapTiler](https://cloud.maptiler.com/) API key:
+```
+MAPTILER_API_KEY="your-api-key"
+```
+
+### Features
+- **Multiple basemaps**: MapTiler satellite, Sentinel-2 RGB/NDVI/NDWI composites, Google Hybrid maps
+- **Flexible labeling**: Point-click and polygon selection for positive/negative examples
+- **Iterative search**: Query vector updates with each labeling iteration using `2×positive_avg - negative_avg`
+- **Save/load**: Persist labeled datasets as GeoJSON for continued refinement
+- **Memory efficient**: Cached embeddings and chunked database queries for large regions
+
+### Label a point and search
+Start your search by picking a point for which you would like to find similar ones in your area, and the click Search
+![Label a point and search for similar points](images/label_positive_point.gif)
+
+### Polygon Labeling
+Search is iterative: this  means positives get added to your query vector and negatives get subtracted as you go along. If you'd like to add a large group of positives/negatives you can use the polygon labeling mode.
+![Polygon labeling and search for similar points](images/polygon_label.gif)
+
+### Load Dataset
+You can save your search results as a geojson, and reload them and start searching again.
+![Load a previous dataset](images/load_saved_changes.gif)
+
 ## Generate Embeddings
 
 GeoVibes uses Google's satellite foundation model to generate embeddings via Google Earth Engine. This is a 3-step workflow:
@@ -144,7 +140,7 @@ GeoVibes uses Google's satellite foundation model to generate embeddings via Goo
 Generate spatial grid tiles for your region and upload them as GEE assets:
 
 ```bash
-python src/google/mgrs_tiling_to_asset.py \
+python src/google/tiling_to_gee_asset.py \
   --input_file geometries/mgrs_tiles.parquet \
   --roi_file aoi.geojson \
   --gcs_bucket your-bucket \
@@ -160,7 +156,7 @@ This creates a grid of spatial tiles, uploads them to Google Cloud Storage, and 
 Extract embeddings for each tile using Google's satellite embedding model:
 
 ```bash
-python src/google/export_embeddings.py \
+python src/google/embeddings.py \
   --roi_file aoi.geojson \
   --mgrs_reference_file geometries/mgrs_tiles.parquet \
   --year 2024 \
@@ -175,7 +171,7 @@ This processes each tile through Google's satellite embedding model and exports 
 Download the embeddings from GCS and create a DuckDB index:
 
 ```bash
-python src/google/geojson_to_duckdb.py \
+python src/database.py \
   aoi.geojson \
   ./processed_embeddings \
   aoi_google.db \
@@ -216,35 +212,6 @@ Create a config file pointing to your generated database and region boundary:
 ```
 
 The dates specify the temporal range of imagery used for embeddings and NDVI/NDWI basemap generation.
-
-## Interactive Vibe Checking
-
-The `vibe_checker.ipynb` notebook provides the main interface for geospatial similarity search.
-
-### Setup
-Create a `.env` file in the repository root with your [MapTiler](https://cloud.maptiler.com/) API key:
-```
-MAPTILER_API_KEY="your-api-key"
-```
-
-### Features
-- **Multiple basemaps**: MapTiler satellite, Sentinel-2 RGB/NDVI/NDWI composites, Google Hybrid maps
-- **Flexible labeling**: Point-click and polygon selection for positive/negative examples
-- **Iterative search**: Query vector updates with each labeling iteration using `2×positive_avg - negative_avg`
-- **Save/load**: Persist labeled datasets as GeoJSON for continued refinement
-- **Memory efficient**: Cached embeddings and chunked database queries for large regions
-
-### Label a point and search
-Start your search by picking a point for which you would like to find similar ones in your area, and the click Search
-![Label a point and search for similar points](images/label_positive_point.gif)
-
-### Polygon Labeling
-Search is iterative: this  means positives get added to your query vector and negatives get subtracted as you go along. If you'd like to add a large group of positives/negatives you can use the polygon labeling mode.
-![Polygon labeling and search for similar points](images/polygon_label.gif)
-
-### Load Dataset
-You can save your search results as a geojson, and reload them and start searching again.
-![Load a previous dataset](images/load_saved_changes.gif)
 
 ## Performance & Limitations
 
