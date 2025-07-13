@@ -117,6 +117,11 @@ class GeoVibes:
             baselayer_url: Custom basemap tile URL.
             verbose: Enable detailed progress messages.
             **kwargs: Additional arguments for backwards compatibility.
+
+        Raises:
+            ValueError: If no database is available given the provided parameters.
+            FileNotFoundError: If no .db files are found in the provided directory.
+            RuntimeError: If there is an error connecting to the database.
         """
         self.verbose = verbose
         if self.verbose:
@@ -134,6 +139,16 @@ class GeoVibes:
             self.config = GeoVibesConfig.from_dict(config)
             self.config.validate()
         else:
+            # Only validate if we have the minimum required parameters
+            if duckdb_path is None and duckdb_directory is None and duckdb_connection is None:
+                raise ValueError("Either duckdb_path, duckdb_directory, or duckdb_connection must be provided")
+            
+            # Set defaults for optional parameters
+            if start_date is None:
+                start_date = "2024-01-01"
+            if end_date is None:
+                end_date = "2025-01-01"
+
             # Use individual parameters to create config
             self.config = GeoVibesConfig(
                 duckdb_path=duckdb_path,
@@ -143,16 +158,6 @@ class GeoVibes:
                 end_date=end_date,
                 gcp_project=gcp_project
             )
-            
-            # Only validate if we have the minimum required parameters
-            if duckdb_path is None and duckdb_directory is None:
-                raise ValueError("Either duckdb_path or duckdb_directory must be provided")
-            
-            # Set defaults for optional parameters
-            if start_date is None:
-                self.config.start_date = "2024-01-01"
-            if end_date is None:
-                self.config.end_date = "2025-01-01"
             
             self.config.validate()
         
@@ -169,8 +174,7 @@ class GeoVibes:
                 if self.verbose:
                     print(f"📁 Found {len(self.available_databases)} databases in directory")
             else:
-                if self.verbose:
-                    print("⚠️  No .db files found in directory")
+                raise FileNotFoundError("⚠️  No .db files found in directory")
         elif self.config.duckdb_path:
             self.current_database_path = self.config.duckdb_path
         
@@ -179,7 +183,7 @@ class GeoVibes:
         
         if duckdb_connection is None:
             if self.current_database_path is None:
-                raise ValueError("No database available - either duckdb_path or duckdb_directory must be provided")
+                raise ValueError("No database available given the provided parameters")
             
             # Show connection status for GCS paths
             if DatabaseConstants.is_gcs_path(self.current_database_path):

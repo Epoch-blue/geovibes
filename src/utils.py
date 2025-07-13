@@ -137,7 +137,15 @@ def _list_local_databases(directory_path: str, verbose: bool = False) -> List[st
 
 
 def _list_gcs_databases(directory_path: str, verbose: bool = False) -> List[str]:
-    """List GCS DuckDB database files."""
+    """List GCS DuckDB database files.
+    
+    Args:
+        directory_path: Path to directory (local or GCS)
+        verbose: Whether to print debug information
+        
+    Returns:
+        List of database file paths
+    """
     import subprocess
     
     databases = []
@@ -158,9 +166,8 @@ def _list_gcs_databases(directory_path: str, verbose: bool = False) -> List[str]
                     if verbose:
                         print(f"  Found: {line.strip()}")
         else:
-            if verbose:
-                print(f"gsutil failed: {result.stderr.strip()}")
-                
+            raise RuntimeError(f"gsutil failed: {result.stderr.strip()}")
+
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         if verbose:
             print(f"gsutil not available or timed out: {e}")
@@ -181,13 +188,13 @@ def _list_gcs_databases(directory_path: str, verbose: bool = False) -> List[str]
                 databases.append(full_path)
                 if verbose:
                     print(f"  Found: {full_path}")
-                    
+
         except ImportError:
-            if verbose:
-                print("gcsfs not available for GCS directory listing")
+            raise RuntimeError("gcsfs not available for GCS directory listing")
         except Exception as e:
-            if verbose:
-                print(f"gcsfs error: {e}")
+            raise RuntimeError(f"gcsfs error: {e}")
+
+    return databases
     
     return databases
 
