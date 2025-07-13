@@ -142,20 +142,14 @@ class GeoVibes:
             # Only validate if we have the minimum required parameters
             if duckdb_path is None and duckdb_directory is None and duckdb_connection is None:
                 raise ValueError("Either duckdb_path, duckdb_directory, or duckdb_connection must be provided")
-            
-            # Set defaults for optional parameters
-            if start_date is None:
-                start_date = "2024-01-01"
-            if end_date is None:
-                end_date = "2025-01-01"
 
             # Use individual parameters to create config
             self.config = GeoVibesConfig(
                 duckdb_path=duckdb_path,
                 duckdb_directory=duckdb_directory,
                 boundary_path=boundary_path,
-                start_date=start_date,
-                end_date=end_date,
+                start_date=start_date or "2024-01-01",
+                end_date=end_date or "2025-01-01",
                 gcp_project=gcp_project
             )
             
