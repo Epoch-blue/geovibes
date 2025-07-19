@@ -679,7 +679,7 @@ class GeoVibes:
 
         return panel_content, ui_widgets
 
-    def _create_placeholder_png(self, lat, lon, size=(48, 48)):
+    def _create_placeholder_png(self, lat, lon, size=(256, 256)):
         """Create a placeholder PNG image for a given lat/lon coordinate.
 
         Args:
@@ -828,7 +828,7 @@ class GeoVibes:
 
                 # Create image widget
                 img_widget = HTML(
-                    value=f'<img src="{img_data}" width="48" height="48" style="border-radius: 4px; display: block; margin: 0 auto;">',
+                    value=f'<img src="{img_data}" width="64" height="64" style="border-radius: 4px; display: block; margin: 0 auto;">',
                     layout=Layout(width="100%", text_align="center"),
                 )
 
