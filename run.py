@@ -250,88 +250,40 @@ def run_with_voila(config, args):
 
         threading.Thread(target=open_browser, daemon=True).start()
 
-    # Try subprocess approach first (most reliable)
+    print("🔧 Starting Voila server...")
+
+    # Build Voila command with error suppression
+    voila_cmd = [
+        sys.executable,
+        "-m",
+        "voila",
+        temp_notebook,
+        "--port",
+        str(args.port),
+        "--ip",
+        args.host,
+        "--no-browser",
+    ]
+
+    # Run Voila as subprocess with error suppression
+    with open(os.devnull, "w") as devnull:
+        # Redirect stderr to capture and filter errors
+        process = subprocess.Popen(
+            voila_cmd,
+            stderr=subprocess.PIPE if not args.verbose else None,
+            universal_newlines=True,
+        )
+
     try:
-        print("🔧 Starting Voila server...")
-
-        # Build Voila command with error suppression
-        voila_cmd = [
-            sys.executable,
-            "-m",
-            "voila",
-            temp_notebook,
-            "--port",
-            str(args.port),
-            "--ip",
-            args.host,
-            "--no-browser",
-        ]
-
-        # Run Voila as subprocess with error suppression
-        with open(os.devnull, "w") as devnull:
-            # Redirect stderr to capture and filter errors
-            process = subprocess.Popen(
-                voila_cmd,
-                stderr=subprocess.PIPE if not args.verbose else None,
-                universal_newlines=True,
-            )
-
+        process.wait()
+    except KeyboardInterrupt:
+        print("\n🛑 Shutting down GeoVibes web application...")
+        process.terminate()
         try:
-            process.wait()
-        except KeyboardInterrupt:
-            print("\n🛑 Shutting down GeoVibes web application...")
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-            cleanup()
-
-    except (subprocess.CalledProcessError, FileNotFoundError, Exception) as e:
-        if args.verbose:
-            print(f"⚠️  Subprocess Voila failed: {e}")
-        print("🔄 Trying Python API...")
-
-        # Fall back to Python API approach
-        try:
-            from voila.app import Voila
-
-            app = Voila()
-
-            # Set configuration with error handling
-            if hasattr(app, "port"):
-                app.port = args.port
-            if hasattr(app, "ip"):
-                app.ip = args.host
-            if hasattr(app, "notebook_path"):
-                app.notebook_path = temp_notebook
-            elif hasattr(app, "notebook"):
-                app.notebook = temp_notebook
-
-            app.open_browser = False
-
-            # Configure logging level
-            if hasattr(app, "log_level"):
-                app.log_level = "WARN"
-
-            if hasattr(app, "enable_nbextensions"):
-                app.enable_nbextensions = True
-
-            try:
-                app.start()
-            except KeyboardInterrupt:
-                print("\n🛑 Shutting down GeoVibes web application...")
-                cleanup()
-            except Exception as api_error:
-                if args.verbose:
-                    print(f"⚠️  Voila Python API failed: {api_error}")
-                print("🔄 Falling back to standalone mode...")
-                raise
-
-        except Exception as fallback_error:
-            if args.verbose:
-                print(f"❌ All Voila methods failed: {fallback_error}")
-            raise
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+        cleanup()
 
 
 def main():

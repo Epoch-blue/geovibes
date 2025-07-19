@@ -140,13 +140,8 @@ Create and activate a conda environment:
 ```bash
 mamba create -n geovibes python=3.12 -y
 mamba activate geovibes
-
-# Install the package locally with all dependencies
 pip install -e .
 
-# Or install with specific optional dependencies
-pip install -e ".[gcp,notebook,web]"  # For Google Cloud, Jupyter, and web interface
-pip install -e ".[all]"              # For all optional dependencies
 ```
 
 ### 2. Database Access
