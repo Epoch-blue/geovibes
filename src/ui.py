@@ -1271,51 +1271,25 @@ class GeoVibes:
                  
         lat, lon = kwargs.get('coordinates')
         
-        clicked_point = Point(lon, lat)
-        point_id = None
+        # Query the database for the single nearest point to the click
+        _log_to_file("label_point: Querying database for nearest point.")
         
-        # First check if we have cached detections
-        if self.detections_with_embeddings is not None and len(self.detections_with_embeddings) > 0:
-            # Find nearest point in cached detections
-            distances = self.detections_with_embeddings.geometry.distance(clicked_point)
-            nearest_idx = distances.idxmin()
-            
-            # Use a threshold to ensure we're clicking on an actual point
-            if distances[nearest_idx] < UIConstants.CLICK_THRESHOLD:
-                nearest_detection = self.detections_with_embeddings.loc[nearest_idx]
-                point_id = str(nearest_detection['id'])  # Ensure string type
+        sql = DatabaseConstants.NEAREST_POINT_QUERY
+        params = [lon, lat]
+        result = self.duckdb_connection.execute(sql, params).fetchone()
         
-        # If not found in cache, query the database
-        if point_id is None:
-            _log_to_file("label_point: Point not in cache. Querying database for nearest point.")
-            
-            # Use the robust, index-accelerated query to find the nearest point in a search box
-            search_radius_deg = 0.01  # Start with a larger box, ~1km
-            min_lon, min_lat = lon - search_radius_deg, lat - search_radius_deg
-            max_lon, max_lat = lon + search_radius_deg, lat + search_radius_deg
-
-            sql = DatabaseConstants.NEAREST_POINT_IN_BOX_QUERY
-            
-            _log_to_file("label_point: About to execute nearest point in box query.")
-            # Parameters: min_lon, min_lat, max_lon, max_lat (for the box), lon, lat (for the distance sort)
-            params = [min_lon, min_lat, max_lon, max_lat, lon, lat]
-            result = self.duckdb_connection.execute(sql, params).fetchone()
-            _log_to_file("label_point: Query executed.")
-            
-            if result is None:
-                self._show_operation_status("⚠️ No points found near click.")
-                _log_to_file("label_point: No point found in search box. Returning.")
-                return
-            
-            point_id = str(result[0])
-            _log_to_file(f"label_point: Determined closest point ID: {point_id}")
-
+        if result is None:
+            self._show_operation_status("⚠️ No points found near click.")
+            _log_to_file("label_point: No point found. Returning.")
+            return
+        
+        point_id = str(result[0])
+        embedding = np.array(result[3])
+        self.cached_embeddings[point_id] = embedding # Cache the embedding
+        
         if self.verbose:
-            print(f"DEBUG: Found point ID: {point_id}. Attempting to fetch its embedding.")
+            print(f"DEBUG: Found point ID: {point_id}.")
 
-        # Fetch embedding on-demand for this specific point
-        self._fetch_embeddings([point_id])
-        
         # Update labels
         if point_id in self.pos_ids:
             self.pos_ids.remove(point_id)
@@ -1349,7 +1323,7 @@ class GeoVibes:
         
         # Update visualization and query vector immediately
         self.update_layers()
-        self.update_query_vector()  # Don't skip fetch to ensure query vector is properly computed
+        self.update_query_vector()
 
     def update_layer(self, layer, geojson_data):
         """Update a specific layer with new GeoJSON data."""
