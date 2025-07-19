@@ -11,7 +11,7 @@ setup:
 	@mamba create -n geovibes python=3.11 -y
 	@echo "To activate the environment, run: mamba activate geovibes"
 	@echo "Installing dependencies..."
-	@mamba install -c conda-forge --file ./requirements.txt -y
+	@pip install -e ".[all]"
 	@echo "Setup complete!"
 
 # Run the NiceGUI application

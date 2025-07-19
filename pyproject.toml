@@ -63,18 +63,11 @@ gcp = [
     "gcsfs",
     "google-cloud-storage"
 ]
-ml = [
-    "xgboost"
-]
 notebook = [
-    "jupyterlab",
-    "lonboard"
+    "jupyterlab"
 ]
 web = [
     "voila"
-]
-aws = [
-    "s3fs"
 ]
 dev = [
     "pytest",
@@ -85,7 +78,7 @@ dev = [
     "pre-commit"
 ]
 all = [
-    "geovibes[gcp,ml,notebook,web,aws]"
+    "geovibes[gcp,notebook,web]"
 ]
 
 [project.scripts]

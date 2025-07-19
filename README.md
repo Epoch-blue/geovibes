@@ -6,6 +6,35 @@ This repo was originally inspired by the [Earth Genome notebook tooling](https:/
 
 **Highly experimental. This repo is not production-grade code.**
 
+## Installation
+
+GeoVibes can be installed locally using pip. The package includes optional dependencies for different features:
+
+```bash
+# Basic installation with core dependencies
+pip install -e .
+
+# Install with optional dependencies for specific features
+pip install -e ".[gcp]"        # Google Cloud Platform integration
+pip install -e ".[ml]"         # Machine learning features
+pip install -e ".[notebook]"   # Jupyter notebook support
+pip install -e ".[web]"        # Web interface with Voila
+pip install -e ".[aws]"        # AWS S3 integration
+pip install -e ".[dev]"        # Development tools
+
+# Install all optional dependencies
+pip install -e ".[all]"
+```
+
+### Optional Dependencies
+
+-   **`gcp`**: Google Earth Engine API, Google Cloud Storage, geemap for generating embeddings and accessing cloud databases
+-   **`ml`**: XGBoost for machine learning workflows
+-   **`notebook`**: JupyterLab and lonboard for interactive notebook development
+-   **`web`**: Voila for the standalone web application interface
+-   **`aws`**: S3FS for AWS S3 database access
+-   **`dev`**: Testing, linting, and code formatting tools
+
 ## Quick Start
 
 ### Web Application (Recommended)
@@ -13,8 +42,8 @@ This repo was originally inspired by the [Earth Genome notebook tooling](https:/
 GeoVibes runs as a standalone web application with an interactive mapping interface:
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# Install with web interface support
+pip install -e ".[web]"
 
 # Run with configuration file (recommended)
 python run.py --config config.yaml
@@ -133,7 +162,13 @@ Create and activate a conda environment:
 ```bash
 mamba create -n geovibes python=3.12 -y
 mamba activate geovibes
-mamba install -c conda-forge --file ./requirements.txt -y
+
+# Install the package locally with all dependencies
+pip install -e .
+
+# Or install with specific optional dependencies
+pip install -e ".[gcp,notebook,web]"  # For Google Cloud, Jupyter, and web interface
+pip install -e ".[all]"              # For all optional dependencies
 ```
 
 ### 2. Database Access
@@ -146,6 +181,8 @@ You can either download pre-built databases or create your own:
 mkdir -p local_databases && gsutil -m cp "gs://geovibes/databases/google/*.db" local_databases/
 ```
 
+Note: This requires the `gcp` optional dependencies. Install with `pip install -e ".[gcp]"` if not already done.
+
 **Option 2: Build your own databases** (see [Generate Embeddings](#generate-embeddings) section)
 
 ### 3. Earth Engine Authentication (Optional - for NDVI/NDWI basemaps)
@@ -155,8 +192,8 @@ Earth Engine authentication is **completely optional**. GeoVibes works perfectly
 If you want to use NDVI and NDWI basemaps, you'll need to authenticate with Google Earth Engine:
 
 ```bash
-# Install the Earth Engine API (if not already installed)
-mamba install -c conda-forge earthengine-api -y
+# Make sure you have the GCP dependencies installed
+pip install -e ".[gcp]"
 
 # Authenticate with Earth Engine
 earthengine authenticate
