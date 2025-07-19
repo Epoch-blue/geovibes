@@ -156,7 +156,10 @@ class DatabaseConstants:
         return [
             f"SET memory_limit='{cls.MEMORY_LIMIT}'",
             f"SET max_memory='{cls.MAX_MEMORY}'",
-            f"SET temp_directory='{cls.TEMP_DIRECTORY}'"
+            f"SET temp_directory='{cls.TEMP_DIRECTORY}'",
+            # Disable progress bar to prevent Jupyter crashes with UTINYINT[] arrays
+            "SET enable_progress_bar=false",
+            "SET enable_profiling=no_output"
         ]
     
     @classmethod
@@ -267,8 +270,8 @@ class DatabaseConstants:
                 pass
     
     # Memory configuration
-    MEMORY_LIMIT = '12GB'
-    MAX_MEMORY = '12GB'
+    MEMORY_LIMIT = '6GB'
+    MAX_MEMORY = '6GB'
     TEMP_DIRECTORY = '/tmp'
     
     # Chunk size for embedding fetching to avoid memory issues
@@ -432,6 +435,23 @@ class DatabaseConstants:
     FROM    geo_embeddings g
     ORDER BY dist_m
     LIMIT   1
+    """
+
+    # Spatially-indexed query to find all point IDs within a given polygon
+    IDS_WITHIN_POLYGON_QUERY = """
+    SELECT id
+    FROM geo_embeddings
+    WHERE ST_Within(geometry, ST_GeomFromText(?))
+    """
+
+    # Spatially-indexed query to find the single nearest point within a search radius.
+    # This is the most robust method for scalable point-clicking.
+    NEAREST_POINT_IN_BOX_QUERY = """
+    SELECT id
+    FROM geo_embeddings
+    WHERE ST_Intersects(geometry, ST_MakeEnvelope(?, ?, ?, ?))
+    ORDER BY ST_Distance(geometry, ST_Point(?, ?))
+    LIMIT 1;
     """
 
 

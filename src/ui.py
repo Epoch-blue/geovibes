@@ -22,6 +22,14 @@ import webbrowser
 import faiss
 import pathlib
 
+# --- Crash Debugging Logger ---
+LOG_FILE = "geovibes_crash.log"
+def _log_to_file(message):
+    """Appends a timestamped message to the log file immediately."""
+    with open(LOG_FILE, "a") as f:
+        f.write(f"{datetime.now().isoformat()} - {message}\\n")
+# -----------------------------
+
 from .ee_tools import get_s2_rgb_median, get_s2_ndvi_median, get_s2_ndwi_median, get_ee_image_url, initialize_ee_with_credentials
 from .ui_config import UIConstants, BasemapConfig, GeoVibesConfig, DatabaseConstants, LayerStyles
 from .utils import list_databases_in_directory, get_database_centroid
@@ -222,9 +230,19 @@ class GeoVibes:
                 else:
                     raise RuntimeError(f"Failed to connect to local database: {str(e)}")
             
-            # Configure memory limits to prevent kernel crashes
+            # Configure memory limits and disable progress bar to prevent kernel crashes
             for query in DatabaseConstants.get_memory_setup_queries():
                 self.duckdb_connection.execute(query)
+            
+            # Extra insurance: explicitly disable progress bar again
+            try:
+                self.duckdb_connection.execute("SET enable_progress_bar=false")
+                self.duckdb_connection.execute("SET enable_profiling=false")
+                self.duckdb_connection.execute("SET enable_object_cache=false")
+                if self.verbose:
+                    print("✅ Progress bar and profiling disabled")
+            except:
+                pass  # Ignore if these settings don't exist
         else:
             self.duckdb_connection = duckdb_connection
             self._owns_connection = False
@@ -850,6 +868,7 @@ class GeoVibes:
 
     def _on_map_interaction(self, **kwargs):
         """Handle all map interactions."""
+        _log_to_file("Entered _on_map_interaction")
         lat, lon = kwargs.get('coordinates', (0, 0))
         
         # Update status
@@ -863,9 +882,11 @@ class GeoVibes:
         if kwargs.get('type') == 'click' and kwargs.get('modifiers', {}).get('ctrlKey', False):
             url = f"https://www.google.com/maps/@{lat},{lon},18z"
             webbrowser.open(url, new=2)
+            _log_to_file("Handled as Ctrl-Click for Google Maps. Returning.")
             return
         
         # Normal label point behavior
+        _log_to_file("Proceeding to label_point.")
         self.label_point(**kwargs)
 
 
@@ -873,7 +894,6 @@ class GeoVibes:
         """Handle selection mode change."""
         self.lasso_mode = (change['new'] == 'polygon')
         self._update_status()
-
 
     def handle_draw(self, target, action, geo_json):
         """Handle polygon drawing with chunked embedding fetching."""
@@ -1077,14 +1097,25 @@ class GeoVibes:
             prepared_chunk = self._prepare_ids_for_query(chunk)
             placeholders = ','.join(['?' for _ in prepared_chunk])
             query = f"""
-            SELECT id, embedding
+            SELECT id, tile_id, CAST(embedding AS FLOAT[]) as embedding, geometry 
             FROM geo_embeddings 
             WHERE id IN ({placeholders})
             """
             
+            _log_to_file(f"Fetch embeddings: Built query for chunk with IDs: {prepared_chunk}")
+            if self.verbose:
+                print(f"DEBUG: Executing embedding fetch query for IDs: {prepared_chunk}")
+            
             # Fetch as Arrow then convert to pandas
+            _log_to_file("Fetch embeddings: About to execute query.")
             arrow_table = self.duckdb_connection.execute(query, prepared_chunk).fetch_arrow_table()
+            _log_to_file("Fetch embeddings: Query executed successfully. About to fetch arrow table.")
+            
+            if self.verbose:
+                print(f"DEBUG: Successfully executed embedding fetch query. Processing results.")
+
             chunk_df = arrow_table.to_pandas()
+            _log_to_file("Fetch embeddings: Converted arrow table to pandas.")
             
             # Cache the embeddings from this chunk
             for _, row in chunk_df.iterrows():
@@ -1256,17 +1287,32 @@ class GeoVibes:
         
         # If not found in cache, query the database
         if point_id is None:
-            # Use lightweight query without embedding
-            sql = DatabaseConstants.NEAREST_POINT_LIGHT_QUERY
+            _log_to_file("label_point: Point not in cache. Querying database for nearest point.")
             
-            arrow_table = self.duckdb_connection.execute(sql, [lon, lat]).fetch_arrow_table()
-            nearest_result = arrow_table.to_pandas()
+            # Use the robust, index-accelerated query to find the nearest point in a search box
+            search_radius_deg = 0.01  # Start with a larger box, ~1km
+            min_lon, min_lat = lon - search_radius_deg, lat - search_radius_deg
+            max_lon, max_lat = lon + search_radius_deg, lat + search_radius_deg
+
+            sql = DatabaseConstants.NEAREST_POINT_IN_BOX_QUERY
             
-            if nearest_result.empty:
+            _log_to_file("label_point: About to execute nearest point in box query.")
+            # Parameters: min_lon, min_lat, max_lon, max_lat (for the box), lon, lat (for the distance sort)
+            params = [min_lon, min_lat, max_lon, max_lat, lon, lat]
+            result = self.duckdb_connection.execute(sql, params).fetchone()
+            _log_to_file("label_point: Query executed.")
+            
+            if result is None:
+                self._show_operation_status("⚠️ No points found near click.")
+                _log_to_file("label_point: No point found in search box. Returning.")
                 return
             
-            point_id = str(nearest_result.iloc[0]['id'])  # Convert to string
-        
+            point_id = str(result[0])
+            _log_to_file(f"label_point: Determined closest point ID: {point_id}")
+
+        if self.verbose:
+            print(f"DEBUG: Found point ID: {point_id}. Attempting to fetch its embedding.")
+
         # Fetch embedding on-demand for this specific point
         self._fetch_embeddings([point_id])
         
@@ -1928,7 +1974,7 @@ class GeoVibes:
             
             # Get the first point's embedding from the database
             first_point_query = """
-            SELECT embedding 
+            SELECT CAST(embedding AS FLOAT[]) as embedding 
             FROM geo_embeddings 
             WHERE embedding IS NOT NULL 
             LIMIT 1
@@ -2003,9 +2049,17 @@ class GeoVibes:
                 new_database_path, read_only=True)
             self._owns_connection = True
             
-            # Configure memory limits
+            # Configure memory limits and disable progress bar
             for query in DatabaseConstants.get_memory_setup_queries():
                 self.duckdb_connection.execute(query)
+            
+            # Extra insurance: explicitly disable progress bar again
+            try:
+                self.duckdb_connection.execute("SET enable_progress_bar=false")
+                self.duckdb_connection.execute("SET enable_profiling=false")
+                self.duckdb_connection.execute("SET enable_object_cache=false")
+            except:
+                pass  # Ignore if these settings don't exist
             
             # Setup extensions
             if new_database_path:
