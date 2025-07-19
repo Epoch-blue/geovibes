@@ -253,7 +253,8 @@ def create_duckdb_index(
     id_column: str = "id",
     geometry_column: Optional[str] = None,
     embedding_dim: Optional[int] = None,
-    skip_nan_check: bool = False
+    skip_nan_check: bool = False,
+    memory_limit_gb: int = 16
 ) -> None:
     """Creates a DuckDB database with HNSW and spatial indexes from parquet files.
     
@@ -266,6 +267,7 @@ def create_duckdb_index(
         geometry_column: Name of the geometry column (auto-detected if None)
         embedding_dim: Dimension of embeddings (auto-detected if None)
         skip_nan_check: Skip NaN checking and cleaning
+        memory_limit_gb: Memory limit for DuckDB in GB (default: 16)
     """
     
     if not skip_nan_check:
@@ -313,6 +315,8 @@ def create_duckdb_index(
 
     logging.info("Loading extensions...")
     con.execute("SET enable_progress_bar=true")
+    con.execute(f"SET memory_limit='{memory_limit_gb}GB'")
+    logging.info(f"Set DuckDB memory limit to {memory_limit_gb}GB")
     con.execute("INSTALL spatial; LOAD spatial;")
     con.execute("INSTALL vss; LOAD vss;")
     con.execute("SET hnsw_enable_experimental_persistence = true;")
@@ -484,6 +488,7 @@ def main():
     parser.add_argument("--geometry-column", help="Name of the geometry column (auto-detected if not specified, required for database creation)")
     parser.add_argument("--embedding-dim", type=int, help="Dimension of embeddings (auto-detected if not specified)")
     parser.add_argument("--skip-nan-check", action="store_true", help="Skip NaN checking and cleaning")
+    parser.add_argument("--memory-limit-gb", type=int, default=16, help="DuckDB memory limit in GB (default: 16)")
     
     args = parser.parse_args()
     
@@ -579,8 +584,9 @@ def main():
             id_column=args.id_column,
             geometry_column=args.geometry_column,
             embedding_dim=args.embedding_dim,
-            skip_nan_check=args.skip_nan_check
-        )
+            skip_nan_check=args.skip_nan_check,
+            memory_limit_gb=args.memory_limit_gb
+        )   
         
         # Upload to cloud
         upload_to_cloud(local_temp_file, args.output_path)
@@ -598,7 +604,8 @@ def main():
             id_column=args.id_column,
             geometry_column=args.geometry_column,
             embedding_dim=args.embedding_dim,
-            skip_nan_check=args.skip_nan_check
+            skip_nan_check=args.skip_nan_check,
+            memory_limit_gb=args.memory_limit_gb
         )
     
     # Clean up temporary directory if used
