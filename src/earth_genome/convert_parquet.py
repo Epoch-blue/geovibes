@@ -162,13 +162,8 @@ def worker_process_chunk(
     
     try:
         con = duckdb.connect()
-        
-        # Try to load spatial extension, but don't fail if it's not available
-        try:
-            con.execute("INSTALL spatial")
-            con.execute("LOAD spatial")
-        except Exception as e:
-            logging.debug(f"Could not load spatial extension: {e}")
+        con.execute("INSTALL spatial")
+        con.execute("LOAD spatial")
         
         quoted_vit_columns = [f'"{col}"' for col in vit_columns]
         vit_array_sql = f"[{', '.join(quoted_vit_columns)}]"

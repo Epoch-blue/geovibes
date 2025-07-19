@@ -19,6 +19,8 @@ import pandas as pd
 import shapely
 from shapely.geometry import Point
 import webbrowser
+import faiss
+import pathlib
 
 from .ee_tools import get_s2_rgb_median, get_s2_ndvi_median, get_s2_ndwi_median, get_ee_image_url, initialize_ee_with_credentials
 from .ui_config import UIConstants, BasemapConfig, GeoVibesConfig, DatabaseConstants, LayerStyles
@@ -61,6 +63,8 @@ class GeoVibes:
               start_date: str = "2024-01-01",
               end_date: str = "2025-01-01",
               gcp_project: Optional[str] = None,
+              index_type: str = 'vss',
+              faiss_index_path: Optional[str] = None,
               verbose: bool = False,
               **kwargs):
         """Create a GeoVibes instance with explicit parameters.
@@ -72,6 +76,8 @@ class GeoVibes:
             start_date: Start date in YYYY-MM-DD format for Earth Engine basemaps
             end_date: End date in YYYY-MM-DD format for Earth Engine basemaps
             gcp_project: Google Cloud Project ID for Earth Engine authentication
+            index_type: The ANN backend to use ('vss' or 'faiss').
+            faiss_index_path: Path to the FAISS index file (required if index_type is 'faiss').
             verbose: Enable detailed progress messages
             **kwargs: Additional arguments
         
@@ -85,6 +91,8 @@ class GeoVibes:
             start_date=start_date,
             end_date=end_date,
             gcp_project=gcp_project,
+            index_type=index_type,
+            faiss_index_path=faiss_index_path,
             verbose=verbose,
             **kwargs
         )
@@ -99,7 +107,9 @@ class GeoVibes:
             duckdb_connection: Optional[duckdb.DuckDBPyConnection] = None, 
             config: Optional[Dict] = None, 
             config_path: Optional[str] = None,
-            baselayer_url: Optional[str] = None, 
+            baselayer_url: Optional[str] = None,
+            index_type: str = 'vss',
+            faiss_index_path: Optional[str] = None,
             verbose: bool = False, 
             **kwargs) -> None:
         """Initialize GeoVibes interface.
@@ -115,6 +125,8 @@ class GeoVibes:
             config: Configuration dictionary (deprecated, use individual parameters).
             config_path: Path to JSON configuration file (deprecated, use individual parameters).
             baselayer_url: Custom basemap tile URL.
+            index_type: The ANN backend to use ('vss' or 'faiss').
+            faiss_index_path: Path to the FAISS index file (required if index_type is 'faiss').
             verbose: Enable detailed progress messages.
             **kwargs: Additional arguments for backwards compatibility.
 
@@ -150,12 +162,15 @@ class GeoVibes:
                 boundary_path=boundary_path,
                 start_date=start_date or "2024-01-01",
                 end_date=end_date or "2025-01-01",
-                gcp_project=gcp_project
+                gcp_project=gcp_project,
+                index_type=index_type,
+                faiss_index_path=faiss_index_path
             )
             
             self.config.validate()
         
         self.ee_available = initialize_ee_with_credentials(self.config.gcp_project)
+        self.faiss_index = None
         
         # Initialize database list if directory is provided
         self.available_databases = []
@@ -230,19 +245,32 @@ class GeoVibes:
         
         # Setup extensions in DuckDB (spatial and httpfs if needed)
         if self.current_database_path:
-            extension_queries = DatabaseConstants.get_extension_setup_queries(self.current_database_path)
+            extension_queries = DatabaseConstants.get_extension_setup_queries(self.current_database_path, self.config.index_type)
             for query in extension_queries:
                 try:
                     self.duckdb_connection.execute(query)
-                    if self.verbose and "httpfs" in query:
-                        print("📦 httpfs extension loaded for GCS support")
-                    elif self.verbose and "spatial" in query:
-                        print("🗺️  spatial extension loaded for geometry support")
+                    if self.verbose:
+                        if "httpfs" in query:
+                            print("📦 httpfs extension loaded for GCS support")
+                        elif "spatial" in query:
+                            print("🗺️  spatial extension loaded for geometry support")
+                        elif "vss" in query:
+                            print("⚡ vss extension loaded for vector search")
                 except Exception as e:
-                    if "httpfs" in query:
-                        raise RuntimeError(f"Failed to load httpfs extension for GCS support: {str(e)}")
-                    else:
-                        raise RuntimeError(f"Failed to load required extension: {str(e)}")
+                    raise RuntimeError(f"Failed to load required extension: {str(e)}")
+
+        # Load FAISS index if specified
+        if self.config.index_type == 'faiss':
+            if not self.config.faiss_index_path:
+                raise ValueError("faiss_index_path must be provided for index_type 'faiss'")
+            try:
+                if self.verbose:
+                    print(f"🧠 Loading FAISS index from: {self.config.faiss_index_path}")
+                self.faiss_index = faiss.read_index(self.config.faiss_index_path)
+                if self.verbose:
+                    print(f"✅ FAISS index loaded. Contains {self.faiss_index.ntotal} vectors.")
+            except Exception as e:
+                raise RuntimeError(f"Failed to load FAISS index: {e}")
 
         # Detect embedding dimension from database
         try:
@@ -1076,87 +1104,117 @@ class GeoVibes:
             if self.verbose:
                 print("⚠️ No query vector available. Please add some positive labels first.")
             return
+
+        if self.config.index_type == 'vss':
+            self._search_vss()
+        elif self.config.index_type == 'faiss':
+            self._search_faiss()
+        else:
+            raise ValueError(f"Unknown index_type: {self.config.index_type}")
+
+    def _search_vss(self):
+        """Perform similarity search using DuckDB's VSS extension."""
+        if self.verbose:
+            print("⚡ Performing search with DuckDB VSS...")
         
         n_neighbors = self.neighbors_slider.value
-        
-        # Convert query vector to the format needed for DuckDB
         query_vec = self.query_vector.tolist()
-        
-        # Get labeled IDs for post-filtering
         all_labeled_ids = self.pos_ids + self.neg_ids
         
-        # Request extra results to account for filtering out labeled points
-        # Add some buffer (max 50% extra) to ensure we get enough results after filtering
         extra_results = min(len(all_labeled_ids), n_neighbors // 2)
         total_requested = n_neighbors + extra_results
         
-        # Use dynamic query with detected embedding dimension
         sql = DatabaseConstants.get_similarity_search_light_query(self.embedding_dim)
         query_params = [query_vec, total_requested]
         
-        # Show search progress in status bar
-        if all_labeled_ids:
-            self._show_operation_status(f"🔍 Searching for {n_neighbors} points (will filter {len(all_labeled_ids)} labeled)...")
-            if self.verbose:
-                print(f"🔍 Searching for {n_neighbors} similar points (requesting {total_requested}, will filter {len(all_labeled_ids)} labeled points)...")
-        else:
-            self._show_operation_status(f"🔍 Searching for {n_neighbors} similar points...")
-            if self.verbose:
-                print(f"🔍 Searching for {n_neighbors} similar points...")
-        
-        # Fetch as Arrow table then convert only needed columns to pandas
+        self._show_operation_status(f"🔍 VSS Search: Finding {n_neighbors} neighbors...")
         arrow_table = self.duckdb_connection.execute(sql, query_params).fetch_arrow_table()
         search_results = arrow_table.select(['id', 'geometry_json', 'geometry_wkt', 'distance']).to_pandas()
         
-        # Post-filter to exclude labeled points in memory (much safer than DuckDB NOT IN)
-        if all_labeled_ids:
-            # Convert to string IDs for consistent comparison
-            labeled_id_strings = set(str(lid) for lid in all_labeled_ids)
-            # Filter out labeled points
-            mask = ~search_results['id'].astype(str).isin(labeled_id_strings)
-            search_results_filtered = search_results[mask].copy()
-            # Take only the requested number of neighbors
-            search_results_filtered = search_results_filtered.head(n_neighbors)
-        else:
-            search_results_filtered = search_results.head(n_neighbors)
+        self._process_and_display_search_results(search_results, n_neighbors)
+
+    def _search_faiss(self):
+        """Perform similarity search using the loaded FAISS index."""
+        if self.verbose:
+            print("🧠 Performing search with FAISS index...")
         
-        # Show results in status bar
-        filtered_count = len(search_results_filtered)
-        if all_labeled_ids:
-            total_found = len(search_results)
-            filtered_out = total_found - filtered_count
-            self._show_operation_status(f"✅ Found {filtered_count} similar points (filtered out {filtered_out} labeled)")
+        n_neighbors = self.neighbors_slider.value
+        all_labeled_ids = self.pos_ids + self.neg_ids
+        extra_results = min(len(all_labeled_ids), n_neighbors // 2)
+        total_requested = n_neighbors + extra_results
+
+        # Step A: Query FAISS
+        query_vector_np = self.query_vector.reshape(1, -1).astype('float32')
+        self._show_operation_status(f"🔍 FAISS Search: Finding {n_neighbors} neighbors...")
+        distances, ids = self.faiss_index.search(query_vector_np, total_requested)
+
+        faiss_ids = ids[0].tolist()
+        faiss_distances = distances[0].tolist()
+
+        # Step B: Query DuckDB for metadata
+        if not faiss_ids:
             if self.verbose:
-                print(f"✅ Found {filtered_count} similar points after filtering out {filtered_out} labeled points")
+                print("⚠️ FAISS search returned no results.")
+            self._process_and_display_search_results(pd.DataFrame(), n_neighbors)
+            return
+
+        placeholders = ','.join(['?' for _ in faiss_ids])
+        sql = f"""
+        SELECT id, ST_AsGeoJSON(geometry) AS geometry_json, ST_AsText(geometry) AS geometry_wkt
+        FROM geo_embeddings
+        WHERE id IN ({placeholders})
+        """
+        
+        # Preserve order of FAISS results
+        id_map = {id_val: i for i, id_val in enumerate(faiss_ids)}
+        
+        # Fetch as pandas DataFrame
+        metadata_df = self.duckdb_connection.execute(sql, faiss_ids).fetchdf()
+        
+        # Sort results according to FAISS distance and add distance column
+        metadata_df['sort_order'] = metadata_df['id'].map(id_map)
+        metadata_df = metadata_df.sort_values('sort_order').drop(columns=['sort_order'])
+        metadata_df['distance'] = faiss_distances[:len(metadata_df)]
+        
+        self._process_and_display_search_results(metadata_df, n_neighbors)
+
+    def _process_and_display_search_results(self, search_results_df, n_neighbors):
+        """Filters, processes, and displays search results on the map."""
+        all_labeled_ids = self.pos_ids + self.neg_ids
+
+        if search_results_df.empty:
+            self._show_operation_status("✅ Search complete. No results found.")
+            self.points.data = {"type": "FeatureCollection", "features": []}
+            return
+
+        # Post-filter to exclude labeled points
+        if all_labeled_ids:
+            labeled_id_strings = set(str(lid) for lid in all_labeled_ids)
+            mask = ~search_results_df['id'].astype(str).isin(labeled_id_strings)
+            search_results_filtered = search_results_df[mask].head(n_neighbors)
         else:
-            self._show_operation_status(f"✅ Found {filtered_count} similar points")
+            search_results_filtered = search_results_df.head(n_neighbors)
         
-        # Create geometries from WKT
-        geometries = [shapely.wkt.loads(row['geometry_wkt']) if row['geometry_wkt'] else None
-                     for _, row in search_results_filtered.iterrows()]
+        filtered_count = len(search_results_filtered)
+        self._show_operation_status(f"✅ Found {filtered_count} similar points.")
+        if self.verbose:
+            print(f"✅ Found {filtered_count} similar points after filtering.")
         
-        # Create detections DataFrame without embeddings (fetched on-demand during labeling)
+        geometries = [shapely.wkt.loads(row['geometry_wkt']) for _, row in search_results_filtered.iterrows()]
+        
         self.detections_with_embeddings = gpd.GeoDataFrame({
-            'id': search_results_filtered['id'].astype(str).values,  # Ensure string type
+            'id': search_results_filtered['id'].astype(str).values,
             'distance': search_results_filtered['distance'].values,
             'geometry': geometries
         })
         
-        # Create GeoJSON for map display with distance-based coloring
-        detections_geojson = {
-            "type": "FeatureCollection",
-            "features": []
-        }
-        
+        detections_geojson = {"type": "FeatureCollection", "features": []}
         if not search_results_filtered.empty:
-            # Calculate distance range for color mapping
             min_distance = search_results_filtered['distance'].min()
             max_distance = search_results_filtered['distance'].max()
             
             for _, row in search_results_filtered.iterrows():
-                # Calculate color based on distance
                 color = UIConstants.distance_to_color(row['distance'], min_distance, max_distance)
-                
                 detections_geojson["features"].append({
                     "type": "Feature",
                     "geometry": json.loads(row['geometry_json']),
@@ -1168,10 +1226,8 @@ class GeoVibes:
                     }
                 })
         
-        # Update the map with distance-colored points
         self._update_search_layer_with_colors(detections_geojson)
         
-
     def label_point(self, **kwargs):
         """Assign a label and map layer to a clicked map point."""
         # Don't process clicks when in polygon mode or actively drawing
@@ -1953,7 +2009,7 @@ class GeoVibes:
             
             # Setup extensions
             if new_database_path:
-                extension_queries = DatabaseConstants.get_extension_setup_queries(new_database_path)
+                extension_queries = DatabaseConstants.get_extension_setup_queries(new_database_path, self.config.index_type)
                 for query in extension_queries:
                     self.duckdb_connection.execute(query)
             

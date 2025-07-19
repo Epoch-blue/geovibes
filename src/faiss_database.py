@@ -60,28 +60,28 @@ def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, embedding_d
             logging.info("Installing and loading spatial extension for DuckDB.")
             con.execute("INSTALL spatial; LOAD spatial;")
 
-        logging.info("Creating table 'embeddings' in DuckDB.")
+        logging.info("Creating table 'geo_embeddings' in DuckDB.")
         
         # Check if table already exists
         table_exists = con.execute("""
             SELECT COUNT(*) 
             FROM information_schema.tables 
-            WHERE table_name = 'embeddings'
+            WHERE table_name = 'geo_embeddings'
         """).fetchone()[0] > 0
         
         if table_exists:
-            existing_count = con.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
-            logging.warning(f"Table 'embeddings' already exists with {existing_count} rows. Dropping and recreating...")
-            con.execute("DROP TABLE embeddings;")
-            con.execute("DROP SEQUENCE IF EXISTS seq_embeddings_id;")
+            existing_count = con.execute("SELECT COUNT(*) FROM geo_embeddings").fetchone()[0]
+            logging.warning(f"Table 'geo_embeddings' already exists with {existing_count} rows. Dropping and recreating...")
+            con.execute("DROP TABLE geo_embeddings;")
+            con.execute("DROP SEQUENCE IF EXISTS seq_geo_embeddings_id;")
         
         # Create a sequence for auto-incrementing IDs
-        con.execute("CREATE SEQUENCE IF NOT EXISTS seq_embeddings_id START 1;")
+        con.execute("CREATE SEQUENCE IF NOT EXISTS seq_geo_embeddings_id START 1;")
         
         # Create table with dynamic schema
         create_sql = f"""
-        CREATE TABLE embeddings (
-            id BIGINT PRIMARY KEY DEFAULT nextval('seq_embeddings_id'),
+        CREATE TABLE geo_embeddings (
+            id BIGINT PRIMARY KEY DEFAULT nextval('seq_geo_embeddings_id'),
             tile_id VARCHAR,
             embedding FLOAT[{embedding_dim}]
             {', geometry GEOMETRY' if has_geometry else ''}
@@ -102,7 +102,7 @@ def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, embedding_d
                 select_clause += ", geometry"
 
             con.execute(f"""
-                INSERT INTO embeddings ({insert_columns})
+                INSERT INTO geo_embeddings ({insert_columns})
                 SELECT
                     {select_clause}
                 FROM read_parquet({sql_parquet_files_list_str}, union_by_name=true);
@@ -113,12 +113,12 @@ def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, embedding_d
             logging.error("Please ensure all parquet files have a consistent schema.")
             return
 
-        row_count = con.execute("SELECT COUNT(*) FROM embeddings;").fetchone()[0]
+        row_count = con.execute("SELECT COUNT(*) FROM geo_embeddings;").fetchone()[0]
         logging.info(f"Successfully ingested {row_count} rows into DuckDB.")
 
         if has_geometry:
             logging.info("Creating R-Tree spatial index on geometry column...")
-            con.execute("CREATE INDEX geom_spatial_idx ON embeddings USING RTREE (geometry);")
+            con.execute("CREATE INDEX geom_spatial_idx ON geo_embeddings USING RTREE (geometry);")
             logging.info("Spatial index created successfully.")
 
 
@@ -137,11 +137,11 @@ def create_faiss_index(db_path: str, index_path: str, embedding_dim: int, nlist:
     logging.info("Starting FAISS index creation.")
     
     with duckdb.connect(database=db_path, read_only=True) as con:
-        total_vectors = con.execute("SELECT COUNT(*) FROM embeddings;").fetchone()[0]
+        total_vectors = con.execute("SELECT COUNT(*) FROM geo_embeddings;").fetchone()[0]
         logging.info(f"Total vectors to index: {total_vectors}")
 
         if total_vectors == 0:
-            logging.error("The 'embeddings' table is empty after ingestion. Nothing to index. Aborting.")
+            logging.error("The 'geo_embeddings' table is empty after ingestion. Nothing to index. Aborting.")
             logging.error("This might happen if the input parquet files are empty or have an incompatible schema.")
             return
 
@@ -158,7 +158,7 @@ def create_faiss_index(db_path: str, index_path: str, embedding_dim: int, nlist:
         logging.info(f"Using {train_sample_size} vectors for training...")
 
         # Use TABLESAMPLE for efficient random sampling from DuckDB
-        training_vectors_df = con.execute(f"SELECT embedding FROM embeddings TABLESAMPLE RESERVOIR({train_sample_size} ROWS);").fetchdf()
+        training_vectors_df = con.execute(f"SELECT embedding FROM geo_embeddings TABLESAMPLE RESERVOIR({train_sample_size} ROWS);").fetchdf()
         
         if training_vectors_df.empty:
             logging.error("Failed to sample training vectors from the database, even though it appears to contain data. Aborting.")
@@ -181,7 +181,7 @@ def create_faiss_index(db_path: str, index_path: str, embedding_dim: int, nlist:
         for i in tqdm(range(num_batches), desc="Populating FAISS Index"):
             offset = i * batch_size
             # Fetch a batch of IDs and embeddings from DuckDB
-            batch_df = con.execute(f"SELECT id, embedding FROM embeddings ORDER BY id LIMIT {batch_size} OFFSET {offset};").fetchdf()
+            batch_df = con.execute(f"SELECT id, embedding FROM geo_embeddings ORDER BY id LIMIT {batch_size} OFFSET {offset};").fetchdf()
             
             ids = batch_df['id'].values.astype('int64')
             vectors = np.vstack(batch_df['embedding'].values).astype('float32')
