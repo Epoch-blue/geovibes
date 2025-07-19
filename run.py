@@ -6,9 +6,9 @@ This script creates a standalone web application from the GeoVibes interface
 that can be accessed via a web browser instead of Jupyter notebook.
 
 Usage:
-    python run_geovibes_webapp.py --config config.yaml
-    python run_geovibes_webapp.py --duckdb-directory ./local_databases --boundary geometries/alabama.geojson
-    python run_geovibes_webapp.py --help
+    python run.py --config config.yaml
+    python run.py --duckdb-directory ./local_databases --boundary geometries/alabama.geojson
+    python run.py --help
 
 The script will start a web server and open the GeoVibes interface in your default browser.
 """
@@ -19,10 +19,10 @@ import sys
 import webbrowser
 from pathlib import Path
 import yaml
-import json
 import tempfile
 import atexit
 import subprocess
+import json
 
 
 def parse_arguments():
@@ -33,16 +33,13 @@ def parse_arguments():
         epilog="""
 Examples:
   # Use YAML config file
-  python run_geovibes_webapp.py --config config.yaml
+  python run.py --config config.yaml
   
   # Use individual parameters
-  python run_geovibes_webapp.py --duckdb-directory ./local_databases --boundary geometries/alabama.geojson
-  
-  # Use JSON config file (legacy)
-  python run_geovibes_webapp.py --config config/resnet_alabama_config.json
+  python run.py --duckdb-directory ./local_databases --boundary geometries/alabama.geojson
   
   # Override config with individual parameters
-  python run_geovibes_webapp.py --config config.yaml --verbose --start-date 2024-06-01
+  python run.py --config config.yaml --verbose --start-date 2024-06-01
         """,
     )
 
@@ -115,7 +112,7 @@ Examples:
 
 
 def load_config_file(config_path):
-    """Load configuration from YAML or JSON file."""
+    """Load configuration from YAML file."""
     config_path = Path(config_path)
 
     if not config_path.exists():
@@ -124,17 +121,8 @@ def load_config_file(config_path):
     with open(config_path, "r") as f:
         if config_path.suffix.lower() in [".yaml", ".yml"]:
             return yaml.safe_load(f)
-        elif config_path.suffix.lower() == ".json":
-            return json.load(f)
         else:
-            # Try to detect format by content
-            content = f.read()
-            f.seek(0)
-            try:
-                return yaml.safe_load(f)
-            except yaml.YAMLError:
-                f.seek(0)
-                return json.load(f)
+            raise ValueError(f"Unsupported file type: {config_path.suffix}")
 
 
 def merge_config(file_config, args):

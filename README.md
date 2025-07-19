@@ -17,13 +17,13 @@ GeoVibes runs as a standalone web application with an interactive mapping interf
 pip install -r requirements.txt
 
 # Run with configuration file (recommended)
-python run_geovibes_webapp.py --config config.yaml
+python run.py --config config.yaml
 
 # Or run with individual parameters
-python run_geovibes_webapp.py --duckdb-directory ./local_databases --boundary geometries/alabama.geojson
+python run.py --duckdb-directory ./local_databases --boundary geometries/alabama.geojson
 
 # Run with custom port and disable auto-browser opening
-python run_geovibes_webapp.py --config config.yaml --port 8080 --no-browser
+python run.py --config config.yaml --port 8080 --no-browser
 ```
 
 The application will automatically:
@@ -99,7 +99,7 @@ GCS_SECRET_ACCESS_KEY=your_secret_key_here
 All configuration options can be provided via command line:
 
 ```bash
-python run_geovibes_webapp.py \
+python run.py \
   --duckdb-directory ./local_databases \
   --boundary geometries/alabama.geojson \
   --start-date 2024-01-01 \
@@ -110,15 +110,7 @@ python run_geovibes_webapp.py \
   --verbose
 ```
 
-Run `python run_geovibes_webapp.py --help` for all available options.
-
-### Legacy JSON Configuration
-
-JSON configuration files are still supported for backward compatibility:
-
-```bash
-python run_geovibes_webapp.py --config config/resnet_alabama_config.json
-```
+Run `python run.py --help` for all available options.
 
 ## Architecture
 

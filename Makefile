@@ -22,9 +22,9 @@ run:
 # Run the GeoVibes web application
 webapp:
 	@echo "Launching GeoVibes web application..."
-	@$(PYTHON) run_geovibes_webapp.py --config config.yaml
+	@$(PYTHON) run.py --config config.yaml
 
 # Run the GeoVibes web application with custom config
 webapp-config:
 	@echo "Usage: make webapp-config CONFIG=path/to/config.yaml"
-	@$(PYTHON) run_geovibes_webapp.py --config $(CONFIG)
+	@$(PYTHON) run.py --config $(CONFIG)
