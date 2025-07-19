@@ -47,6 +47,7 @@ from .ui_config import (
     DatabaseConstants,
     LayerStyles,
 )
+from .ee_tools import initialize_ee_with_credentials
 from .utils import list_databases_in_directory, get_database_centroid
 
 warnings.simplefilter("ignore", category=FutureWarning)
@@ -132,6 +133,7 @@ class GeoVibes:
         config: Optional[Dict] = None,
         config_path: Optional[str] = None,
         baselayer_url: Optional[str] = None,
+        disable_ee: bool = False,
         verbose: bool = False,
         **kwargs,
     ) -> None:
@@ -148,6 +150,7 @@ class GeoVibes:
             config: Configuration dictionary (deprecated, use individual parameters).
             config_path: Path to JSON configuration file (deprecated, use individual parameters).
             baselayer_url: Custom basemap tile URL.
+            disable_ee: Disable Earth Engine basemaps.
             verbose: Enable detailed progress messages.
             **kwargs: Additional arguments for backwards compatibility.
 
@@ -198,8 +201,8 @@ class GeoVibes:
 
             self.config.validate()
 
-        self.ee_available = (
-            False  # initialize_ee_with_credentials(self.config.gcp_project)
+        self.ee_available = not disable_ee and initialize_ee_with_credentials(
+            self.config.gcp_project
         )
 
         # Initialize database list if directory is provided
