@@ -54,6 +54,7 @@ dependencies = [
     "matplotlib",
     "mypy",
     "numpy",
+    "pillow",
     "pre-commit",
     "pyarrow",
     "pytest",
