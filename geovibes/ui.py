@@ -30,13 +30,15 @@ import pandas as pd
 import shapely
 from shapely.geometry import Point
 import webbrowser
+from PIL import Image as PILImage, ImageDraw
+import base64
+from io import BytesIO
 
 from .ee_tools import (
     get_s2_rgb_median,
     get_s2_ndvi_median,
     get_s2_ndwi_median,
     get_ee_image_url,
-    initialize_ee_with_credentials,
 )
 from .ui_config import (
     UIConstants,
@@ -45,6 +47,7 @@ from .ui_config import (
     DatabaseConstants,
     LayerStyles,
 )
+from .ee_tools import initialize_ee_with_credentials
 from .utils import list_databases_in_directory, get_database_centroid
 
 warnings.simplefilter("ignore", category=FutureWarning)
@@ -130,6 +133,7 @@ class GeoVibes:
         config: Optional[Dict] = None,
         config_path: Optional[str] = None,
         baselayer_url: Optional[str] = None,
+        disable_ee: bool = False,
         verbose: bool = False,
         **kwargs,
     ) -> None:
@@ -146,6 +150,7 @@ class GeoVibes:
             config: Configuration dictionary (deprecated, use individual parameters).
             config_path: Path to JSON configuration file (deprecated, use individual parameters).
             baselayer_url: Custom basemap tile URL.
+            disable_ee: Disable Earth Engine basemaps.
             verbose: Enable detailed progress messages.
             **kwargs: Additional arguments for backwards compatibility.
 
@@ -196,7 +201,9 @@ class GeoVibes:
 
             self.config.validate()
 
-        self.ee_available = initialize_ee_with_credentials(self.config.gcp_project)
+        self.ee_available = not disable_ee and initialize_ee_with_credentials(
+            self.config.gcp_project
+        )
 
         # Initialize database list if directory is provided
         self.available_databases = []
@@ -355,6 +362,9 @@ class GeoVibes:
         # Build UI
         self.side_panel, self.ui_widgets = self._build_side_panel()
 
+        # Build results panel
+        self.results_panel, self.results_widgets = self._build_results_panel()
+
         # Add layers to map
         self._add_map_layers()
 
@@ -400,7 +410,7 @@ class GeoVibes:
         )
 
         self.main_layout = HBox(
-            [self.side_panel, map_with_overlays],
+            [self.side_panel, map_with_overlays, self.results_panel],
             layout=Layout(height=UIConstants.DEFAULT_HEIGHT, width="100%"),
         )
 
@@ -671,6 +681,219 @@ class GeoVibes:
         }
 
         return panel_content, ui_widgets
+
+    def _create_placeholder_png(self, lat, lon, size=(256, 256)):
+        """Create a placeholder PNG image for a given lat/lon coordinate.
+
+        Args:
+            lat: Latitude coordinate
+            lon: Longitude coordinate
+            size: Tuple of (width, height) for the image
+
+        Returns:
+            Base64 encoded PNG image data
+        """
+        # Create a simple placeholder image with gradient and coordinates
+        img = PILImage.new("RGB", size, color="lightblue")
+        draw = ImageDraw.Draw(img)
+
+        # Add a simple gradient effect
+        for y in range(size[1]):
+            color_intensity = int(255 * (1 - y / size[1]))
+            draw.line(
+                [(0, y), (size[0], y)], fill=(color_intensity, color_intensity, 255)
+            )
+
+        # Add coordinate text (truncated to fit)
+        coord_text = f"{lat:.2f},{lon:.2f}"
+
+        # Create a simple border
+        draw.rectangle([0, 0, size[0] - 1, size[1] - 1], outline="darkblue", width=2)
+
+        # Add a small circle in the center to represent the point
+        center_x, center_y = size[0] // 2, size[1] // 2
+        draw.ellipse(
+            [center_x - 3, center_y - 3, center_x + 3, center_y + 3],
+            fill="red",
+            outline="darkred",
+        )
+
+        # Convert to base64 for embedding in HTML
+        buffer = BytesIO()
+        img.save(buffer, format="PNG")
+        img_data = base64.b64encode(buffer.getvalue()).decode()
+
+        return f"data:image/png;base64,{img_data}"
+
+    def _build_results_panel(self):
+        """Build the collapsible results panel showing similar point chips."""
+
+        # Results panel collapse/expand button
+        self.results_collapse_btn = Button(
+            description="▶",
+            layout=Layout(
+                width="30px",
+                height="30px",
+            ),
+            tooltip="Show/Hide Results Panel",
+        )
+
+        # Panel header
+        results_header = HBox(
+            [
+                Label("Similar Points", layout=Layout(flex="1")),
+                self.results_collapse_btn,
+            ],
+            layout=Layout(width="100%", justify_content="space-between", padding="2px"),
+        )
+
+        # Results container that will hold the chips
+        self.results_container = VBox(
+            [],
+            layout=Layout(
+                width="100%",
+                height="100%",  # Account for header height
+                overflow_y="auto",
+                padding="5px",
+            ),
+        )
+
+        # Results content (header + container)
+        self.results_content = VBox(
+            [self.results_container], layout=Layout(width="100%", height="100%")
+        )
+
+        # Main results panel (initially collapsed)
+        self.results_panel_collapsed = True
+        panel_content = VBox(
+            [
+                results_header,
+                self.results_content,
+            ],
+            layout=Layout(
+                width="0px",  # Start collapsed
+                height="100%",  # Match main layout height
+                padding="5px",
+                border="1px solid #ccc",
+                display="none",  # Start hidden
+            ),
+        )
+
+        # Wire the collapse button
+        self.results_collapse_btn.on_click(self._on_toggle_results_collapse)
+
+        # Return panel and widget references
+        results_widgets = {
+            "results_collapse_btn": self.results_collapse_btn,
+            "results_container": self.results_container,
+        }
+
+        return panel_content, results_widgets
+
+    def _on_toggle_results_collapse(self, b):
+        """Toggle results panel collapse/expand."""
+        if self.results_panel_collapsed:
+            # Expand
+            self.results_panel.layout.display = "flex"
+            self.results_panel.layout.width = "250px"
+            self.results_collapse_btn.description = "◀"
+            self.results_panel_collapsed = False
+        else:
+            # Collapse
+            self.results_panel.layout.display = "none"
+            self.results_panel.layout.width = "0px"
+            self.results_collapse_btn.description = "▶"
+            self.results_panel_collapsed = True
+
+    def _update_results_panel(self, search_results_df):
+        """Update the results panel with chips for each similar point.
+
+        Args:
+            search_results_df: DataFrame with columns ['id', 'geometry_wkt', 'distance']
+        """
+        # Clear existing chips
+        self.results_container.children = []
+
+        if search_results_df.empty:
+            return
+
+        chips = []
+
+        # Create a chip for each result
+        for idx, row in search_results_df.head(14).iterrows():  # Limit to top 10
+            try:
+                # Extract lat/lon from geometry
+                geom = shapely.wkt.loads(row["geometry_wkt"])
+                lat, lon = geom.y, geom.x
+
+                # Create placeholder image
+                img_data = self._create_placeholder_png(lat, lon)
+
+                # Create image widget
+                img_widget = HTML(
+                    value=f'<img src="{img_data}" width="64" height="64" style="border-radius: 4px; display: block; margin: 0 auto;">',
+                    layout=Layout(width="100%", text_align="center"),
+                )
+
+                # Create distance text below image
+                distance_text = HTML(
+                    value=f"""
+                    <div style="font-size: 9px; text-align: center; line-height: 1.1;">
+                        <div><strong>Dist:</strong> {row["distance"]:.3f}</div>
+                    </div>
+                    """,
+                    layout=Layout(width="100%"),
+                )
+
+                # Create chip container with vertical layout
+                chip = VBox(
+                    [img_widget, distance_text],
+                    layout=Layout(
+                        width="110px",  # Narrower for 2-column layout
+                        height="90px",  # Taller to accommodate vertical layout
+                        margin="2px",
+                        border="1px solid #ddd",
+                        border_radius="6px",
+                        background_color="#f9f9f9",
+                        padding="4px",
+                        align_items="center",
+                    ),
+                )
+
+                chips.append(chip)
+
+            except Exception as e:
+                if self.verbose:
+                    print(f"Error creating chip for result {idx}: {e}")
+                continue
+
+        # Arrange chips in 2-column layout
+        rows = []
+        for i in range(0, len(chips), 2):
+            if i + 1 < len(chips):
+                # Two chips in this row
+                row = HBox(
+                    [chips[i], chips[i + 1]],
+                    layout=Layout(
+                        width="100%", justify_content="space-between", margin="1px 0"
+                    ),
+                )
+            else:
+                # Single chip in last row
+                row = HBox(
+                    [chips[i]],
+                    layout=Layout(
+                        width="100%", justify_content="flex-start", margin="1px 0"
+                    ),
+                )
+            rows.append(row)
+
+        # Update the container with new rows
+        self.results_container.children = rows
+
+        # Auto-expand results panel if it's collapsed and we have results
+        if self.results_panel_collapsed and chips:
+            self._on_toggle_results_collapse(None)
 
     def _update_toggle_button_styles(self):
         """Update toggle button colors based on selection."""
@@ -1113,6 +1336,9 @@ class GeoVibes:
                 self.map.remove_layer(self.vector_layer)
             self.vector_layer = None
 
+        # Clear results panel
+        self.results_container.children = []
+
         # Clear operation status
         self._clear_operation_status()
 
@@ -1305,6 +1531,9 @@ class GeoVibes:
 
         # Update the map with distance-colored points
         self._update_search_layer_with_colors(detections_geojson)
+
+        # Update the results panel with similar point chips
+        self._update_results_panel(search_results_filtered)
 
     def label_point(self, **kwargs):
         """Assign a label and map layer to a clicked map point."""
@@ -2238,6 +2467,9 @@ class GeoVibes:
             if self.vector_layer in self.map.layers:
                 self.map.remove_layer(self.vector_layer)
             self.vector_layer = None
+
+        # Clear results panel
+        self.results_container.children = []
 
         # Clear operation status
         self._clear_operation_status()

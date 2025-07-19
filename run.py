@@ -152,13 +152,6 @@ def create_notebook_content(config, verbose=False):
     notebook_content = {
         "cells": [
             {
-                "cell_type": "markdown",
-                "metadata": {},
-                "source": [
-                    "# 🌍 GeoVibes: Explore Earth Observation Embeddings\n",
-                ],
-            },
-            {
                 "cell_type": "code",
                 "execution_count": None,
                 "metadata": {},
