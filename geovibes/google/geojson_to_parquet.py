@@ -11,6 +11,8 @@ from shapely.ops import unary_union
 from tqdm import tqdm
 from joblib import Parallel, delayed
 
+from geovibes.tiling import MGRSTileId, get_mgrs_tile_ids_for_roi_from_roi_parquet
+
 
 def setup_logging():
     """Configure basic logging settings."""
@@ -32,30 +34,6 @@ def _load_region(path: str) -> gpd.GeoSeries:
         gdf = gdf.to_crs(4326)
     geom = unary_union(gdf.geometry)
     return gpd.GeoSeries([geom], crs="EPSG:4326")
-
-
-def get_intersecting_mgrs_ids(roi_path: str, mgrs_reference_path: str) -> Dict[str, str]:
-    """Find MGRS tiles that intersect with the given ROI and return a dict of tile_id: epsg_code."""
-    logging.info("Loading ROI and MGRS reference file...")
-    region_gs = _load_region(roi_path)
-    mgrs_gdf = gpd.read_parquet(mgrs_reference_path)
-
-    if mgrs_gdf.crs is None or mgrs_gdf.crs.to_epsg() != 4326:
-        mgrs_gdf = mgrs_gdf.to_crs(4326)
-
-    logging.info("Finding intersecting MGRS tiles...")
-    intersecting_tiles = gpd.sjoin(
-        mgrs_gdf, gpd.GeoDataFrame(geometry=region_gs), how="inner", predicate="intersects"
-    )
-
-    tile_id_col = "mgrs_id"
-    epsg_col = "epsg"
-    if tile_id_col not in intersecting_tiles.columns:
-        raise ValueError(f"MGRS reference file must have a '{tile_id_col}' column.")
-    if epsg_col not in intersecting_tiles.columns:
-        raise ValueError(f"MGRS reference file must have an '{epsg_col}' column.")
-
-    return dict(zip(intersecting_tiles[tile_id_col], intersecting_tiles[epsg_col]))
 
 
 def process_and_save_geojson(gcs_path: str, epsg_code: str, output_dir: str) -> Optional[str]:
@@ -133,8 +111,8 @@ def main():
 
     try:
         # Find intersecting MGRS tiles and their EPSG codes
-        mgrs_epsg_map = get_intersecting_mgrs_ids(args.roi_file, args.mgrs_reference_file)
-        if not mgrs_epsg_map:
+        mgrs_tile_ids: list[MGRSTileId] = get_mgrs_tile_ids_for_roi_from_roi_parquet(args.roi_file, args.mgrs_reference_file)
+        if not mgrs_tile_ids:
             logging.info("No intersecting MGRS tiles found for the given ROI.")
             return
 
@@ -142,15 +120,15 @@ def main():
         tasks_to_process = []
 
         logging.info("Checking for existing parquet files...")
-        for mgrs_id, epsg_code in mgrs_epsg_map.items():
-            expected_filename = f"{mgrs_id}_2024.parquet"
+        for mgrs_tile_id in mgrs_tile_ids:
+            expected_filename = f"{mgrs_tile_id}_2024.parquet"
             local_path = output_path / expected_filename
 
             if local_path.exists():
                 local_parquet_files.append(str(local_path))
             else:
-                gcs_path = f"gs://{args.gcs_bucket}/embeddings/google_satellite_v1/25_0_10/{mgrs_id}_2024.geojson"
-                tasks_to_process.append((gcs_path, epsg_code, args.output_dir))
+                gcs_path = f"gs://{args.gcs_bucket}/embeddings/google_satellite_v1/25_0_10/{mgrs_tile_id}_2024.geojson"
+                tasks_to_process.append((gcs_path, str(mgrs_tile_id.crs), args.output_dir))
         
         logging.info(f"Found {len(local_parquet_files)} existing parquet files.")
         
@@ -175,7 +153,7 @@ def main():
             logging.info(f"Successfully processed all {len(newly_processed_files)} missing files.")
 
         # Validate we have all expected files
-        expected_file_count = len(mgrs_epsg_map)
+        expected_file_count = len(mgrs_tile_ids)
         actual_file_count = len(local_parquet_files)
         
         if actual_file_count != expected_file_count:

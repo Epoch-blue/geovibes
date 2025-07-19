@@ -16,6 +16,8 @@ from tqdm import tqdm
 import fsspec
 from joblib import Parallel, delayed
 
+from geovibes.tiling import get_mgrs_tile_ids_for_roi_from_roi_parquet
+
 
 def setup_logging():
     """Configure basic logging settings."""
@@ -78,7 +80,7 @@ def get_mgrs_ids_from_roi(roi_file: str, mgrs_reference_file: str) -> List[str]:
     return mgrs_ids
 
 
-def find_embedding_files_for_mgrs_ids(mgrs_ids: List[str], embedding_dir: str) -> List[str]:
+def find_embedding_files_for_mgrs_ids(mgrs_tile_ids: List[MGRSTileId], embedding_dir: str) -> List[str]:
     """
     Find parquet files in embedding directory that contain the specified MGRS IDs.
     
@@ -98,13 +100,13 @@ def find_embedding_files_for_mgrs_ids(mgrs_ids: List[str], embedding_dir: str) -
         # For cloud storage, list all parquet files and filter
         try:
             all_parquet_files = list_cloud_parquet_files(embedding_dir)
-            for mgrs_id in mgrs_ids:
-                matching_files = [f for f in all_parquet_files if mgrs_id in os.path.basename(f)]
+            for mgrs_tile_id in mgrs_tile_ids:
+                matching_files = [f for f in all_parquet_files if str(mgrs_tile_id) in os.path.basename(f)]
                 found_files.extend(matching_files)
                 if matching_files:
-                    logging.info(f"Found {len(matching_files)} files for MGRS {mgrs_id}")
+                    logging.info(f"Found {len(matching_files)} files for MGRS {mgrs_tile_id}")
                 else:
-                    logging.warning(f"No files found for MGRS {mgrs_id}")
+                    logging.warning(f"No files found for MGRS {mgrs_tile_id}")
         except Exception as e:
             logging.error(f"Error listing cloud files: {e}")
             return []
@@ -115,13 +117,13 @@ def find_embedding_files_for_mgrs_ids(mgrs_ids: List[str], embedding_dir: str) -
             logging.error(f"Embedding directory does not exist: {embedding_dir}")
             return []
         
-        for mgrs_id in mgrs_ids:
+        for mgrs_tile_id in mgrs_tile_ids:
             # Try multiple patterns to find files containing the MGRS ID
             patterns = [
-                f"*{mgrs_id}*.parquet",
-                f"{mgrs_id}_*.parquet",
-                f"*_{mgrs_id}.parquet",
-                f"*{mgrs_id}_embeddings.parquet"
+                f"*{mgrs_tile_id}*.parquet",
+                f"{mgrs_tile_id}_*.parquet",
+                f"*_{mgrs_tile_id}.parquet",
+                f"*{mgrs_tile_id}_embeddings.parquet"
             ]
             
             mgrs_files = []
@@ -134,9 +136,9 @@ def find_embedding_files_for_mgrs_ids(mgrs_ids: List[str], embedding_dir: str) -
             
             if mgrs_files:
                 found_files.extend(mgrs_files)
-                logging.info(f"Found {len(mgrs_files)} files for MGRS {mgrs_id}: {[os.path.basename(f) for f in mgrs_files]}")
+                logging.info(f"Found {len(mgrs_files)} files for MGRS {mgrs_tile_id}: {[os.path.basename(f) for f in mgrs_files]}")
             else:
-                logging.warning(f"No embedding files found for MGRS {mgrs_id}")
+                logging.warning(f"No embedding files found for MGRS {mgrs_tile_id}")
     
     # Remove duplicates from final list
     found_files = list(set(found_files))
@@ -144,7 +146,7 @@ def find_embedding_files_for_mgrs_ids(mgrs_ids: List[str], embedding_dir: str) -
     logging.info(f"Total embedding files found: {len(found_files)}")
     if len(found_files) == 0:
         logging.error("No embedding files found for any MGRS IDs!")
-        logging.info(f"Searched MGRS IDs: {mgrs_ids}")
+        logging.info(f"Searched MGRS IDs: {[str(mgrs_tile_id) for mgrs_tile_id in mgrs_tile_ids]}")
         if not get_cloud_protocol(embedding_dir):
             # List some example files for debugging
             example_files = list(pathlib.Path(embedding_dir).glob("*.parquet"))[:10]
@@ -504,14 +506,14 @@ def main():
         logging.info("Using ROI-based file discovery")
         
         # Find MGRS IDs that overlap with ROI
-        mgrs_ids = get_mgrs_ids_from_roi(args.roi_file, args.mgrs_reference_file)
+        mgrs_tile_ids = get_mgrs_tile_ids_for_roi_from_roi_parquet(args.roi_file, args.mgrs_reference_file)
         
-        if not mgrs_ids:
+        if not mgrs_tile_ids:
             logging.error("No MGRS tiles found intersecting with ROI")
             return
         
         # Find embedding files for those MGRS IDs
-        embedding_files = find_embedding_files_for_mgrs_ids(mgrs_ids, args.embedding_dir)
+        embedding_files = find_embedding_files_for_mgrs_ids(mgrs_tile_ids, args.embedding_dir)
         
         if not embedding_files:
             logging.error("No embedding files found for intersecting MGRS tiles")
