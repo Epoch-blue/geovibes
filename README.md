@@ -8,32 +8,13 @@ This repo was originally inspired by the [Earth Genome notebook tooling](https:/
 
 ## Installation
 
-GeoVibes can be installed locally using pip. The package includes optional dependencies for different features:
+GeoVibes can be installed locally using `mamba` and `pip`.
 
 ```bash
-# Basic installation with core dependencies
+mamba create -n geovibes python=3.12 -y
+mamba activate geovibes
 pip install -e .
-
-# Install with optional dependencies for specific features
-pip install -e ".[gcp]"        # Google Cloud Platform integration
-pip install -e ".[ml]"         # Machine learning features
-pip install -e ".[notebook]"   # Jupyter notebook support
-pip install -e ".[web]"        # Web interface with Voila
-pip install -e ".[aws]"        # AWS S3 integration
-pip install -e ".[dev]"        # Development tools
-
-# Install all optional dependencies
-pip install -e ".[all]"
 ```
-
-### Optional Dependencies
-
--   **`gcp`**: Google Earth Engine API, Google Cloud Storage, geemap for generating embeddings and accessing cloud databases
--   **`ml`**: XGBoost for machine learning workflows
--   **`notebook`**: JupyterLab and lonboard for interactive notebook development
--   **`web`**: Voila for the standalone web application interface
--   **`aws`**: S3FS for AWS S3 database access
--   **`dev`**: Testing, linting, and code formatting tools
 
 ## Quick Start
 
@@ -42,9 +23,6 @@ pip install -e ".[all]"
 GeoVibes runs as a standalone web application with an interactive mapping interface:
 
 ```bash
-# Install with web interface support
-pip install -e ".[web]"
-
 # Run with configuration file (recommended)
 python run.py --config config.yaml
 

@@ -35,51 +35,40 @@ classifiers = [
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "python-dotenv",
-    "geopandas",
+    "black",
+    "duckdb>1.0.0",
+    "earthengine-api",
     "fiona",
-    "numpy",
-    "scikit-learn",
-    "ipython",
-    "ipyleaflet",
+    "flake8", 
+    "gcsfs",
+    "geemap",
+    "geopandas",
+    "google-cloud-storage",
+    "gsutil",
     "ipykernel",
+    "ipyleaflet",
+    "ipython",
     "ipywidgets",
     "joblib",
+    "jupyterlab",
     "matplotlib",
-    "shapely",
-    "tqdm",
+    "mypy",
+    "numpy",
+    "pre-commit",
     "pyarrow",
-    "duckdb>1.0.0",
-    "rasterio",
-    "tenacity",
-    "PyYAML"
-]
-
-[project.optional-dependencies]
-gcp = [
-    "gsutil",
-    "earthengine-api",
-    "geemap",
-    "gcsfs",
-    "google-cloud-storage"
-]
-notebook = [
-    "jupyterlab"
-]
-web = [
-    "voila"
-]
-dev = [
     "pytest",
     "pytest-cov",
-    "black",
-    "flake8",
-    "mypy",
-    "pre-commit"
+    "python-dotenv",
+    "PyYAML",
+    "rasterio",
+    "scikit-learn",
+    "shapely",
+    "tenacity",
+    "tqdm",
+    "voila"
 ]
-all = [
-    "geovibes[gcp,notebook,web]"
-]
+
+
 
 [project.scripts]
 geovibes-webapp = "geovibes.cli:main"
