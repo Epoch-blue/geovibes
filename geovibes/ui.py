@@ -749,7 +749,7 @@ class GeoVibes:
             [],
             layout=Layout(
                 width="100%",
-                height="calc(100% - 40px)",  # Account for header height
+                height="100%",  # Account for header height
                 overflow_y="auto",
                 padding="5px",
             ),
@@ -817,7 +817,7 @@ class GeoVibes:
         chips = []
 
         # Create a chip for each result
-        for idx, row in search_results_df.head(10).iterrows():  # Limit to top 10
+        for idx, row in search_results_df.head(14).iterrows():  # Limit to top 10
             try:
                 # Extract lat/lon from geometry
                 geom = shapely.wkt.loads(row["geometry_wkt"])
@@ -828,34 +828,42 @@ class GeoVibes:
 
                 # Create image widget
                 img_widget = HTML(
-                    value=f'<img src="{img_data}" width="48" height="48" style="border-radius: 4px;">',
-                    layout=Layout(width="55px", height="55px"),
+                    value=f'<img src="{img_data}" width="48" height="48" style="border-radius: 4px; display: block; margin: 0 auto;">',
+                    layout=Layout(width="100%", text_align="center"),
                 )
 
-                # Create info text
-                info_text = HTML(
+                # Create lat/lon text below image
+                latlon_text = HTML(
                     value=f"""
-                    <div style="font-size: 10px; padding: 3px; line-height: 1.2;">
-                        <div><strong>ID:</strong> {str(row["id"])[:8]}...</div>
-                        <div><strong>Dist:</strong> {row["distance"]:.3f}</div>
-                        <div><strong>Lat:</strong> {lat:.3f}</div>
-                        <div><strong>Lon:</strong> {lon:.3f}</div>
+                    <div style="font-size: 9px; text-align: center; line-height: 1.1;">
+                        <div>{lat:.3f}, {lon:.3f}</div>
                     </div>
                     """,
-                    layout=Layout(flex="1"),
+                    layout=Layout(width="100%"),
                 )
 
-                # Create chip container
-                chip = HBox(
-                    [img_widget, info_text],
+                # Create distance text below image
+                distance_text = HTML(
+                    value=f"""
+                    <div style="font-size: 9px; text-align: center; line-height: 1.1;">
+                        <div><strong>Dist:</strong> {row["distance"]:.3f}</div>
+                    </div>
+                    """,
+                    layout=Layout(width="100%"),
+                )
+
+                # Create chip container with vertical layout
+                chip = VBox(
+                    [img_widget, latlon_text, distance_text],
                     layout=Layout(
-                        width="100%",
-                        height="60px",  # Fixed height for each chip
-                        margin="1px",
+                        width="110px",  # Narrower for 2-column layout
+                        height="90px",  # Taller to accommodate vertical layout
+                        margin="2px",
                         border="1px solid #ddd",
                         border_radius="6px",
                         background_color="#f9f9f9",
-                        padding="3px",
+                        padding="4px",
+                        align_items="center",
                     ),
                 )
 
@@ -866,8 +874,29 @@ class GeoVibes:
                     print(f"Error creating chip for result {idx}: {e}")
                 continue
 
-        # Update the container with new chips
-        self.results_container.children = chips
+        # Arrange chips in 2-column layout
+        rows = []
+        for i in range(0, len(chips), 2):
+            if i + 1 < len(chips):
+                # Two chips in this row
+                row = HBox(
+                    [chips[i], chips[i + 1]],
+                    layout=Layout(
+                        width="100%", justify_content="space-between", margin="1px 0"
+                    ),
+                )
+            else:
+                # Single chip in last row
+                row = HBox(
+                    [chips[i]],
+                    layout=Layout(
+                        width="100%", justify_content="flex-start", margin="1px 0"
+                    ),
+                )
+            rows.append(row)
+
+        # Update the container with new rows
+        self.results_container.children = rows
 
         # Auto-expand results panel if it's collapsed and we have results
         if self.results_panel_collapsed and chips:
