@@ -832,16 +832,6 @@ class GeoVibes:
                     layout=Layout(width="100%", text_align="center"),
                 )
 
-                # Create lat/lon text below image
-                latlon_text = HTML(
-                    value=f"""
-                    <div style="font-size: 9px; text-align: center; line-height: 1.1;">
-                        <div>{lat:.3f}, {lon:.3f}</div>
-                    </div>
-                    """,
-                    layout=Layout(width="100%"),
-                )
-
                 # Create distance text below image
                 distance_text = HTML(
                     value=f"""
@@ -854,7 +844,7 @@ class GeoVibes:
 
                 # Create chip container with vertical layout
                 chip = VBox(
-                    [img_widget, latlon_text, distance_text],
+                    [img_widget, distance_text],
                     layout=Layout(
                         width="110px",  # Narrower for 2-column layout
                         height="90px",  # Taller to accommodate vertical layout
