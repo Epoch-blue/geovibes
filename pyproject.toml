@@ -1,0 +1,125 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "geovibes"
+version = "0.1.0"
+description = "Evaluate your geospatial models vibes with interactive similarity search"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Chris Ren", email = "chris@demeterlabs.io"}
+]
+maintainers = [
+    {name = "Chris Ren", email = "chris@demeterlabs.io"}
+]
+keywords = [
+    "geospatial",
+    "satellite",
+    "embeddings", 
+    "similarity-search",
+    "remote-sensing",
+    "earth-observation"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11", 
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence"
+]
+requires-python = ">=3.10"
+dependencies = [
+    "black",
+    "duckdb>1.0.0",
+    "earthengine-api",
+    "fiona",
+    "flake8", 
+    "gcsfs",
+    "geemap",
+    "geopandas",
+    "google-cloud-storage",
+    "gsutil",
+    "ipykernel",
+    "ipyleaflet",
+    "ipython",
+    "ipywidgets",
+    "joblib",
+    "jupyterlab",
+    "matplotlib",
+    "mypy",
+    "numpy",
+    "pre-commit",
+    "pyarrow",
+    "pytest",
+    "pytest-cov",
+    "python-dotenv",
+    "PyYAML",
+    "rasterio",
+    "scikit-learn",
+    "shapely",
+    "tenacity",
+    "tqdm",
+    "voila"
+]
+
+
+
+[project.scripts]
+geovibes-webapp = "geovibes.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/demeterlabs/geovibes"
+Repository = "https://github.com/demeterlabs/geovibes"
+Issues = "https://github.com/demeterlabs/geovibes/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["geovibes*"]
+
+[tool.setuptools.package-data]
+geovibes = ["*.yaml", "*.json", "ui_config/*"]
+
+[tool.black]
+line-length = 88
+target-version = ['py310', 'py311', 'py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["geovibes"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short" 
