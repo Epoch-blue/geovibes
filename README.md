@@ -86,7 +86,7 @@ gcloud auth application-default login
 
 ## Interactive Vibe Checking
 
-The `vibe_checker.ipynb` notebook provides the main interface for geospatial similarity search. You will either need to access `.db` files on GCS via `httpfs` or, simply download the .db files to a local folder, or make your own.
+The `good_vibes.ipynb` notebook provides the main interface for geospatial similarity search. You will either need to access `.db` files on GCS via `httpfs` or, simply download the .db files to a local folder, or make your own.
 For example:
 
 ```bash
@@ -165,11 +165,17 @@ python src/google/embeddings.py \
 
 This processes each tile through Google's satellite embedding model and exports results to GCS.
 
-### Step 3: Build searchable database
-Download the embeddings from GCS and create a DuckDB index:
+### Step 3: Build Searchable Database
 
+There are two options for building a searchable database from embeddings:
+
+**Option 1: VSS-based Database (DuckDB HNSW)**
+
+This method uses DuckDB's native `vss` extension to create a Hierarchical Navigable Small World (HNSW) index directly within the DuckDB file.
+
+Download the embeddings from GCS and create a DuckDB index:
 ```bash
-python src/database.py \
+python src/database/vss_database.py \
   aoi.geojson \
   ./processed_embeddings \
   aoi_google.db \
@@ -177,8 +183,22 @@ python src/database.py \
   --gcs_bucket your-bucket \
   --metric cosine
 ```
-
 This downloads embeddings from GCS, processes them into point geometries with 64-dimensional vectors, and builds HNSW and spatial indexes for fast similarity search.
+
+**Option 2: FAISS-based Database**
+
+This method uses Facebook AI's FAISS library to create a highly optimized index, which is stored separately from the metadata in a DuckDB database. **This approach builds the index faster and with significantly less memory pressure than the VSS method.**
+
+Create a FAISS index and a corresponding metadata database from local parquet files:
+```bash
+# Create a full index from embeddings in a directory
+python src/faiss_database.py embeddings/eg_nm --name new-mexico --output_dir faiss_db --dtype INT8
+
+# Create a smaller index for testing (dry run)
+python src/faiss_database.py embeddings/eg_nm --name new-mexico-dry-run --output_dir faiss_db --dtype INT8 --dry-run
+```
+This script processes parquet files from an input directory, builds a FAISS index, and creates a separate DuckDB file containing the metadata for the embeddings.
+
 
 ## Prerequisites for Google Embeddings
 
