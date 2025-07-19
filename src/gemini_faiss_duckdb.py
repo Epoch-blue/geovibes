@@ -55,6 +55,11 @@ def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, embedding_d
     logging.info(f"Source ID column: '{id_column_in_parquet}'. Geometry column found: {has_geometry}.")
 
     with duckdb.connect(database=db_path) as con:
+        # Load spatial extension, which is required for creating a spatial index
+        if has_geometry:
+            logging.info("Installing and loading spatial extension for DuckDB.")
+            con.execute("INSTALL spatial; LOAD spatial;")
+
         logging.info("Creating table 'embeddings' in DuckDB.")
         
         # Check if table already exists
@@ -79,7 +84,7 @@ def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, embedding_d
             id BIGINT PRIMARY KEY DEFAULT nextval('seq_embeddings_id'),
             tile_id VARCHAR,
             embedding FLOAT[{embedding_dim}]
-            {', geometry BLOB' if has_geometry else ''}
+            {', geometry GEOMETRY' if has_geometry else ''}
         );
         """
         con.execute(create_sql)
@@ -89,12 +94,17 @@ def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, embedding_d
             sql_parquet_files_list_str = "['" + "', '".join(parquet_files) + "']"
             
             insert_columns = f"tile_id, embedding{', geometry' if has_geometry else ''}"
-            select_columns = f"{id_column_in_parquet}, embedding{', geometry' if has_geometry else ''}"
+            
+            # The geometry column from GeoParquet is already understood by DuckDB's spatial extension.
+            # No explicit cast is needed if the target column is type GEOMETRY.
+            select_clause = f"{id_column_in_parquet}, embedding"
+            if has_geometry:
+                select_clause += ", geometry"
 
             con.execute(f"""
                 INSERT INTO embeddings ({insert_columns})
                 SELECT
-                    {select_columns}
+                    {select_clause}
                 FROM read_parquet({sql_parquet_files_list_str}, union_by_name=true);
             """)
         except Exception as e:
@@ -105,6 +115,11 @@ def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, embedding_d
 
         row_count = con.execute("SELECT COUNT(*) FROM embeddings;").fetchone()[0]
         logging.info(f"Successfully ingested {row_count} rows into DuckDB.")
+
+        if has_geometry:
+            logging.info("Creating R-Tree spatial index on geometry column...")
+            con.execute("CREATE INDEX geom_spatial_idx ON embeddings USING RTREE (geometry);")
+            logging.info("Spatial index created successfully.")
 
 
 def create_faiss_index(db_path: str, index_path: str, embedding_dim: int, nlist: int, m: int, nbits: int):
