@@ -3,10 +3,14 @@
 Process-based, memory-efficient transformation script for large parquet files.
 Each worker process reads, transforms, and writes its own slice of data.
 Outputs partitioned parquet files that can be queried as a single dataset.
-Earth Genome parquet file are stored with each element of the embedding as a separate column.
-Also stores full geometry and we only need the centroid.
-This script converts the parquet file to a single file with the centroid geometry and the embedding as a single column.
-As of now only supports the ViT embedding so is hardcoded
+
+Earth Genome parquet files are stored with each element of the embedding as a separate column.
+They also store full polygon geometries, but we only need the centroids.
+This script:
+- Converts the embedding columns into a single array column
+- Calculates polygon centroids using appropriate UTM projections for accuracy
+- Projects centroids back to EPSG:4326
+- Currently only supports ViT embeddings (hardcoded)
 """
 
 import argparse
@@ -22,7 +26,10 @@ import geopandas as gpd
 import pandas as pd
 import numpy as np
 from shapely import wkb
-from shapely.geometry import Point
+from shapely.geometry import Point, Polygon
+from shapely.ops import transform
+import pyproj
+from pyproj import Transformer
 
 
 def setup_logging() -> None:
@@ -69,26 +76,71 @@ def get_vit_columns(parquet_file: str) -> List[str]:
     return vit_columns
 
 
+def get_utm_zone(lon: float, lat: float) -> str:
+    """
+    Calculate the UTM zone for a given longitude and latitude.
+    
+    Args:
+        lon: Longitude in degrees
+        lat: Latitude in degrees
+        
+    Returns:
+        UTM zone EPSG code as string (e.g., 'EPSG:32633')
+    """
+    utm_zone = int((lon + 180) / 6) + 1
+    
+    if lat >= 0:
+        epsg_code = 32600 + utm_zone
+    else:
+        epsg_code = 32700 + utm_zone
+        
+    return f"EPSG:{epsg_code}"
+
+
 def process_geometry_batch(geometry_data: List[bytes]) -> List[Point]:
     """
-    Convert WKB polygon geometries to their centroids.
+    Convert WKB polygon geometries to their centroids using appropriate UTM projection.
+    
+    Each polygon is projected to its local UTM zone for accurate centroid calculation,
+    then the centroid is projected back to EPSG:4326.
     
     Args:
         geometry_data: List of WKB-encoded polygon geometries
         
     Returns:
-        List of centroid points
+        List of centroid points in EPSG:4326
     """
     results = []
     error_count = 0
     
     for geom_wkb in geometry_data:
-        try:
-            polygon = wkb.loads(geom_wkb)
-            results.append(polygon.centroid)
-        except Exception:
-            error_count += 1
-            results.append(Point(0, 0))
+        polygon = wkb.loads(geom_wkb)
+        
+        # Get the center point to determine UTM zone
+        bounds = polygon.bounds
+        center_lon = (bounds[0] + bounds[2]) / 2
+        center_lat = (bounds[1] + bounds[3]) / 2
+        
+        # Get appropriate UTM zone
+        utm_crs = get_utm_zone(center_lon, center_lat)
+        
+        # Create transformers
+        to_utm = Transformer.from_crs("EPSG:4326", utm_crs, always_xy=True)
+        to_wgs84 = Transformer.from_crs(utm_crs, "EPSG:4326", always_xy=True)
+        
+        # Transform polygon to UTM using shapely's transform
+        def transform_func(x, y, z=None):
+            return to_utm.transform(x, y)
+        
+        utm_polygon = transform(transform_func, polygon)
+        
+        # Calculate centroid in UTM
+        utm_centroid = utm_polygon.centroid
+        
+        # Transform centroid back to WGS84
+        lon, lat = to_wgs84.transform(utm_centroid.x, utm_centroid.y)
+        results.append(Point(lon, lat))
+            
     
     if error_count > 0:
         logging.debug(f"Geometry processing errors in batch: {error_count}/{len(geometry_data)}")
@@ -123,8 +175,9 @@ def worker_process_chunk(
     """
     Process a single chunk of data in a separate process.
     
-    Reads a slice of the parquet file, converts polygon geometries to centroids,
-    transforms embeddings to float32, and writes to a partitioned output file.
+    Reads a slice of the parquet file, converts polygon geometries to centroids
+    using appropriate UTM projections for accuracy, transforms embeddings to float32,
+    and writes to a partitioned output file.
     
     Args:
         parquet_file: Path to the input parquet file
@@ -150,7 +203,7 @@ def worker_process_chunk(
         SELECT 
             tile_id,
             {vit_array_sql} as embedding,
-            ST_AsWKB(ST_Centroid(ST_GeomFromWKB(geometry))) as geometry
+            geometry
         FROM read_parquet('{parquet_file}')
         LIMIT {size} OFFSET {offset}
         """
