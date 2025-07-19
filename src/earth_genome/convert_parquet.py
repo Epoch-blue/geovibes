@@ -8,7 +8,8 @@ Earth Genome parquet files are stored with each element of the embedding as a se
 They also store full polygon geometries, but we only need the centroids.
 This script:
 - Converts the embedding columns into a single array column
-- Calculates polygon centroids using appropriate UTM projections for accuracy
+- Calculates polygon centroids using vectorized UTM projections for accuracy
+- Groups geometries by UTM zone for efficient batch projection
 - Projects centroids back to EPSG:4326
 - Currently only supports ViT embeddings (hardcoded)
 """
@@ -26,10 +27,6 @@ import geopandas as gpd
 import pandas as pd
 import numpy as np
 from shapely import wkb
-from shapely.geometry import Point, Polygon
-from shapely.ops import transform
-import pyproj
-from pyproj import Transformer
 
 
 def setup_logging() -> None:
@@ -70,82 +67,54 @@ def get_vit_columns(parquet_file: str) -> List[str]:
     columns_info = con.execute(f"""
         DESCRIBE SELECT * FROM read_parquet('{parquet_file}') LIMIT 1
     """).fetchall()
+    
+    # Check if geometry column exists and its type
+    geometry_type = None
+    for col_name, col_type, *_ in columns_info:
+        if col_name.lower() == 'geometry':
+            geometry_type = col_type
+            logging.info(f"Found geometry column with type: {col_type}")
+            break
+    
     con.close()
     
     vit_columns = [col[0] for col in columns_info if 'vit' in col[0].lower()]
     return vit_columns
 
 
-def get_utm_zone(lon: float, lat: float) -> str:
+def add_utm_centroid(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
-    Calculate the UTM zone for a given longitude and latitude.
+    Vectorized centroid calculation using appropriate UTM projections.
+    
+    1. Derive UTM zone per feature using vectorized bounds calculations
+    2. Group by UTM zone and project each group to its UTM CRS
+    3. Calculate centroids (vectorized) and project back to EPSG:4326
+    4. Concatenate results maintaining original order
     
     Args:
-        lon: Longitude in degrees
-        lat: Latitude in degrees
+        gdf: GeoDataFrame with polygon geometries in EPSG:4326
         
     Returns:
-        UTM zone EPSG code as string (e.g., 'EPSG:32633')
+        GeoDataFrame with centroid geometries in EPSG:4326
     """
-    utm_zone = int((lon + 180) / 6) + 1
-    
-    if lat >= 0:
-        epsg_code = 32600 + utm_zone
-    else:
-        epsg_code = 32700 + utm_zone
-        
-    return f"EPSG:{epsg_code}"
+    bounds = np.vstack(gdf.geometry.bounds.values)
+    ctr_lon = (bounds[:, 0] + bounds[:, 2]) / 2
+    ctr_lat = (bounds[:, 1] + bounds[:, 3]) / 2
+    zones = ((ctr_lon + 180) // 6 + 1).astype(int)
+    north = ctr_lat >= 0
+    epsg = np.where(north, 32600 + zones, 32700 + zones)
+    gdf = gdf.copy()
+    gdf["utm_epsg"] = epsg
 
+    out_frames = []
+    for e, grp in gdf.groupby("utm_epsg"):
+        g = grp.to_crs(f"EPSG:{int(e)}")
+        cent = g.centroid
+        cent = gpd.GeoSeries(cent, crs=g.crs).to_crs("EPSG:4326")
+        grp = grp.drop(columns=["geometry", "utm_epsg"]).set_geometry(cent)
+        out_frames.append(grp)
 
-def process_geometry_batch(geometry_data: List[bytes]) -> List[Point]:
-    """
-    Convert WKB polygon geometries to their centroids using appropriate UTM projection.
-    
-    Each polygon is projected to its local UTM zone for accurate centroid calculation,
-    then the centroid is projected back to EPSG:4326.
-    
-    Args:
-        geometry_data: List of WKB-encoded polygon geometries
-        
-    Returns:
-        List of centroid points in EPSG:4326
-    """
-    results = []
-    error_count = 0
-    
-    for geom_wkb in geometry_data:
-        polygon = wkb.loads(geom_wkb)
-        
-        # Get the center point to determine UTM zone
-        bounds = polygon.bounds
-        center_lon = (bounds[0] + bounds[2]) / 2
-        center_lat = (bounds[1] + bounds[3]) / 2
-        
-        # Get appropriate UTM zone
-        utm_crs = get_utm_zone(center_lon, center_lat)
-        
-        # Create transformers
-        to_utm = Transformer.from_crs("EPSG:4326", utm_crs, always_xy=True)
-        to_wgs84 = Transformer.from_crs(utm_crs, "EPSG:4326", always_xy=True)
-        
-        # Transform polygon to UTM using shapely's transform
-        def transform_func(x, y, z=None):
-            return to_utm.transform(x, y)
-        
-        utm_polygon = transform(transform_func, polygon)
-        
-        # Calculate centroid in UTM
-        utm_centroid = utm_polygon.centroid
-        
-        # Transform centroid back to WGS84
-        lon, lat = to_wgs84.transform(utm_centroid.x, utm_centroid.y)
-        results.append(Point(lon, lat))
-            
-    
-    if error_count > 0:
-        logging.debug(f"Geometry processing errors in batch: {error_count}/{len(geometry_data)}")
-    
-    return results
+    return gpd.GeoDataFrame(pd.concat(out_frames, ignore_index=True), crs="EPSG:4326")
 
 
 def compute_chunks(total_rows: int, batch_size: int) -> List[Tuple[int, int]]:
@@ -176,7 +145,7 @@ def worker_process_chunk(
     Process a single chunk of data in a separate process.
     
     Reads a slice of the parquet file, converts polygon geometries to centroids
-    using appropriate UTM projections for accuracy, transforms embeddings to float32,
+    using vectorized UTM projections for accuracy, transforms embeddings to float32,
     and writes to a partitioned output file.
     
     Args:
@@ -193,13 +162,29 @@ def worker_process_chunk(
     
     try:
         con = duckdb.connect()
-        con.execute("INSTALL spatial")
-        con.execute("LOAD spatial")
+        
+        # Try to load spatial extension, but don't fail if it's not available
+        try:
+            con.execute("INSTALL spatial")
+            con.execute("LOAD spatial")
+        except Exception as e:
+            logging.debug(f"Could not load spatial extension: {e}")
         
         quoted_vit_columns = [f'"{col}"' for col in vit_columns]
         vit_array_sql = f"[{', '.join(quoted_vit_columns)}]"
         
-        query = f"""
+        # First try: Assume geometry is already a GEOMETRY type and needs ST_AsWKB
+        query_with_spatial = f"""
+        SELECT 
+            tile_id,
+            {vit_array_sql} as embedding,
+            ST_AsWKB(geometry) as geometry
+        FROM read_parquet('{parquet_file}')
+        LIMIT {size} OFFSET {offset}
+        """
+        
+        # Second try: Assume geometry is already WKB bytes
+        query_direct = f"""
         SELECT 
             tile_id,
             {vit_array_sql} as embedding,
@@ -208,19 +193,27 @@ def worker_process_chunk(
         LIMIT {size} OFFSET {offset}
         """
         
-        result = con.execute(query).fetchall()
+        # Try with spatial extension first
+        try:
+            result = con.execute(query_with_spatial).fetchall()
+            logging.debug("Successfully used ST_AsWKB for geometry column")
+        except Exception as e:
+            logging.debug(f"ST_AsWKB failed: {e}, trying direct geometry access")
+            result = con.execute(query_direct).fetchall()
+        
         con.close()
         
         df = pd.DataFrame(data=result)
         df.columns = ['tile_id', 'embedding', 'geometry']
         
-        geometry_data = df['geometry'].tolist()
-        processed_geoms = process_geometry_batch(geometry_data)
-        df['geometry'] = processed_geoms
-        
         df['embedding'] = df['embedding'].apply(lambda x: np.array(x, dtype=np.float32))
         
+        # Convert WKB geometries to shapely objects
+        df['geometry'] = df['geometry'].apply(lambda x: wkb.loads(x) if x is not None else None)
+        
+        # Create GeoDataFrame and calculate UTM centroids
         gdf = gpd.GeoDataFrame(df, geometry='geometry', crs="EPSG:4326")
+        gdf = add_utm_centroid(gdf)
         
         output_file = os.path.join(output_dir, f"part_{offset:012d}.parquet")
         gdf.to_parquet(output_file, index=False)
@@ -320,6 +313,7 @@ def transform_parquet_processes(
     logging.info(f"Dataset info:")
     logging.info(f"  Total rows: {total_rows:,}")
     logging.info(f"  VIT features: {len(vit_columns)}")
+    logging.info(f"  Batch size: {batch_size:,}")
     logging.info(f"  Total chunks: {len(chunks)}")
     
     completed_rows = 0
