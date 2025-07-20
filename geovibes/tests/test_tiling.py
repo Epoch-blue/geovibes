@@ -1,14 +1,11 @@
 import pytest
 import shapely.geometry
 import pyproj
-from shapely import Geometry
 import tempfile
-import pandas as pd
 import geopandas as gpd
-import duckdb
 import os
 
-from geovibes.tiling import MGRSTileId, get_crs_from_mgrs_tile_id, get_mgrs_tile_ids_for_roi
+from geovibes.tiling import MGRSTileId, MGRSTileGrid, get_crs_from_mgrs_tile_id, get_mgrs_tile_ids_for_roi
 
 
 # Test data for MGRSTileId
@@ -156,3 +153,56 @@ def test_get_mgrs_tile_ids_for_roi_all_tiles(sample_mgrs_tiles_file):
     expected_ids = ['18SJH', '18SJI', '18SJJ', '32NEA', '32NEB']
     for expected_id in expected_ids:
         assert expected_id in mgrs_ids
+
+
+@pytest.mark.parametrize(
+    "mgrs_id_str, expected_epsg, tilesize, overlap, resolution, expected_prefix",
+    [
+        (
+            "13SFA",
+            32613,
+            25,
+            0,
+            10.0,
+            "13SFA_32613_25_0_10",
+        ),  # Northern Hemisphere ('S' band is northern)
+        (
+            "13LFA",
+            32713,
+            25,
+            0,
+            10.0,
+            "13LFA_32713_25_0_10",
+        ),  # Southern Hemisphere
+        (
+            "18TXL",
+            32618,
+            50,
+            5,
+            2.5,
+            "18TXL_32618_50_5_2",
+        ),  # Northern Hemisphere
+    ],
+)
+def test_mgrs_grid_and_crs_properties(
+    mgrs_id_str, expected_epsg, tilesize, overlap, resolution, expected_prefix
+):
+    """
+    Tests the crs property on MGRSTileId and ensures MGRSTileGrid
+    is instantiated correctly. This test covers regressions for issues
+    found in tiling_to_gee_asset.py.
+    """
+    mgrs_tile_id = MGRSTileId.from_str(mgrs_id_str)
+
+    # Test MGRSTileId.crs
+    assert isinstance(mgrs_tile_id.crs, pyproj.CRS)
+    assert mgrs_tile_id.crs.to_epsg() == expected_epsg
+
+    # Test MGRSTileGrid initialization and prefix
+    grid = MGRSTileGrid(
+        mgrs_tile_id=mgrs_tile_id,
+        tilesize=tilesize,
+        overlap=overlap,
+        resolution=resolution,
+    )
+    assert grid.prefix == expected_prefix

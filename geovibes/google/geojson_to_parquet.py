@@ -100,6 +100,11 @@ def main():
     parser.add_argument("output_dir", help="Directory to save output files.")
     parser.add_argument("--mgrs_reference_file", default="/Users/christopherren/geovibes/geometries/mgrs_tiles.parquet", help="Path to the MGRS grid reference file.")
     parser.add_argument("--gcs_bucket", default="geovibes", help="GCS bucket to use for the embeddings.")
+    parser.add_argument("--gcs_prefix", type=str, default="embeddings/google_satellite_v1", help="Base GCS prefix/folder within the bucket.")
+    parser.add_argument("--year", type=int, default=2024, help="The year for which to get the satellite embeddings (e.g., 2023).")
+    parser.add_argument("--tilesize", type=int, default=25, help="Tile size in pixels used to construct asset name.")
+    parser.add_argument("--overlap", type=int, default=0, help="Overlap in pixels used to construct asset name.")
+    parser.add_argument("--resolution", type=float, default=10.0, help="Resolution in meters per pixel used to construct asset name.")
     parser.add_argument("--workers", type=int, default=-1, help="Number of parallel workers for processing files.")
     args = parser.parse_args()
 
@@ -119,15 +124,18 @@ def main():
         local_parquet_files = []
         tasks_to_process = []
 
+        tiling_params_str = f"{args.tilesize}_{args.overlap}_{int(args.resolution)}"
+        full_gcs_prefix = f"{args.gcs_prefix}/{tiling_params_str}" if args.gcs_prefix else tiling_params_str
+
         logging.info("Checking for existing parquet files...")
         for mgrs_tile_id in mgrs_tile_ids:
-            expected_filename = f"{mgrs_tile_id}_2024.parquet"
+            expected_filename = f"{mgrs_tile_id}_{args.year}.parquet"
             local_path = output_path / expected_filename
 
             if local_path.exists():
                 local_parquet_files.append(str(local_path))
             else:
-                gcs_path = f"gs://{args.gcs_bucket}/embeddings/google_satellite_v1/25_0_10/{mgrs_tile_id}_2024.geojson"
+                gcs_path = f"gs://{args.gcs_bucket}/{full_gcs_prefix}/{mgrs_tile_id}_{args.year}.geojson"
                 tasks_to_process.append((gcs_path, get_crs_from_mgrs_tile_id(mgrs_tile_id), args.output_dir))
         
         logging.info(f"Found {len(local_parquet_files)} existing parquet files.")
