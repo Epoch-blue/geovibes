@@ -12,11 +12,11 @@ from typing import Dict, List, Optional
 import ee
 import geopandas as gpd
 import pandas as pd
-from shapely.geometry import shape
 from google.cloud import storage
 
-sys.path.append(str(Path(__file__).parent.parent))
-from ee_tools import initialize_ee_with_credentials, get_s2_cloud_masked_collection
+sys.path.append(str(Path(__file__).parent.parent.parent))
+from geovibes.ee_tools import initialize_ee_with_credentials, get_s2_cloud_masked_collection
+from geovibes.tiling import get_mgrs_tile_ids_for_roi_from_roi_file
 
 
 def load_mgrs_tiles(mgrs_file):
@@ -26,56 +26,6 @@ def load_mgrs_tiles(mgrs_file):
         return gdf
     except Exception as e:
         raise ValueError(f"Failed to load MGRS tiles from {mgrs_file}: {e}")
-
-
-def load_roi_geometry(roi_file):
-    """Load ROI geometry and return union of all geometries."""
-    try:
-        if roi_file.suffix.lower() in {'.gpq', '.parquet'}:
-            gdf = gpd.read_parquet(roi_file)
-        else:
-            gdf = gpd.read_file(roi_file)
-        
-        if gdf.empty:
-            raise ValueError("No geometries found in ROI file")
-        
-        # Ensure CRS is WGS84
-        if gdf.crs is None or gdf.crs.to_epsg() != 4326:
-            gdf = gdf.to_crs(4326)
-        
-        # Return union of all geometries
-        union_geom = gdf.union_all()
-        return union_geom
-        
-    except Exception as e:
-        raise ValueError(f"Failed to load ROI from {roi_file}: {e}")
-
-
-def find_intersecting_mgrs_tiles(mgrs_gdf, roi_geometry):
-    """Find all MGRS tiles that intersect with ROI geometry."""
-    # Ensure MGRS tiles are in WGS84
-    if mgrs_gdf.crs is None or mgrs_gdf.crs.to_epsg() != 4326:
-        mgrs_gdf = mgrs_gdf.to_crs(4326)
-    
-    # Create ROI GeoDataFrame for spatial join
-    roi_gdf = gpd.GeoDataFrame([1], geometry=[roi_geometry], crs="EPSG:4326")
-    
-    # Find intersecting tiles
-    intersecting = gpd.sjoin(mgrs_gdf, roi_gdf, how="inner", predicate="intersects")
-    
-    if intersecting.empty:
-        raise ValueError("No MGRS tiles intersect with the provided ROI")
-    
-    # Return list of tile info dictionaries
-    tiles = []
-    for _, row in intersecting.iterrows():
-        tiles.append({
-            'mgrs_code': row['mgrs_id'],
-            'geometry': row.geometry,
-            'epsg_code': row['epsg']
-        })
-    
-    return tiles
 
 
 def geometry_to_ee_feature(geometry):
@@ -295,9 +245,10 @@ def main():
         description='Export cloud-masked Sentinel-2 composite bands for all MGRS tiles intersecting ROI'
     )
     parser.add_argument(
-        '--roi-file',
+        '--roi_file',
+        type=str,
         required=True,
-        help='Path to ROI file (GeoJSON, GeoParquet, or Shapefile)'
+        help="Path to a GeoJSON/GeoParquet file to filter MGRS tiles."
     )
     parser.add_argument(
         '--output-folder',
@@ -338,9 +289,10 @@ def main():
         help='Export scale in meters (default: 10)'
     )
     parser.add_argument(
-        '--mgrs-file',
-        default='geometries/mgrs_tiles.parquet',
-        help='Path to MGRS geojson file (default: geometries/mgrs_tiles.parquet)'
+        '--mgrs_reference_file',
+        type=str,
+        default='./mgrs_tiles.parquet',
+        help="Path to GeoParquet file with MGRS tile geometries."
     )
     parser.add_argument(
         '--track-tasks',
@@ -354,10 +306,6 @@ def main():
         print("❌ Failed to initialize Earth Engine. Exiting.")
         return 1
     
-    if args.mgrs_file is None:
-        script_dir = Path(__file__).parent.parent.parent
-        args.mgrs_file = script_dir / 'geometries' / 'mgrs_tiles.parquet'
-    
     destination = args.destination
     if destination == 'auto':
         destination = detect_export_destination()
@@ -368,14 +316,29 @@ def main():
         return 1
     
     try:
-        print(f"🔍 Loading ROI geometry from {args.roi_file}")
-        roi_geometry = load_roi_geometry(Path(args.roi_file))
-        
-        print(f"🗺️  Loading MGRS tiles from {args.mgrs_file}")
-        mgrs_gdf = load_mgrs_tiles(args.mgrs_file)
-        
-        print("🎯 Finding intersecting MGRS tiles...")
-        intersecting_tiles = find_intersecting_mgrs_tiles(mgrs_gdf, roi_geometry)
+        print(f"🎯 Finding intersecting MGRS tiles for ROI: {args.roi_file}...")
+        intersecting_mgrs_ids = get_mgrs_tile_ids_for_roi_from_roi_file(
+            roi_geojson_file=args.roi_file,
+            mgrs_tiles_file=args.mgrs_reference_file,
+        )
+
+        if not intersecting_mgrs_ids:
+            raise ValueError("No MGRS tiles intersect with the provided ROI")
+
+        intersecting_mgrs_codes = [str(tile_id) for tile_id in intersecting_mgrs_ids]
+
+        print(f"🗺️  Loading MGRS tile geometries from {args.mgrs_reference_file}")
+        mgrs_gdf = load_mgrs_tiles(args.mgrs_reference_file)
+
+        intersecting_gdf = mgrs_gdf[mgrs_gdf['mgrs_id'].isin(intersecting_mgrs_codes)]
+
+        intersecting_tiles = []
+        for _, row in intersecting_gdf.iterrows():
+            intersecting_tiles.append({
+                'mgrs_code': row['mgrs_id'],
+                'geometry': row.geometry,
+                'epsg_code': row['epsg']
+            })
         
         print(f"📍 Found {len(intersecting_tiles)} intersecting MGRS tiles:")
         for tile in intersecting_tiles:
