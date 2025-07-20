@@ -4,7 +4,7 @@ import geopandas as gpd
 import pandas as pd
 from dataclasses import dataclass, field
 
-from geovibes.tiling import MGRSTileId, MGRSTileGrid
+from geovibes.tiling import MGRSTileId, MGRSTileGrid, get_mgrs_tile_ids_for_roi_from_roi_file
 
 def aggregate_satellite_embeddings(
     roi_file: str,
@@ -59,7 +59,7 @@ def aggregate_satellite_embeddings(
     for mgrs_tile_id in mgrs_tile_ids:
         # 1. Construct asset ID
         grid = MGRSTileGrid(
-            mgrs_tile_id=str(mgrs_tile_id),
+            mgrs_tile_id=mgrs_tile_id,
             tilesize=tilesize,
             overlap=overlap,
             resolution=resolution,
