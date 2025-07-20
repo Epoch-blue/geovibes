@@ -53,6 +53,16 @@ def check_gcs_file_exists(gcs_bucket: str, blob_name: str) -> bool:
         return False
 
 
+def check_gcs_bucket_access(gcs_bucket_name: str) -> tuple[bool, str]:
+    """Checks for read access to a GCS bucket."""
+    try:
+        storage_client = storage.Client()
+        storage_client.get_bucket(gcs_bucket_name)
+        return (True, f"✅ Access to GCS bucket '{gcs_bucket_name}' confirmed.")
+    except Exception as e:
+        return (False, f"❌ Failed to access GCS bucket '{gcs_bucket_name}': {str(e)}")
+
+
 def create_local_shapefile_zip(
     tiles: gpd.GeoDataFrame, tile_name: str, output_dir: str
 ):
@@ -442,6 +452,26 @@ EXAMPLE:
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
+
+    if args.gcs_bucket and args.gee_asset_path:
+        print("\n" + "=" * 80)
+        print("PHASE 0: PRE-FLIGHT CHECKS")
+        print("=" * 80)
+        # 1. Check GCS bucket access
+        gcs_ok, gcs_message = check_gcs_bucket_access(args.gcs_bucket)
+        print(gcs_message)
+        if not gcs_ok:
+            print("Please resolve GCS access issues before proceeding.")
+            return
+
+        # 2. Check GEE authentication
+        auth_ok, auth_message = check_earthengine_auth()
+        print(f"✅ {auth_message}" if auth_ok else f"❌ {auth_message}")
+        if not auth_ok:
+            print(
+                "Please resolve authentication issues before proceeding with GEE asset creation."
+            )
+            return
 
     try:
         if args.mgrs_tile_file.endswith(".parquet"):
