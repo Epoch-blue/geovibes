@@ -30,6 +30,11 @@ class MGRSTileId:
     def __str__(self):
         return f"{self.utm_zone}{self.latitude_band}{self.grid_square}"
 
+    @property
+    def crs(self) -> pyproj.CRS:
+        """Get the CRS for this MGRS tile's UTM zone."""
+        return get_crs_from_mgrs_tile_id(self)
+
     @classmethod
     def from_str(cls, mgrs_id: str) -> "MGRSTileId":
         if len(mgrs_id) < 4 or len(mgrs_id) > 5:
@@ -59,7 +64,7 @@ class MGRSTileGrid:
     @property
     def crs(self) -> pyproj.CRS:
         """Get the CRS for this MGRS tile's UTM zone."""
-        return get_crs_from_mgrs_tile_id(self.mgrs_tile_id)
+        return self.mgrs_tile_id.crs
 
 
 def get_crs_from_mgrs_tile_id(mgrs_tile_id: MGRSTileId) -> pyproj.CRS:
@@ -133,7 +138,7 @@ def generate_chips(
                 }
                 tiles.append(tile)
 
-    return gpd.GeoDataFrame(tiles, crs=mgrs_tile_grid.mgrs_tile_id.crs)
+    return gpd.GeoDataFrame(tiles, crs=mgrs_tile_grid.crs)
 
 
 def get_mgrs_tile_ids_for_roi(
