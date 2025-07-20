@@ -457,14 +457,12 @@ EXAMPLE:
         print("\n" + "=" * 80)
         print("PHASE 0: PRE-FLIGHT CHECKS")
         print("=" * 80)
-        # 1. Check GCS bucket access
         gcs_ok, gcs_message = check_gcs_bucket_access(args.gcs_bucket)
         print(gcs_message)
         if not gcs_ok:
             print("Please resolve GCS access issues before proceeding.")
             return
 
-        # 2. Check GEE authentication
         auth_ok, auth_message = check_earthengine_auth()
         print(f"✅ {auth_message}" if auth_ok else f"❌ {auth_message}")
         if not auth_ok:
@@ -554,7 +552,6 @@ EXAMPLE:
     print("PHASE 1 SUMMARY")
     print("=" * 80)
 
-    successful_tiles = [r for r in results if r["success"]]
     failed_tiles = [r for r in results if not r["success"]]
     skipped_local = [
         r
@@ -630,16 +627,6 @@ EXAMPLE:
         print("\n" + "=" * 80)
         print("PHASE 3: CREATING GEE ASSETS")
         print("=" * 80)
-
-        auth_success, auth_message = check_earthengine_auth()
-        if not auth_success:
-            print(f"❌ {auth_message}")
-            print(
-                "Please resolve authentication issues before proceeding with GEE asset creation."
-            )
-            return
-        else:
-            print(f"✅ {auth_message}")
 
         gee_results = []
         for item in files_for_gee_creation:
