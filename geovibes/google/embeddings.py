@@ -4,21 +4,7 @@ import geopandas as gpd
 import pandas as pd
 from dataclasses import dataclass, field
 
-from geovibes.tiling import MGRSTileId, get_mgrs_tile_ids_for_roi_from_roi_parquet
-
-@dataclass
-class MGRSTileGrid:
-    """Class for tracking a MGRS tile grid"""
-    mgrs_tile_id: str
-    crs: str
-    tilesize: int
-    overlap: int
-    resolution: float
-    prefix: str = field(init=False)
-
-    def __post_init__(self):
-        self.prefix = f"{self.mgrs_tile_id}_{self.crs.split(':')[-1]}_{self.tilesize}_{self.overlap}_{int(self.resolution)}"
-
+from geovibes.tiling import MGRSTileId, MGRSTileGrid
 
 def aggregate_satellite_embeddings(
     roi_file: str,
@@ -40,7 +26,7 @@ def aggregate_satellite_embeddings(
     except Exception as e:
         raise RuntimeError("Could not initialize Earth Engine. Please ensure you have authenticated.") from e
 
-    mgrs_tile_ids: list[MGRSTileId] = get_mgrs_tile_ids_for_roi_from_roi_parquet(roi_file, mgrs_reference_file)
+    mgrs_tile_ids: list[MGRSTileId] = get_mgrs_tile_ids_for_roi_from_roi_file(roi_file, mgrs_reference_file)
 
     if not mgrs_tile_ids:
         print("No intersecting MGRS tiles found. Exiting.")
@@ -74,7 +60,6 @@ def aggregate_satellite_embeddings(
         # 1. Construct asset ID
         grid = MGRSTileGrid(
             mgrs_tile_id=str(mgrs_tile_id),
-            crs=str(mgrs_tile_id.crs),
             tilesize=tilesize,
             overlap=overlap,
             resolution=resolution,

@@ -10,7 +10,7 @@ import tempfile
 from typing import Optional, List
 from pathlib import Path
 
-from geovibes.tiling import get_mgrs_tile_ids_for_roi, get_mgrs_tile_ids_for_roi_from_roi_parquet
+from geovibes.tiling import get_mgrs_tile_ids_for_roi_from_roi_file
 import modal
 from modal import Secret
 import geopandas as gpd
@@ -334,7 +334,7 @@ def main(
     if roi_file:
         logger.info(f"Determining MGRS tiles from ROI file: {roi_file}")
         mgrs_tiles_file = config_params.get("mgrs_tiles_file", "geometries/mgrs_tiles.parquet")
-        mgrs_tile_ids = get_mgrs_tile_ids_for_roi_from_roi_parquet(roi_file, mgrs_tiles_file)
+        mgrs_tile_ids = get_mgrs_tile_ids_for_roi_from_roi_file(roi_file, mgrs_tiles_file)
         mgrs_ids = [str(mgrs_tile_id) for mgrs_tile_id in mgrs_tile_ids]
     else:
         # Fall back to explicit mgrs_ids from config

@@ -11,7 +11,7 @@ from shapely.ops import unary_union
 from tqdm import tqdm
 from joblib import Parallel, delayed
 
-from geovibes.tiling import MGRSTileId, get_mgrs_tile_ids_for_roi_from_roi_parquet
+from geovibes.tiling import MGRSTileId, get_crs_from_mgrs_tile_id, get_mgrs_tile_ids_for_roi_from_roi_file
 
 
 def setup_logging():
@@ -111,7 +111,7 @@ def main():
 
     try:
         # Find intersecting MGRS tiles and their EPSG codes
-        mgrs_tile_ids: list[MGRSTileId] = get_mgrs_tile_ids_for_roi_from_roi_parquet(args.roi_file, args.mgrs_reference_file)
+        mgrs_tile_ids: list[MGRSTileId] = get_mgrs_tile_ids_for_roi_from_roi_file(args.roi_file, args.mgrs_reference_file)
         if not mgrs_tile_ids:
             logging.info("No intersecting MGRS tiles found for the given ROI.")
             return
@@ -128,7 +128,7 @@ def main():
                 local_parquet_files.append(str(local_path))
             else:
                 gcs_path = f"gs://{args.gcs_bucket}/embeddings/google_satellite_v1/25_0_10/{mgrs_tile_id}_2024.geojson"
-                tasks_to_process.append((gcs_path, str(mgrs_tile_id.crs), args.output_dir))
+                tasks_to_process.append((gcs_path, get_crs_from_mgrs_tile_id(mgrs_tile_id), args.output_dir))
         
         logging.info(f"Found {len(local_parquet_files)} existing parquet files.")
         

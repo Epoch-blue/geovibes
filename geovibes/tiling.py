@@ -10,18 +10,6 @@ import shapely.geometry
 from shapely import Geometry
 import shapely.ops
 
-
-
-def get_crs_from_tile(tile_series: pd.Series) -> str:
-    """
-    Get the CRS from a tile series by reading the 'epsg' column.
-    """
-    try:
-        epsg_code = tile_series['epsg']
-        return f"EPSG:{epsg_code}"
-    except KeyError:
-        raise ValueError("Input series must have an 'epsg' column.")
-
 @dataclass
 class MGRSTileId:
     """Example MGRS tile: 18SJH"""
@@ -154,13 +142,13 @@ def get_mgrs_tile_ids_for_roi(
     mgrs_tiles_file: str = "geometries/mgrs_tiles.parquet",
 ) -> list[MGRSTileId]:
     """
-    Return all MGRS‑tile rows whose footprints intersect the *search_geometry*.
+    Return all MGRSTileIds whose footprints intersect the *search_geometry*.
 
     Parameters
     ----------
     search_geometry : shapely.geometry
         Region‑of‑interest geometry.
-    search_geometry_crs : str | pyproj.CRS
+    search_geometry_crs : str | pyproj.CRS | None
         CRS of *search_geometry* (e.g. 'EPSG:4326'). If not provided, will be assumed to be EPSG:4326.
     mgrs_tiles_file : str, default "geometries/mgrs_tiles.parquet"
         Path to the GeoParquet file that stores MGRS tiles. Assumption this is in 
@@ -168,8 +156,8 @@ def get_mgrs_tile_ids_for_roi(
 
     Returns
     -------
-    geopandas.GeoDataFrame
-        Subset of rows that intersect *roi* (with CRS set to the dataset CRS).
+    list[MGRSTileId]
+        List of MGRS tile IDs that intersect the search geometry.
     """
     if search_geometry_crs is None:
         search_geometry_crs = "EPSG:4326"
@@ -193,12 +181,31 @@ def get_mgrs_tile_ids_for_roi(
     result = con.execute(q, [shapely.to_wkt(search_geometry)]).fetchall()
     return [MGRSTileId.from_str(mgrs_id=row[0]) for row in result]
     
-def get_mgrs_tile_ids_for_roi_from_roi_parquet(
-    roi_parquet_file: str,
+def get_mgrs_tile_ids_for_roi_from_roi_file(
+    roi_geojson_file: str,
     mgrs_tiles_file: str = "geometries/mgrs_tiles.parquet",
 ) -> list[MGRSTileId]:
     """
-    Return all MGRS‑tile rows whose footprints intersect the *search_geometry*.
+    Return all MGRSTileIdswhose footprints intersect the *search_geometry*.
+
+    Parameters
+    ----------
+    roi_geojson_file : str
+        Path to the ROI file readable by geopandas.read_file or geopandas.read_parquet.
+    mgrs_tiles_file : str, default "geometries/mgrs_tiles.parquet"
+        Path to the GeoParquet file that stores MGRS tiles. Assumption that this is in 
+        CRS 4326.
+
+    Returns
+    -------
+    list[MGRSTileId]
+        List of MGRS tile IDs that intersect the search geometry.
     """
-    roi_gdf = gpd.read_parquet(roi_parquet_file)
+    if roi_geojson_file.endswith('.parquet'):
+        roi_gdf = gpd.read_parquet(roi_geojson_file)
+    else:
+        roi_gdf = gpd.read_file(roi_geojson_file)
+    roi_gdf = gpd.read_file(roi_geojson_file)
+    if roi_gdf.crs is None:
+        raise ValueError("ROI file must have a CRS")
     return get_mgrs_tile_ids_for_roi(roi_gdf.geometry.union_all(), roi_gdf.crs, mgrs_tiles_file)

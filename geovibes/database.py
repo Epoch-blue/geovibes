@@ -16,7 +16,7 @@ from tqdm import tqdm
 import fsspec
 from joblib import Parallel, delayed
 
-from geovibes.tiling import get_mgrs_tile_ids_for_roi_from_roi_parquet
+from geovibes.tiling import MGRSTileId, get_mgrs_tile_ids_for_roi_from_roi_file
 
 
 def setup_logging():
@@ -25,60 +25,6 @@ def setup_logging():
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
-
-
-def get_mgrs_ids_from_roi(roi_file: str, mgrs_reference_file: str) -> List[str]:
-    """
-    Find MGRS tile IDs that overlap with the region of interest.
-    
-    Args:
-        roi_file: Path to ROI geometry file (geojson/shapefile/geoparquet)
-        mgrs_reference_file: Path to MGRS reference file containing MGRS tile geometries
-        
-    Returns:
-        List of MGRS tile IDs that intersect with the ROI
-    """
-    logging.info(f"Loading ROI from: {roi_file}")
-    roi_gdf = gpd.read_file(roi_file)
-    
-    logging.info(f"Loading MGRS reference from: {mgrs_reference_file}")
-    if mgrs_reference_file.endswith('.parquet'):
-        mgrs_gdf = gpd.read_parquet(mgrs_reference_file)
-    else:
-        mgrs_gdf = gpd.read_file(mgrs_reference_file)
-    
-    # Ensure both are in the same CRS
-    if roi_gdf.crs is not None and mgrs_gdf.crs is not None and roi_gdf.crs != mgrs_gdf.crs:
-        logging.info(f"Converting ROI from {roi_gdf.crs} to {mgrs_gdf.crs}")
-        roi_gdf = roi_gdf.to_crs(mgrs_gdf.crs)
-    elif roi_gdf.crs is None:
-        logging.warning("ROI file has no CRS defined")
-    elif mgrs_gdf.crs is None:
-        logging.warning("MGRS reference file has no CRS defined")
-    
-    # Get union of all ROI geometries
-    roi_union = roi_gdf.unary_union
-    
-    # Find intersecting MGRS tiles
-    intersecting = mgrs_gdf[mgrs_gdf.intersects(roi_union)]
-    
-    # Try common MGRS ID column names
-    mgrs_id_columns = ['mgrs_id', 'MGRS', 'mgrs', 'tile_id', 'TILE_ID', 'id', 'ID']
-    mgrs_id_column = None
-    
-    for col in mgrs_id_columns:
-        if col in intersecting.columns:
-            mgrs_id_column = col
-            break
-    
-    if mgrs_id_column is None:
-        raise ValueError(f"No MGRS ID column found. Available columns: {list(intersecting.columns)}")
-    
-    mgrs_ids = intersecting[mgrs_id_column].tolist()
-    logging.info(f"Found {len(mgrs_ids)} MGRS tiles intersecting with ROI: {mgrs_ids}")
-    
-    return mgrs_ids
-
 
 def find_embedding_files_for_mgrs_ids(mgrs_tile_ids: List[MGRSTileId], embedding_dir: str) -> List[str]:
     """
@@ -91,7 +37,7 @@ def find_embedding_files_for_mgrs_ids(mgrs_tile_ids: List[MGRSTileId], embedding
     Returns:
         List of parquet file paths that match the MGRS IDs
     """
-    logging.info(f"Searching for embedding files for {len(mgrs_ids)} MGRS IDs in: {embedding_dir}")
+    logging.info(f"Searching for embedding files for {len(mgrs_tile_ids)} MGRS IDs in: {embedding_dir}")
     
     found_files = []
     

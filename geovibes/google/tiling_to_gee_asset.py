@@ -19,8 +19,7 @@ import shapely.ops
 from google.cloud import storage
 from joblib import Parallel, delayed
 
-from geovibes.tiling import MGRSTileGrid, chip_mgrs_tile, get_crs_from_tile
-
+from geovibes.tiling import MGRSTileGrid, MGRSTileId, chip_mgrs_tile
 
 def write_tiles_to_geoparquet(
     tiles: gpd.GeoDataFrame, tile_name: str, output_dir: str = "."
@@ -257,10 +256,9 @@ def process_single_tile(
     try:
         if debug:
             print(f"Processing MGRS tile: {tile_id}")
-        crs = get_crs_from_tile(tile_series)
+        mgrs_tile_id = MGRSTileId.from_str(tile_id)
         grid = MGRSTileGrid(
-            mgrs_tile_id=tile_id,
-            crs=crs,
+            mgrs_tile_id=mgrs_tile_id,
             tilesize=tilesize,
             overlap=overlap,
             resolution=resolution,
