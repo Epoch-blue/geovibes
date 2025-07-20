@@ -54,16 +54,16 @@ class MGRSTileGrid:
     prefix: str = field(init=False)
 
     def __post_init__(self):
-        self.prefix = f"{self.mgrs_tile_id}_{self.crs.split(':')[-1]}_{self.tilesize}_{self.overlap}_{int(self.resolution)}"
+        self.prefix = f"{self.mgrs_tile_id}_{self.crs.to_epsg()}_{self.tilesize}_{self.overlap}_{int(self.resolution)}"
 
     @property
     def crs(self) -> pyproj.CRS:
-        """Get the EPSG code for this MGRS tile's UTM zone."""
+        """Get the CRS for this MGRS tile's UTM zone."""
         return get_crs_from_mgrs_tile_id(self.mgrs_tile_id)
 
 
 def get_crs_from_mgrs_tile_id(mgrs_tile_id: MGRSTileId) -> pyproj.CRS:
-    """Get the EPSG code for a MGRS tile's UTM zone."""
+    """Get the CRS for a MGRS tile's UTM zone."""
     north_bands = ['N', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X']
     base = 32600 if mgrs_tile_id.latitude_band in north_bands else 32700
     epsg = base + mgrs_tile_id.utm_zone
@@ -205,7 +205,6 @@ def get_mgrs_tile_ids_for_roi_from_roi_file(
         roi_gdf = gpd.read_parquet(roi_geojson_file)
     else:
         roi_gdf = gpd.read_file(roi_geojson_file)
-    roi_gdf = gpd.read_file(roi_geojson_file)
     if roi_gdf.crs is None:
         raise ValueError("ROI file must have a CRS")
     return get_mgrs_tile_ids_for_roi(roi_gdf.geometry.union_all(), roi_gdf.crs, mgrs_tiles_file)
