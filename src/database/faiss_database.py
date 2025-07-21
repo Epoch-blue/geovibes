@@ -21,17 +21,23 @@ def setup_logging():
         ]
     )
 
-def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, embedding_dim: int, dtype: str):
+class IngestParquetError(Exception):
+    """Exception raised for errors in the ingestion of Parquet files."""
+    pass
+
+
+def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, embedding_dim: int, dtype: str, embedding_col: str):
     """
     Ingests data from Parquet files into a DuckDB database.
     Args:
         parquet_files: List of paths to the input Parquet files.
         db_path: Path to the DuckDB database file to be created.
         embedding_dim: The dimension of the vector embeddings.
+        dtype: The data type of the embeddings.
+        embedding_col: The name of the embedding column in the Parquet files.
     """
     if not parquet_files:
-        logging.error("No parquet files provided for ingestion.")
-        return
+        raise IngestParquetError("No parquet files provided for ingestion.")
         
     logging.info(f"Starting ingestion of {len(parquet_files)} parquet files into {db_path}...")
 
@@ -43,16 +49,15 @@ def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, embedding_d
             available_columns = set(df_schema['column_name'])
             
             # Log the data type of the embedding column
-            embedding_col_info = df_schema[df_schema['column_name'] == 'embedding']
+            embedding_col_info = df_schema[df_schema['column_name'] == embedding_col]
             if not embedding_col_info.empty:
                 embedding_type = embedding_col_info['column_type'].iloc[0]
-                logging.info(f"Detected 'embedding' column type: {embedding_type}")
+                logging.info(f"Detected {embedding_col} column type: {embedding_type}")
             else:
-                logging.error("Could not find 'embedding' column in the schema.")
+                logging.error(f"Could not find {embedding_col} column in the schema.")
 
     except Exception as e:
-        logging.error(f"Fatal: Could not read schema from {parquet_files[0]}: {e}")
-        return
+        raise IngestParquetError(f"Could not read schema from {parquet_files[0]}: {e}")
     # --- End Schema Verification ---
 
     # Inspect the schema of the first file to determine available columns
@@ -61,18 +66,16 @@ def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, embedding_d
             df_schema = con_check.execute(f"DESCRIBE SELECT * FROM read_parquet(?);", (parquet_files[0],)).fetchdf()
             available_columns = set(df_schema['column_name'])
     except Exception as e:
-        logging.error(f"Fatal: Could not read schema from {parquet_files[0]}: {e}")
-        return
+        raise IngestParquetError(f"Could not read schema from {parquet_files[0]}: {e}")
 
     has_geometry = 'geometry' in available_columns
     
     # Use 'tile_id' if available, otherwise fall back to 'id'
-    id_column_in_parquet = 'tile_id' if 'tile_id' in available_columns else 'id'
-    if id_column_in_parquet not in available_columns:
-        logging.error(f"Fatal: Neither 'tile_id' nor 'id' column found in {parquet_files[0]}. Available: {available_columns}")
-        return
-
-    logging.info(f"Source ID column: '{id_column_in_parquet}'. Geometry column found: {has_geometry}.")
+    id_column_in_parquet = 'tile_id' if 'tile_id' in available_columns else 'id' if 'id' in available_columns else None
+    if id_column_in_parquet:
+        logging.info(f"Source ID column: '{id_column_in_parquet}'. Geometry column found: {has_geometry}.")
+    else: 
+        logging.info(f"No 'tile_id' or 'id' column found, will generate ids.")
 
     with duckdb.connect(database=db_path) as con:
         # Load spatial extension, which is required for creating a spatial index
@@ -105,39 +108,53 @@ def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, embedding_d
             embedding_sql_type = f"FLOAT[{embedding_dim}]"
 
         # Create table with dynamic schema
-        create_sql = f"""
-        CREATE TABLE geo_embeddings (
-            id BIGINT PRIMARY KEY DEFAULT nextval('seq_geo_embeddings_id'),
-            tile_id VARCHAR,
-            embedding {embedding_sql_type}
-            {', geometry GEOMETRY' if has_geometry else ''}
-        );
-        """
+        if id_column_in_parquet:
+            create_sql = f"""
+            CREATE TABLE geo_embeddings (
+                id BIGINT PRIMARY KEY DEFAULT nextval('seq_geo_embeddings_id'),
+                tile_id VARCHAR,
+                embedding {embedding_sql_type}
+                {', geometry GEOMETRY' if has_geometry else ''}
+            );
+            """
+        else:
+            create_sql = f"""
+            CREATE TABLE geo_embeddings (
+                id BIGINT PRIMARY KEY DEFAULT nextval('seq_geo_embeddings_id'),
+                embedding {embedding_sql_type}
+                {', geometry GEOMETRY' if has_geometry else ''}
+            );
+            """
+
+        logging.info(f"Creating table 'geo_embeddings' in DuckDB with sql: {create_sql}")
         con.execute(create_sql)
         
         # Ingest all files in a single, efficient query
         try:
             sql_parquet_files_list_str = "['" + "', '".join(parquet_files) + "']"
             
-            insert_columns = f"tile_id, embedding{', geometry' if has_geometry else ''}"
+            insert_columns = f"embedding{', geometry' if has_geometry else ''}"
+            select_clause = f"{embedding_col}"
+            if id_column_in_parquet:
+                insert_columns = f"tile_id, {insert_columns}"
+                select_clause = f"tile_id, {select_clause}"
             
             # The geometry column from GeoParquet is already understood by DuckDB's spatial extension.
             # No explicit cast is needed if the target column is type GEOMETRY.
-            select_clause = f"{id_column_in_parquet}, embedding"
             if has_geometry:
                 select_clause += ", geometry"
 
-            con.execute(f"""
+            insert_sql = f"""
                 INSERT INTO geo_embeddings ({insert_columns})
                 SELECT
                     {select_clause}
                 FROM read_parquet({sql_parquet_files_list_str}, union_by_name=true);
-            """)
+            """
+
+            logging.info(f"Inserting data into DuckDB with sql: {insert_sql}")
+            con.execute(insert_sql)
         except Exception as e:
-            logging.error(f"Failed to ingest parquet files: {e}")
-            # Provide more context on the error
-            logging.error("Please ensure all parquet files have a consistent schema.")
-            return
+            raise IngestParquetError(f"Failed to ingest parquet files: {e}. Please ensure all parquet files have a consistent schema.")
 
         row_count = con.execute("SELECT COUNT(*) FROM geo_embeddings;").fetchone()[0]
         logging.info(f"Successfully ingested {row_count} rows into DuckDB.")
@@ -241,6 +258,7 @@ def main():
     parser.add_argument("--name", type=str, required=True, help="A descriptive name for the output files (e.g., 'bali_2024').")
     parser.add_argument("--output_dir", default=".", help="Directory to save the DuckDB and FAISS index files.")
     parser.add_argument("--embedding_dim", type=int, default=384, help="Dimension of the embedding vectors.")
+    parser.add_argument("--embedding_col", type=str, default="embedding", help="Name of the embedding column in the Parquet files.")
     parser.add_argument("--dtype", type=str, default="FLOAT", choices=["FLOAT", "INT8"], help="Data type of the embeddings (FLOAT or INT8).")
     parser.add_argument("--nlist", type=int, default=4096, help="Number of clusters (IVF cells) for the FAISS index.")
     parser.add_argument("--m", type=int, default=64, help="Number of sub-quantizers for FAISS Product Quantization (used for FLOAT dtype).")
@@ -289,7 +307,7 @@ def main():
     start_total_time = time.time()
 
     # --- Phase 1: Ingest data into DuckDB ---
-    ingest_parquet_to_duckdb(files_to_process, db_path, args.embedding_dim, args.dtype)
+    ingest_parquet_to_duckdb(files_to_process, db_path, args.embedding_dim, args.dtype, args.embedding_col)
 
     # --- Phase 2: Build FAISS index ---
     create_faiss_index(db_path, index_path, args.embedding_dim, args.dtype, args.nlist, args.m, args.nbits)
