@@ -24,3 +24,4 @@ rasterio
 google-cloud-storage
 s3fs
 tenacity
+faiss-cpu
