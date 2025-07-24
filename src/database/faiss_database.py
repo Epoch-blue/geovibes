@@ -165,7 +165,7 @@ def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, embedding_d
             logging.info("Spatial index created successfully.")
 
 
-def create_faiss_index(db_path: str, index_path: str, embedding_dim: int, dtype: str, nlist: int, m: int, nbits: int):
+def create_faiss_index(db_path: str, index_path: str, embedding_dim: int, dtype: str, nlist: int, m: int, nbits: int, batch_size: int):
     """
     Creates a FAISS index from embeddings stored in a DuckDB database.
 
@@ -176,6 +176,7 @@ def create_faiss_index(db_path: str, index_path: str, embedding_dim: int, dtype:
         nlist: The number of cells for the IVF index.
         m: The number of sub-quantizers for Product Quantization.
         nbits: The number of bits per sub-quantizer code.
+        batch_size: The number of vectors to process at a time when populating the index.
     """
     logging.info("Starting FAISS index creation.")
     
@@ -229,7 +230,6 @@ def create_faiss_index(db_path: str, index_path: str, embedding_dim: int, dtype:
 
         # 3. Populate the index in batches
         logging.info("Populating FAISS index in batches...")
-        batch_size = 500_000
         num_batches = (total_vectors + batch_size - 1) // batch_size
         
         for i in tqdm(range(num_batches), desc="Populating FAISS Index"):
@@ -263,6 +263,7 @@ def main():
     parser.add_argument("--nlist", type=int, default=4096, help="Number of clusters (IVF cells) for the FAISS index.")
     parser.add_argument("--m", type=int, default=64, help="Number of sub-quantizers for FAISS Product Quantization (used for FLOAT dtype).")
     parser.add_argument("--nbits", type=int, default=8, help="Number of bits per sub-quantizer code (used for FLOAT dtype).")
+    parser.add_argument("--batch_size", type=int, default=500_000, help="Batch size for populating the FAISS index.")
     parser.add_argument("--dry-run", action="store_true", help="Run the script on a small subset of files to test the pipeline.")
     parser.add_argument("--dry-run-size", type=int, default=5, help="Number of files to use in a dry run.")
     
@@ -310,7 +311,7 @@ def main():
     ingest_parquet_to_duckdb(files_to_process, db_path, args.embedding_dim, args.dtype, args.embedding_col)
 
     # --- Phase 2: Build FAISS index ---
-    create_faiss_index(db_path, index_path, args.embedding_dim, args.dtype, args.nlist, args.m, args.nbits)
+    create_faiss_index(db_path, index_path, args.embedding_dim, args.dtype, args.nlist, args.m, args.nbits, args.batch_size)
     
     logging.info(f"Total process completed in {time.time() - start_total_time:.2f} seconds.")
     logging.info(f"Artifacts created:\n- DuckDB: {db_path}\n- FAISS Index: {index_path}")
