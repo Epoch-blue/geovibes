@@ -38,6 +38,7 @@ dependencies = [
     "black",
     "duckdb>1.0.0",
     "earthengine-api",
+    "faiss-cpu",
     "fiona",
     "flake8", 
     "gcsfs",

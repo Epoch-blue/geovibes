@@ -3,7 +3,7 @@ import logging
 import pathlib
 import time
 import duckdb
-import faiss
+import geovibes.database.faiss_db as faiss_db
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -193,15 +193,15 @@ def create_faiss_index(db_path: str, index_path: str, embedding_dim: int, dtype:
         if dtype.upper() == 'FLOAT':
             logging.info("Building FAISS index for FLOAT data using IndexIVFPQ.")
             # Use IndexIVFPQ for floating point data
-            quantizer = faiss.IndexFlatL2(embedding_dim)
-            index = faiss.IndexIVFPQ(quantizer, embedding_dim, nlist, m, nbits)
+            quantizer = faiss_db.IndexFlatL2(embedding_dim)
+            index = faiss_db.IndexIVFPQ(quantizer, embedding_dim, nlist, m, nbits)
             input_dtype = np.float32
         
         elif dtype.upper() == 'INT8':
             logging.info("Building FAISS index for INT8 data using IndexIVFScalarQuantizer.")
             # Use IndexIVFScalarQuantizer for quantized integer data
-            quantizer = faiss.IndexFlatL2(embedding_dim) # The IVF quantizer still operates in float space
-            index = faiss.IndexIVFScalarQuantizer(quantizer, embedding_dim, nlist, faiss.ScalarQuantizer.QT_8bit)
+            quantizer = faiss_db.IndexFlatL2(embedding_dim) # The IVF quantizer still operates in float space
+            index = faiss_db.IndexIVFScalarQuantizer(quantizer, embedding_dim, nlist, faiss_db.ScalarQuantizer.QT_8bit)
             input_dtype = np.uint8
 
         else:
@@ -248,7 +248,7 @@ def create_faiss_index(db_path: str, index_path: str, embedding_dim: int, dtype:
         
         # 4. Save the final index to disk
         logging.info(f"Writing index to {index_path}")
-        faiss.write_index(index, index_path)
+        faiss_db.write_index(index, index_path)
         logging.info("FAISS index successfully built and saved.")
 
 
