@@ -16,8 +16,6 @@ from tqdm import tqdm
 import fsspec
 from joblib import Parallel, delayed
 
-from geovibes.tiling import MGRSTileId, get_mgrs_tile_ids_for_roi_from_roi_file
-
 
 def setup_logging():
     """Configure basic logging settings."""
@@ -26,7 +24,61 @@ def setup_logging():
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
 
-def find_embedding_files_for_mgrs_ids(mgrs_tile_ids: List[MGRSTileId], embedding_dir: str) -> List[str]:
+
+def get_mgrs_ids_from_roi(roi_file: str, mgrs_reference_file: str) -> List[str]:
+    """
+    Find MGRS tile IDs that overlap with the region of interest.
+    
+    Args:
+        roi_file: Path to ROI geometry file (geojson/shapefile/geoparquet)
+        mgrs_reference_file: Path to MGRS reference file containing MGRS tile geometries
+        
+    Returns:
+        List of MGRS tile IDs that intersect with the ROI
+    """
+    logging.info(f"Loading ROI from: {roi_file}")
+    roi_gdf = gpd.read_file(roi_file)
+    
+    logging.info(f"Loading MGRS reference from: {mgrs_reference_file}")
+    if mgrs_reference_file.endswith('.parquet'):
+        mgrs_gdf = gpd.read_parquet(mgrs_reference_file)
+    else:
+        mgrs_gdf = gpd.read_file(mgrs_reference_file)
+    
+    # Ensure both are in the same CRS
+    if roi_gdf.crs is not None and mgrs_gdf.crs is not None and roi_gdf.crs != mgrs_gdf.crs:
+        logging.info(f"Converting ROI from {roi_gdf.crs} to {mgrs_gdf.crs}")
+        roi_gdf = roi_gdf.to_crs(mgrs_gdf.crs)
+    elif roi_gdf.crs is None:
+        logging.warning("ROI file has no CRS defined")
+    elif mgrs_gdf.crs is None:
+        logging.warning("MGRS reference file has no CRS defined")
+    
+    # Get union of all ROI geometries
+    roi_union = roi_gdf.unary_union
+    
+    # Find intersecting MGRS tiles
+    intersecting = mgrs_gdf[mgrs_gdf.intersects(roi_union)]
+    
+    # Try common MGRS ID column names
+    mgrs_id_columns = ['mgrs_id', 'MGRS', 'mgrs', 'tile_id', 'TILE_ID', 'id', 'ID']
+    mgrs_id_column = None
+    
+    for col in mgrs_id_columns:
+        if col in intersecting.columns:
+            mgrs_id_column = col
+            break
+    
+    if mgrs_id_column is None:
+        raise ValueError(f"No MGRS ID column found. Available columns: {list(intersecting.columns)}")
+    
+    mgrs_ids = intersecting[mgrs_id_column].tolist()
+    logging.info(f"Found {len(mgrs_ids)} MGRS tiles intersecting with ROI: {mgrs_ids}")
+    
+    return mgrs_ids
+
+
+def find_embedding_files_for_mgrs_ids(mgrs_ids: List[str], embedding_dir: str) -> List[str]:
     """
     Find parquet files in embedding directory that contain the specified MGRS IDs.
     
@@ -37,7 +89,7 @@ def find_embedding_files_for_mgrs_ids(mgrs_tile_ids: List[MGRSTileId], embedding
     Returns:
         List of parquet file paths that match the MGRS IDs
     """
-    logging.info(f"Searching for embedding files for {len(mgrs_tile_ids)} MGRS IDs in: {embedding_dir}")
+    logging.info(f"Searching for embedding files for {len(mgrs_ids)} MGRS IDs in: {embedding_dir}")
     
     found_files = []
     
@@ -46,13 +98,13 @@ def find_embedding_files_for_mgrs_ids(mgrs_tile_ids: List[MGRSTileId], embedding
         # For cloud storage, list all parquet files and filter
         try:
             all_parquet_files = list_cloud_parquet_files(embedding_dir)
-            for mgrs_tile_id in mgrs_tile_ids:
-                matching_files = [f for f in all_parquet_files if str(mgrs_tile_id) in os.path.basename(f)]
+            for mgrs_id in mgrs_ids:
+                matching_files = [f for f in all_parquet_files if mgrs_id in os.path.basename(f)]
                 found_files.extend(matching_files)
                 if matching_files:
-                    logging.info(f"Found {len(matching_files)} files for MGRS {mgrs_tile_id}")
+                    logging.info(f"Found {len(matching_files)} files for MGRS {mgrs_id}")
                 else:
-                    logging.warning(f"No files found for MGRS {mgrs_tile_id}")
+                    logging.warning(f"No files found for MGRS {mgrs_id}")
         except Exception as e:
             logging.error(f"Error listing cloud files: {e}")
             return []
@@ -63,13 +115,13 @@ def find_embedding_files_for_mgrs_ids(mgrs_tile_ids: List[MGRSTileId], embedding
             logging.error(f"Embedding directory does not exist: {embedding_dir}")
             return []
         
-        for mgrs_tile_id in mgrs_tile_ids:
+        for mgrs_id in mgrs_ids:
             # Try multiple patterns to find files containing the MGRS ID
             patterns = [
-                f"*{mgrs_tile_id}*.parquet",
-                f"{mgrs_tile_id}_*.parquet",
-                f"*_{mgrs_tile_id}.parquet",
-                f"*{mgrs_tile_id}_embeddings.parquet"
+                f"*{mgrs_id}*.parquet",
+                f"{mgrs_id}_*.parquet",
+                f"*_{mgrs_id}.parquet",
+                f"*{mgrs_id}_embeddings.parquet"
             ]
             
             mgrs_files = []
@@ -82,9 +134,9 @@ def find_embedding_files_for_mgrs_ids(mgrs_tile_ids: List[MGRSTileId], embedding
             
             if mgrs_files:
                 found_files.extend(mgrs_files)
-                logging.info(f"Found {len(mgrs_files)} files for MGRS {mgrs_tile_id}: {[os.path.basename(f) for f in mgrs_files]}")
+                logging.info(f"Found {len(mgrs_files)} files for MGRS {mgrs_id}: {[os.path.basename(f) for f in mgrs_files]}")
             else:
-                logging.warning(f"No embedding files found for MGRS {mgrs_tile_id}")
+                logging.warning(f"No embedding files found for MGRS {mgrs_id}")
     
     # Remove duplicates from final list
     found_files = list(set(found_files))
@@ -92,7 +144,7 @@ def find_embedding_files_for_mgrs_ids(mgrs_tile_ids: List[MGRSTileId], embedding
     logging.info(f"Total embedding files found: {len(found_files)}")
     if len(found_files) == 0:
         logging.error("No embedding files found for any MGRS IDs!")
-        logging.info(f"Searched MGRS IDs: {[str(mgrs_tile_id) for mgrs_tile_id in mgrs_tile_ids]}")
+        logging.info(f"Searched MGRS IDs: {mgrs_ids}")
         if not get_cloud_protocol(embedding_dir):
             # List some example files for debugging
             example_files = list(pathlib.Path(embedding_dir).glob("*.parquet"))[:10]
@@ -201,7 +253,8 @@ def create_duckdb_index(
     id_column: str = "id",
     geometry_column: Optional[str] = None,
     embedding_dim: Optional[int] = None,
-    skip_nan_check: bool = False
+    skip_nan_check: bool = False,
+    memory_limit_gb: int = 16
 ) -> None:
     """Creates a DuckDB database with HNSW and spatial indexes from parquet files.
     
@@ -214,6 +267,7 @@ def create_duckdb_index(
         geometry_column: Name of the geometry column (auto-detected if None)
         embedding_dim: Dimension of embeddings (auto-detected if None)
         skip_nan_check: Skip NaN checking and cleaning
+        memory_limit_gb: Memory limit for DuckDB in GB (default: 16)
     """
     
     if not skip_nan_check:
@@ -261,6 +315,8 @@ def create_duckdb_index(
 
     logging.info("Loading extensions...")
     con.execute("SET enable_progress_bar=true")
+    con.execute(f"SET memory_limit='{memory_limit_gb}GB'")
+    logging.info(f"Set DuckDB memory limit to {memory_limit_gb}GB")
     con.execute("INSTALL spatial; LOAD spatial;")
     con.execute("INSTALL vss; LOAD vss;")
     con.execute("SET hnsw_enable_experimental_persistence = true;")
@@ -432,6 +488,7 @@ def main():
     parser.add_argument("--geometry-column", help="Name of the geometry column (auto-detected if not specified, required for database creation)")
     parser.add_argument("--embedding-dim", type=int, help="Dimension of embeddings (auto-detected if not specified)")
     parser.add_argument("--skip-nan-check", action="store_true", help="Skip NaN checking and cleaning")
+    parser.add_argument("--memory-limit-gb", type=int, default=16, help="DuckDB memory limit in GB (default: 16)")
     
     args = parser.parse_args()
     
@@ -452,14 +509,14 @@ def main():
         logging.info("Using ROI-based file discovery")
         
         # Find MGRS IDs that overlap with ROI
-        mgrs_tile_ids = get_mgrs_tile_ids_for_roi_from_roi_parquet(args.roi_file, args.mgrs_reference_file)
+        mgrs_ids = get_mgrs_ids_from_roi(args.roi_file, args.mgrs_reference_file)
         
-        if not mgrs_tile_ids:
+        if not mgrs_ids:
             logging.error("No MGRS tiles found intersecting with ROI")
             return
         
         # Find embedding files for those MGRS IDs
-        embedding_files = find_embedding_files_for_mgrs_ids(mgrs_tile_ids, args.embedding_dir)
+        embedding_files = find_embedding_files_for_mgrs_ids(mgrs_ids, args.embedding_dir)
         
         if not embedding_files:
             logging.error("No embedding files found for intersecting MGRS tiles")
@@ -527,8 +584,9 @@ def main():
             id_column=args.id_column,
             geometry_column=args.geometry_column,
             embedding_dim=args.embedding_dim,
-            skip_nan_check=args.skip_nan_check
-        )
+            skip_nan_check=args.skip_nan_check,
+            memory_limit_gb=args.memory_limit_gb
+        )   
         
         # Upload to cloud
         upload_to_cloud(local_temp_file, args.output_path)
@@ -546,7 +604,8 @@ def main():
             id_column=args.id_column,
             geometry_column=args.geometry_column,
             embedding_dim=args.embedding_dim,
-            skip_nan_check=args.skip_nan_check
+            skip_nan_check=args.skip_nan_check,
+            memory_limit_gb=args.memory_limit_gb
         )
     
     # Clean up temporary directory if used
