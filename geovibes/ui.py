@@ -1,15 +1,19 @@
 """Interactive map interface for geospatial similarity search using satellite embeddings."""
 
+import base64
 import json
 import os
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from io import BytesIO
 from typing import Dict, Optional
 
 import duckdb
 import ee
 import geopandas as gpd
 import ipyleaflet as ipyl
+import ipywidgets as ipyw
 from ipyleaflet import Map, DrawControl
 from IPython.display import display
 from ipywidgets import (
@@ -59,6 +63,7 @@ from .ui_config import (
 )
 from .ee_tools import initialize_ee_with_credentials
 from .utils import list_databases_in_directory, get_database_centroid
+from .xyz import get_map_image
 
 warnings.simplefilter("ignore", category=FutureWarning)
 
@@ -760,6 +765,7 @@ class GeoVibes:
 
         return f"data:image/png;base64,{img_data}"
 
+
     def _build_results_panel(self):
         """Build the collapsible results panel showing similar point chips."""
 
@@ -783,14 +789,13 @@ class GeoVibes:
         )
 
         # Results container that will hold the chips
-        self.results_container = VBox(
+        self.results_container = ipyw.GridBox(
             [],
             layout=Layout(
                 width="100%",
-                height="100%",  # Account for header height
-                overflow_y="auto",
-                padding="5px",
-            ),
+                grid_template_columns="repeat(auto-fill, minmax(100px, 1fr))",
+                grid_gap="5px"
+            )
         )
 
         # Results content (header + container)
@@ -846,31 +851,21 @@ class GeoVibes:
         Args:
             search_results_df: DataFrame with columns ['id', 'geometry_wkt', 'distance']
         """
-        # Clear existing chips
-        self.results_container.children = []
-
         if search_results_df.empty:
+            self.results_container.children = []
             return
 
-        chips = []
-
-        # Create a chip for each result
-        for idx, row in search_results_df.head(14).iterrows():  # Limit to top 10
+        def create_tile(row):
             try:
-                # Extract lat/lon from geometry
                 geom = shapely.wkt.loads(row["geometry_wkt"])
-                lat, lon = geom.y, geom.x
-
-                # Create placeholder image
-                img_data = self._create_placeholder_png(lat, lon)
-
-                # Create image widget
-                img_widget = HTML(
-                    value=f'<img src="{img_data}" width="64" height="64" style="border-radius: 4px; display: block; margin: 0 auto;">',
-                    layout=Layout(width="100%", text_align="center"),
+                image_bytes = get_map_image(
+                    source=self.current_basemap, lon=geom.x, lat=geom.y
                 )
 
-                # Create distance text below image
+                image_widget = ipyw.Image(
+                    value=image_bytes, format="png", width=100, height=100
+                )
+
                 distance_text = HTML(
                     value=f"""
                     <div style="font-size: 9px; text-align: center; line-height: 1.1;">
@@ -880,55 +875,27 @@ class GeoVibes:
                     layout=Layout(width="100%"),
                 )
 
-                # Create chip container with vertical layout
-                chip = VBox(
-                    [img_widget, distance_text],
+                return VBox(
+                    [image_widget, distance_text],
                     layout=Layout(
-                        width="110px",  # Narrower for 2-column layout
-                        height="90px",  # Taller to accommodate vertical layout
-                        margin="2px",
-                        border="1px solid #ddd",
-                        border_radius="6px",
-                        background_color="#f9f9f9",
-                        padding="4px",
-                        align_items="center",
+                        border="1px solid #ddd", padding="2px", margin="2px"
                     ),
                 )
-
-                chips.append(chip)
-
             except Exception as e:
                 if self.verbose:
-                    print(f"Error creating chip for result {idx}: {e}")
-                continue
+                    print(f"Error creating tile for result: {e}")
+                return None
 
-        # Arrange chips in 2-column layout
-        rows = []
-        for i in range(0, len(chips), 2):
-            if i + 1 < len(chips):
-                # Two chips in this row
-                row = HBox(
-                    [chips[i], chips[i + 1]],
-                    layout=Layout(
-                        width="100%", justify_content="space-between", margin="1px 0"
-                    ),
-                )
-            else:
-                # Single chip in last row
-                row = HBox(
-                    [chips[i]],
-                    layout=Layout(
-                        width="100%", justify_content="flex-start", margin="1px 0"
-                    ),
-                )
-            rows.append(row)
+        with ThreadPoolExecutor() as executor:
+            tiles = list(executor.map(create_tile, [row for _, row in search_results_df.head(14).iterrows()]))
 
-        # Update the container with new rows
-        self.results_container.children = rows
+        valid_tiles = [tile for tile in tiles if tile is not None]
 
-        # Auto-expand results panel if it's collapsed and we have results
-        if self.results_panel_collapsed and chips:
+        self.results_container.children = valid_tiles
+        
+        if self.results_panel_collapsed and valid_tiles:
             self._on_toggle_results_collapse(None)
+
 
     def _update_toggle_button_styles(self):
         """Update toggle button colors based on selection."""
