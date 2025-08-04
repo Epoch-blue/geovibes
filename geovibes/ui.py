@@ -309,7 +309,7 @@ class GeoVibes:
             url=baselayer_url,
             no_wrap=True,
             name="basemap",
-            attribution=BasemapConfig.MAPTILER_ATTRIBUTION,
+            attribution="",  # Empty attribution since we're using custom control
         )
         if self.ee_available:
             try:
@@ -514,7 +514,16 @@ class GeoVibes:
             zoom=UIConstants.DEFAULT_ZOOM,
             layout=Layout(flex="1 1 auto", height="100%"),
             scroll_wheel_zoom=True,
+            attribution_control=False,  # Disable ALL attribution controls
         )
+        
+        # Add custom attribution control positioned at bottom left with proper attribution text
+        attribution_control = ipyl.AttributionControl(
+            position='bottomleft',
+            prefix='<a href="https://leafletjs.com">Leaflet</a> | ' + BasemapConfig.MAPTILER_ATTRIBUTION
+        )
+        map_widget.add_control(attribution_control)
+        
         return map_widget
 
     def _build_side_panel(self):
@@ -835,7 +844,7 @@ class GeoVibes:
             [tiles_controls, tiles_scroll_container],
             layout=Layout(
                 display="none",
-                width="235px",
+                width="320px",
                 padding="5px",
             ),
         )
@@ -854,6 +863,107 @@ class GeoVibes:
                 self.tiles_pane.layout.display = ''
             else:
                 self.tiles_pane.layout.display = 'none'
+    
+    def _on_tile_click(self, button):
+        """Handle tile click for labeling."""
+        point_id = button.point_id
+        row_data = button.row_data
+        
+        # Fetch embedding if not cached
+        if point_id not in self.cached_embeddings:
+            self._fetch_embeddings([point_id])
+        
+        # Remove from existing labels
+        if point_id in self.pos_ids:
+            self.pos_ids.remove(point_id)
+        if point_id in self.neg_ids:
+            self.neg_ids.remove(point_id)
+        
+        # Add to appropriate label list based on current label mode
+        if self.select_val == UIConstants.POSITIVE_LABEL:
+            self.pos_ids.append(point_id)
+            new_border_color = UIConstants.POS_COLOR
+            new_border_width = "3px"
+            if self.verbose:
+                print(f"✅ Labeled point {point_id} as Positive")
+        elif self.select_val == UIConstants.NEGATIVE_LABEL:
+            self.neg_ids.append(point_id)
+            new_border_color = UIConstants.NEG_COLOR
+            new_border_width = "3px"
+            if self.verbose:
+                print(f"✅ Labeled point {point_id} as Negative")
+        else:  # Erase mode
+            new_border_color = "#ccc"
+            new_border_width = "1px"
+            if self.verbose:
+                print(f"✅ Erased label for point {point_id}")
+        
+        # Update the button border immediately
+        button.layout.border = f"{new_border_width} solid {new_border_color}"
+        
+        # Update visualization layers and query vector
+        self.update_layers()
+        self.update_query_vector()
+        
+        # Show status
+        if self.select_val != UIConstants.ERASE_LABEL:
+            self._show_operation_status(f"✅ Labeled tile as {self.current_label}")
+        else:
+            self._show_operation_status(f"✅ Erased label from tile")
+    
+    def _on_tile_label_click(self, button):
+        """Handle tick/cross button click for labeling tiles."""
+        point_id = button.point_id
+        row_data = button.row_data
+        is_positive = button.is_positive
+        partner_button = button.partner_button
+        
+        # Fetch embedding if not cached
+        if point_id not in self.cached_embeddings:
+            self._fetch_embeddings([point_id])
+        
+        # Check if this label is already selected
+        was_selected = (is_positive and point_id in self.pos_ids) or (not is_positive and point_id in self.neg_ids)
+        
+        # Remove from all existing labels
+        if point_id in self.pos_ids:
+            self.pos_ids.remove(point_id)
+        if point_id in self.neg_ids:
+            self.neg_ids.remove(point_id)
+        
+        # If it wasn't selected, add the new label
+        if not was_selected:
+            if is_positive:
+                self.pos_ids.append(point_id)
+                # Update button appearances
+                button.button_style = "primary"
+                button.layout.opacity = "1.0"
+                partner_button.button_style = ""
+                partner_button.layout.opacity = "0.3"
+                if self.verbose:
+                    print(f"✅ Labeled point {point_id} as Positive")
+                self._show_operation_status(f"✅ Labeled tile as Positive")
+            else:
+                self.neg_ids.append(point_id)
+                # Update button appearances
+                button.button_style = "warning"
+                button.layout.opacity = "1.0"
+                partner_button.button_style = ""
+                partner_button.layout.opacity = "0.3"
+                if self.verbose:
+                    print(f"✅ Labeled point {point_id} as Negative")
+                self._show_operation_status(f"✅ Labeled tile as Negative")
+        else:
+            # If it was selected, we're removing the label (toggle off)
+            button.button_style = ""
+            button.layout.opacity = "0.3"
+            if self.verbose:
+                print(f"✅ Removed label from point {point_id}")
+            self._show_operation_status(f"✅ Removed label from tile")
+        
+        # Update visualization layers and query vector
+        self.update_layers()
+        self.update_query_vector()
 
     def _on_tile_basemap_change(self, change):
         """Handle tile basemap change."""
@@ -900,13 +1010,77 @@ class GeoVibes:
                 image_bytes = get_map_image(
                     source=self.tile_basemap, lon=geom.x, lat=geom.y
                 )
-                tile = ipyw.Image(
-                    value=image_bytes, format="png", width=100, height=100
+                
+                # Create image sized to fit panel
+                tile_image = ipyw.Image(
+                    value=image_bytes, format="png", width=120, height=120
                 )
+                
+                # Get point ID
+                point_id = str(row["id"])
+                
+                # Create tick (positive) and cross (negative) buttons
+                tick_button = Button(
+                    description="✓",
+                    layout=Layout(
+                        width="30px",
+                        height="30px",
+                        margin="0px 3px",
+                        font_size="18px"
+                    ),
+                    button_style="primary" if point_id in self.pos_ids else "",
+                    style={'font_weight': 'bold'}
+                )
+                tick_button.layout.opacity = "1.0" if point_id in self.pos_ids else "0.3"
+                
+                cross_button = Button(
+                    description="✗",
+                    layout=Layout(
+                        width="30px",
+                        height="30px",
+                        margin="0px 3px",
+                        font_size="18px"
+                    ),
+                    button_style="warning" if point_id in self.neg_ids else "",
+                    style={'font_weight': 'bold'}
+                )
+                cross_button.layout.opacity = "1.0" if point_id in self.neg_ids else "0.3"
+                
+                # Store data for click handlers
+                tick_button.point_id = point_id
+                tick_button.row_data = row
+                tick_button.is_positive = True
+                tick_button.partner_button = cross_button
+                
+                cross_button.point_id = point_id
+                cross_button.row_data = row
+                cross_button.is_positive = False
+                cross_button.partner_button = tick_button
+                
+                # Add click handlers
+                tick_button.on_click(self._on_tile_label_click)
+                cross_button.on_click(self._on_tile_label_click)
+                
+                # Create button row
+                button_row = HBox(
+                    [tick_button, cross_button],
+                    layout=Layout(justify_content="center", margin="0 0 5px 0")
+                )
+                
+                # Create tile container
+                tile_container = VBox(
+                    [button_row, tile_image],
+                    layout=Layout(
+                        width="130px",
+                        padding="2px",
+                        margin="0px"
+                    )
+                )
+                
                 # Update the specific tile in the grid
                 tiles_list = list(self.results_grid.children)
                 if idx < len(tiles_list):
-                    tiles_list[idx] = tile
+                    tiles_list[idx] = tile_container
                     self.results_grid.children = tiles_list
             except Exception as e:
                 if self.verbose:
@@ -915,8 +1089,8 @@ class GeoVibes:
                 error_label = ipyw.Label(
                     value="Error",
                     layout=ipyw.Layout(
-                        width="100px", 
-                        height="100px", 
+                        width="130px", 
+                        height="160px", 
                         border="1px solid #ff0000",
                         display="flex",
                         align_items="center",
@@ -966,8 +1140,8 @@ class GeoVibes:
             loading_label = ipyw.Label(
                 value="Loading...",
                 layout=ipyw.Layout(
-                    width="100px", 
-                    height="100px", 
+                    width="130px", 
+                    height="160px", 
                     border="1px solid #ccc",
                     display="flex",
                     align_items="center",
@@ -993,12 +1167,76 @@ class GeoVibes:
                 image_bytes = get_map_image(
                     source=self.tile_basemap, lon=geom.x, lat=geom.y
                 )
-                tile = ipyw.Image(
-                    value=image_bytes, format="png", width=100, height=100
+                
+                # Create image sized to fit panel
+                tile_image = ipyw.Image(
+                    value=image_bytes, format="png", width=120, height=120
                 )
+                
+                # Get point ID
+                point_id = str(row["id"])
+                
+                # Create tick (positive) and cross (negative) buttons
+                tick_button = Button(
+                    description="✓",
+                    layout=Layout(
+                        width="30px",
+                        height="30px",
+                        margin="0px 3px",
+                        font_size="18px"
+                    ),
+                    button_style="primary" if point_id in self.pos_ids else "",
+                    style={'font_weight': 'bold'}
+                )
+                tick_button.layout.opacity = "1.0" if point_id in self.pos_ids else "0.3"
+                
+                cross_button = Button(
+                    description="✗",
+                    layout=Layout(
+                        width="30px",
+                        height="30px",
+                        margin="0px 3px",
+                        font_size="18px"
+                    ),
+                    button_style="warning" if point_id in self.neg_ids else "",
+                    style={'font_weight': 'bold'}
+                )
+                cross_button.layout.opacity = "1.0" if point_id in self.neg_ids else "0.3"
+                
+                # Store data for click handlers
+                tick_button.point_id = point_id
+                tick_button.row_data = row
+                tick_button.is_positive = True
+                tick_button.partner_button = cross_button
+                
+                cross_button.point_id = point_id
+                cross_button.row_data = row
+                cross_button.is_positive = False
+                cross_button.partner_button = tick_button
+                
+                # Add click handlers
+                tick_button.on_click(self._on_tile_label_click)
+                cross_button.on_click(self._on_tile_label_click)
+                
+                # Create button row
+                button_row = HBox(
+                    [tick_button, cross_button],
+                    layout=Layout(justify_content="center", margin="0 0 5px 0")
+                )
+                
+                # Create tile container
+                tile_container = VBox(
+                    [button_row, tile_image],
+                    layout=Layout(
+                        width="130px",
+                        padding="2px",
+                        margin="0px"
+                    )
+                )
+                
                 # Update the specific tile in the grid
                 tiles_list = list(self.results_grid.children)
-                tiles_list[offset + idx] = tile
+                tiles_list[offset + idx] = tile_container
                 self.results_grid.children = tiles_list
             except Exception as e:
                 if self.verbose:
@@ -1007,8 +1245,8 @@ class GeoVibes:
                 error_label = ipyw.Label(
                     value="Error",
                     layout=ipyw.Layout(
-                        width="100px", 
-                        height="100px", 
+                        width="130px", 
+                        height="160px", 
                         border="1px solid #ff0000",
                         display="flex",
                         align_items="center",
@@ -2624,8 +2862,12 @@ class GeoVibes:
                 self.map.remove_layer(self.vector_layer)
             self.vector_layer = None
 
-        # Clear results panel
-        self.results_container.children = []
+        # Clear results panel and reset tiles state
+        self.results_grid.children = []
+        self.tiles_pane.layout.display = 'none'
+        self.tiles_button.button_style = ''
+        self.last_search_results_df = None
+        self.tile_page = 0
 
         # Clear operation status
         self._clear_operation_status()
