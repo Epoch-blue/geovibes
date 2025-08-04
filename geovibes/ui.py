@@ -414,16 +414,7 @@ class GeoVibes:
         # Add DrawControl
         self._setup_draw_control()
 
-        # Add tiles button
-        self.tiles_button = Button(
-            description="",
-            icon="th",
-            layout=Layout(width="40px", height="40px"),
-            button_style="",
-            tooltip="View search results as tiles",
-        )
-        tiles_control = ipyl.WidgetControl(widget=self.tiles_button, position="topright")
-        self.map.add_control(tiles_control)
+
 
         # Wire events
         self._wire_events()
@@ -448,16 +439,7 @@ class GeoVibes:
         # Add status bar
         self.status_bar = HTML(value="Ready")
 
-        # # Add tiles button
-        # self.tiles_button = Button(
-        #     description="",
-        #     icon="th",
-        #     layout=Layout(width="40px", height="40px"),
-        #     button_style="",
-        #     tooltip="View search results as tiles",
-        # )
-        # tiles_control = ipyl.WidgetControl(widget=self.tiles_button, position="topright")
-        # self.map.add_control(tiles_control)
+
 
         # Create main layout
         map_with_overlays = VBox(
@@ -533,10 +515,20 @@ class GeoVibes:
         """Build the collapsible side panel with accordion sections."""
         self.search_btn = Button(
             description="Search",
-            layout=Layout(width="100%", height=UIConstants.BUTTON_HEIGHT),
+            layout=Layout(flex="1", height=UIConstants.BUTTON_HEIGHT),
             button_style="success",  # Green to highlight importance
             tooltip="Find points similar to your positive labels",
         )
+
+        self.tiles_button = Button(
+            description="",
+            icon="th",
+            layout=Layout(width="40px", height=UIConstants.BUTTON_HEIGHT),
+            button_style="",
+            tooltip="View search results as tiles",
+        )
+
+        search_controls = HBox([self.search_btn, self.tiles_button])
 
         self.neighbors_slider = IntSlider(
             value=UIConstants.DEFAULT_NEIGHBORS,
@@ -556,7 +548,7 @@ class GeoVibes:
         )
 
         search_section = VBox(
-            [self.search_btn, self.neighbors_slider, self.reset_btn],
+            [search_controls, self.neighbors_slider, self.reset_btn],
             layout=Layout(padding="5px", margin="0 0 10px 0"),
         )
 
@@ -740,6 +732,7 @@ class GeoVibes:
             "vector_file_upload": self.vector_file_upload,
             "google_maps_btn": self.google_maps_btn,
             "collapse_btn": self.collapse_btn,
+            "tiles_button": self.tiles_button,
         }
 
         return panel_content, ui_widgets
