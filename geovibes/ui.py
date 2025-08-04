@@ -875,24 +875,8 @@ class GeoVibes:
                     source=self.current_basemap, lon=geom.x, lat=geom.y
                 )
 
-                image_widget = ipyw.Image(
+                return ipyw.Image(
                     value=image_bytes, format="png", width=100, height=100
-                )
-
-                distance_text = HTML(
-                    value=f"""
-                    <div style="font-size: 9px; text-align: center; line-height: 1.1;">
-                        <div><strong>Dist:</strong> {row["distance"]:.3f}</div>
-                    </div>
-                    """,
-                    layout=Layout(width="100%"),
-                )
-
-                return VBox(
-                    [image_widget, distance_text],
-                    layout=Layout(
-                        border="1px solid #ddd", padding="2px", margin="2px"
-                    ),
                 )
             except Exception as e:
                 if self.verbose:
