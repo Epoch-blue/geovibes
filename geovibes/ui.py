@@ -858,10 +858,87 @@ class GeoVibes:
     def _on_tile_basemap_change(self, change):
         """Handle tile basemap change."""
         self.tile_basemap = change["new"]
-        self.tile_page = 0  # Reset page number
-        # Clear all tiles when switching basemaps
-        self.results_grid.children = []
-        self._update_results_panel(self.last_search_results_df)
+        
+        # Convert all existing tiles to loading placeholders
+        current_tile_count = len(self.results_grid.children)
+        if current_tile_count > 0:
+            loading_tiles = []
+            for i in range(current_tile_count):
+                loading_label = ipyw.Label(
+                    value="Loading...",
+                    layout=ipyw.Layout(
+                        width="100px", 
+                        height="100px", 
+                        border="1px solid #ccc",
+                        display="flex",
+                        align_items="center",
+                        justify_content="center"
+                    )
+                )
+                loading_tiles.append(loading_label)
+            self.results_grid.children = loading_tiles
+            
+            # Reload all tiles with new basemap
+            self._reload_all_tiles_with_new_basemap()
+
+    def _reload_all_tiles_with_new_basemap(self):
+        """Reload all currently displayed tiles with the new basemap."""
+        if self.last_search_results_df is None or self.last_search_results_df.empty:
+            return
+            
+        # Calculate how many tiles are currently displayed
+        current_tile_count = len(self.results_grid.children)
+        total_pages_displayed = (current_tile_count + self.tiles_per_page - 1) // self.tiles_per_page
+        
+        # Get all the data for currently displayed tiles
+        end_index = total_pages_displayed * self.tiles_per_page
+        all_displayed_df = self.last_search_results_df.iloc[:end_index]
+        
+        def create_and_update_tile(idx, row):
+            try:
+                geom = shapely.wkt.loads(row["geometry_wkt"])
+                image_bytes = get_map_image(
+                    source=self.tile_basemap, lon=geom.x, lat=geom.y
+                )
+                tile = ipyw.Image(
+                    value=image_bytes, format="png", width=100, height=100
+                )
+                # Update the specific tile in the grid
+                tiles_list = list(self.results_grid.children)
+                if idx < len(tiles_list):
+                    tiles_list[idx] = tile
+                    self.results_grid.children = tiles_list
+            except Exception as e:
+                if self.verbose:
+                    print(f"Error creating tile for result: {e}")
+                # Replace loading with error placeholder
+                error_label = ipyw.Label(
+                    value="Error",
+                    layout=ipyw.Layout(
+                        width="100px", 
+                        height="100px", 
+                        border="1px solid #ff0000",
+                        display="flex",
+                        align_items="center",
+                        justify_content="center"
+                    )
+                )
+                tiles_list = list(self.results_grid.children)
+                if idx < len(tiles_list):
+                    tiles_list[idx] = error_label
+                    self.results_grid.children = tiles_list
+
+        # Load tiles asynchronously
+        with ThreadPoolExecutor() as executor:
+            futures = []
+            for idx, (_, row) in enumerate(all_displayed_df.iterrows()):
+                if idx < current_tile_count:  # Only reload tiles that were displayed
+                    future = executor.submit(create_and_update_tile, idx, row)
+                    futures.append(future)
+            
+            # Wait for all tiles to complete
+            for future in futures:
+                future.result()
 
     def _on_next_tiles_click(self, b):
         """Handle next tiles button click."""
