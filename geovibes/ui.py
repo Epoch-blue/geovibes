@@ -828,7 +828,7 @@ class GeoVibes:
             layout=Layout(
                 width="100%",
                 grid_template_columns="1fr 1fr",
-                grid_gap="5px",
+                grid_gap="3px",
             ),
         )
         with self.tiles_display:
@@ -848,8 +848,8 @@ class GeoVibes:
             [tiles_controls, tiles_scroll_container],
             layout=Layout(
                 display="none",
-                width="340px",  # Increased width to prevent horizontal scrolling
-                padding="10px",
+                width="265px",  # Tighter width for compact layout
+                padding="5px",
             ),
         )
         tiles_pane_control = ipyl.WidgetControl(widget=self.tiles_pane, position="topright")
