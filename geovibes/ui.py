@@ -797,7 +797,13 @@ class GeoVibes:
 
         self.tiles_pane = VBox(
             [self.tiles_display],
-            layout=Layout(display="none", width="300px", padding="5px"),
+            layout=Layout(
+                display="none",
+                width="235px",
+                max_height="700px",
+                overflow_y="auto",
+                padding="5px",
+            ),
         )
         tiles_pane_control = ipyl.WidgetControl(widget=self.tiles_pane, position="topright")
         self.map.add_control(tiles_pane_control)
