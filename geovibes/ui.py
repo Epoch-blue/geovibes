@@ -964,6 +964,27 @@ class GeoVibes:
         # Update visualization layers and query vector
         self.update_layers()
         self.update_query_vector()
+    
+    def _on_tile_map_click(self, button):
+        """Handle map button click to pan and zoom to tile location."""
+        point_id = button.point_id
+        row_data = button.row_data
+        
+        # Pan and zoom to the tile location
+        try:
+            geom = shapely.wkt.loads(row_data["geometry_wkt"])
+            lat, lon = geom.y, geom.x
+            self.map.center = (lat, lon)
+            self.map.zoom = 16  # Zoom in to see the tile clearly
+            self._show_operation_status(f"📍 Centered on tile {point_id}")
+            if self.verbose:
+                print(f"📍 Panned to tile {point_id} at ({lat:.4f}, {lon:.4f})")
+        except Exception as e:
+            if self.verbose:
+                print(f"Could not pan to tile location: {e}")
+            self._show_operation_status("⚠️ Could not pan to tile location")
+    
+
 
     def _on_tile_basemap_change(self, change):
         """Handle tile basemap change."""
@@ -1011,38 +1032,51 @@ class GeoVibes:
                     source=self.tile_basemap, lon=geom.x, lat=geom.y
                 )
                 
-                # Create image sized to fit panel
+                # Create image sized to fit panel (5% wider)
                 tile_image = ipyw.Image(
-                    value=image_bytes, format="png", width=120, height=120
+                    value=image_bytes, format="png", width=126, height=126
                 )
                 
                 # Get point ID
                 point_id = str(row["id"])
                 
-                # Create tick (positive) and cross (negative) buttons
-                tick_button = Button(
-                    description="✓",
+                # Create map/location button (first)
+                map_button = Button(
+                    description="",
+                    icon="fa-map-marker",  # Font Awesome f3c5
                     layout=Layout(
-                        width="30px",
-                        height="30px",
-                        margin="0px 3px",
-                        font_size="18px"
+                        width="25px",
+                        height="25px",
+                        margin="0px 2px"
+                    ),
+                    tooltip="Click to center map on this location"
+                )
+                
+                # Create tick (positive) button
+                tick_button = Button(
+                    description="",
+                    icon="fa-check",  # Font Awesome f00c
+                    layout=Layout(
+                        width="25px",
+                        height="25px",
+                        margin="0px 2px"
                     ),
                     button_style="primary" if point_id in self.pos_ids else "",
-                    style={'font_weight': 'bold'}
+                    tooltip="Click to label as positive"
                 )
                 tick_button.layout.opacity = "1.0" if point_id in self.pos_ids else "0.3"
                 
+                # Create cross (negative) button
                 cross_button = Button(
-                    description="✗",
+                    description="",
+                    icon="fa-times",  # Font Awesome f00d
                     layout=Layout(
-                        width="30px",
-                        height="30px",
-                        margin="0px 3px",
-                        font_size="18px"
+                        width="25px",
+                        height="25px",
+                        margin="0px 2px"
                     ),
                     button_style="warning" if point_id in self.neg_ids else "",
-                    style={'font_weight': 'bold'}
+                    tooltip="Click to label as negative"
                 )
                 cross_button.layout.opacity = "1.0" if point_id in self.neg_ids else "0.3"
                 
@@ -1057,21 +1091,25 @@ class GeoVibes:
                 cross_button.is_positive = False
                 cross_button.partner_button = tick_button
                 
+                map_button.point_id = point_id
+                map_button.row_data = row
+                
                 # Add click handlers
                 tick_button.on_click(self._on_tile_label_click)
                 cross_button.on_click(self._on_tile_label_click)
+                map_button.on_click(self._on_tile_map_click)
                 
-                # Create button row
+                # Create button row with map button first
                 button_row = HBox(
-                    [tick_button, cross_button],
+                    [map_button, tick_button, cross_button],
                     layout=Layout(justify_content="center", margin="0 0 5px 0")
                 )
                 
-                # Create tile container
+                # Create tile container with image
                 tile_container = VBox(
                     [button_row, tile_image],
                     layout=Layout(
-                        width="130px",
+                        width="136px",  # Adjusted for wider image
                         padding="2px",
                         margin="0px"
                     )
@@ -1089,8 +1127,8 @@ class GeoVibes:
                 error_label = ipyw.Label(
                     value="Error",
                     layout=ipyw.Layout(
-                        width="130px", 
-                        height="160px", 
+                        width="136px",  # Adjusted for wider image
+                        height="165px",  # Adjusted for wider image + buttons
                         border="1px solid #ff0000",
                         display="flex",
                         align_items="center",
@@ -1140,8 +1178,8 @@ class GeoVibes:
             loading_label = ipyw.Label(
                 value="Loading...",
                 layout=ipyw.Layout(
-                    width="130px", 
-                    height="160px", 
+                    width="136px",  # Adjusted for wider image
+                    height="165px",  # Adjusted for wider image + buttons
                     border="1px solid #ccc",
                     display="flex",
                     align_items="center",
@@ -1168,38 +1206,51 @@ class GeoVibes:
                     source=self.tile_basemap, lon=geom.x, lat=geom.y
                 )
                 
-                # Create image sized to fit panel
+                # Create image sized to fit panel (5% wider)
                 tile_image = ipyw.Image(
-                    value=image_bytes, format="png", width=120, height=120
+                    value=image_bytes, format="png", width=126, height=126
                 )
                 
                 # Get point ID
                 point_id = str(row["id"])
                 
-                # Create tick (positive) and cross (negative) buttons
-                tick_button = Button(
-                    description="✓",
+                # Create map/location button (first)
+                map_button = Button(
+                    description="",
+                    icon="fa-map-marker",  # Font Awesome f3c5
                     layout=Layout(
-                        width="30px",
-                        height="30px",
-                        margin="0px 3px",
-                        font_size="18px"
+                        width="25px",
+                        height="25px",
+                        margin="0px 2px"
+                    ),
+                    tooltip="Click to center map on this location"
+                )
+                
+                # Create tick (positive) button
+                tick_button = Button(
+                    description="",
+                    icon="fa-check",  # Font Awesome f00c
+                    layout=Layout(
+                        width="25px",
+                        height="25px",
+                        margin="0px 2px"
                     ),
                     button_style="primary" if point_id in self.pos_ids else "",
-                    style={'font_weight': 'bold'}
+                    tooltip="Click to label as positive"
                 )
                 tick_button.layout.opacity = "1.0" if point_id in self.pos_ids else "0.3"
                 
+                # Create cross (negative) button
                 cross_button = Button(
-                    description="✗",
+                    description="",
+                    icon="fa-times",  # Font Awesome f00d
                     layout=Layout(
-                        width="30px",
-                        height="30px",
-                        margin="0px 3px",
-                        font_size="18px"
+                        width="25px",
+                        height="25px",
+                        margin="0px 2px"
                     ),
                     button_style="warning" if point_id in self.neg_ids else "",
-                    style={'font_weight': 'bold'}
+                    tooltip="Click to label as negative"
                 )
                 cross_button.layout.opacity = "1.0" if point_id in self.neg_ids else "0.3"
                 
@@ -1214,21 +1265,25 @@ class GeoVibes:
                 cross_button.is_positive = False
                 cross_button.partner_button = tick_button
                 
+                map_button.point_id = point_id
+                map_button.row_data = row
+                
                 # Add click handlers
                 tick_button.on_click(self._on_tile_label_click)
                 cross_button.on_click(self._on_tile_label_click)
+                map_button.on_click(self._on_tile_map_click)
                 
-                # Create button row
+                # Create button row with map button first
                 button_row = HBox(
-                    [tick_button, cross_button],
+                    [map_button, tick_button, cross_button],
                     layout=Layout(justify_content="center", margin="0 0 5px 0")
                 )
                 
-                # Create tile container
+                # Create tile container with image
                 tile_container = VBox(
                     [button_row, tile_image],
                     layout=Layout(
-                        width="130px",
+                        width="136px",  # Adjusted for wider image
                         padding="2px",
                         margin="0px"
                     )
@@ -1245,8 +1300,8 @@ class GeoVibes:
                 error_label = ipyw.Label(
                     value="Error",
                     layout=ipyw.Layout(
-                        width="130px", 
-                        height="160px", 
+                        width="136px",  # Adjusted for wider image
+                        height="165px",  # Adjusted for wider image + buttons
                         border="1px solid #ff0000",
                         display="flex",
                         align_items="center",
