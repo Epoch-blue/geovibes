@@ -803,16 +803,20 @@ class GeoVibes:
             options=basemap_options,
             value=self.tile_basemap,
             description="",
-            layout=ipyw.Layout(width="150px"),
+            layout=ipyw.Layout(width="180px"),
             style={'description_width': 'initial'}
         )
 
-        self.next_tiles_btn = Button(description="Next", layout=ipyw.Layout(width="auto"))
+        self.next_tiles_btn = Button(
+            description="Next", 
+            layout=ipyw.Layout(width="60px", margin="0 0 0 5px")
+        )
         
         tiles_controls = ipyw.HBox(
             [self.tile_basemap_dropdown, self.next_tiles_btn],
             layout=ipyw.Layout(
-                justify_content="space-between", 
+                justify_content="flex-start",  # Align items to the left
+                align_items="center",
                 width="100%",
                 margin="0 0 10px 0"
             ),
@@ -844,8 +848,8 @@ class GeoVibes:
             [tiles_controls, tiles_scroll_container],
             layout=Layout(
                 display="none",
-                width="320px",
-                padding="5px",
+                width="340px",  # Increased width to prevent horizontal scrolling
+                padding="10px",
             ),
         )
         tiles_pane_control = ipyl.WidgetControl(widget=self.tiles_pane, position="topright")
@@ -975,7 +979,44 @@ class GeoVibes:
             geom = shapely.wkt.loads(row_data["geometry_wkt"])
             lat, lon = geom.y, geom.x
             self.map.center = (lat, lon)
-            self.map.zoom = 14  # Moderate zoom to see tile in context
+            self.map.zoom = 14  # Closer zoom for better detail
+            
+            # Create a small square polygon around the point
+            half_size = 0.0025 / 2  # Half of 0.0025 degrees
+            square_coords = [
+                (lon - half_size, lat - half_size),
+                (lon + half_size, lat - half_size),
+                (lon + half_size, lat + half_size),
+                (lon - half_size, lat + half_size),
+                (lon - half_size, lat - half_size)  # Close the polygon
+            ]
+            
+            # Create the polygon and add it to the map
+            from shapely.geometry import Polygon
+            square_poly = Polygon(square_coords)
+            
+            # Remove any existing highlight layer
+            for layer in self.map.layers:
+                if hasattr(layer, 'name') and layer.name == 'tile_highlight':
+                    self.map.remove_layer(layer)
+            
+            # Add the highlight square
+            highlight_layer = ipyl.GeoJSON(
+                data={
+                    "type": "Feature",
+                    "geometry": shapely.geometry.mapping(square_poly),
+                    "properties": {"id": point_id}
+                },
+                style={
+                    'color': '#ff0000',
+                    'weight': 3,
+                    'fillColor': '#ff0000',
+                    'fillOpacity': 0.1
+                },
+                name='tile_highlight'
+            )
+            self.map.add_layer(highlight_layer)
+            
             self._show_operation_status(f"📍 Centered on tile {point_id}")
             if self.verbose:
                 print(f"📍 Panned to tile {point_id} at ({lat:.4f}, {lon:.4f})")
@@ -1032,9 +1073,9 @@ class GeoVibes:
                     source=self.tile_basemap, lon=geom.x, lat=geom.y
                 )
                 
-                # Create image sized to fit panel (5% wider)
+                # Create image sized to fit panel
                 tile_image = ipyw.Image(
-                    value=image_bytes, format="png", width=126, height=126
+                    value=image_bytes, format="png", width=115, height=115
                 )
                 
                 # Get point ID
@@ -1105,16 +1146,22 @@ class GeoVibes:
                 # Create button row with map button first
                 button_row = HBox(
                     [map_button, tick_button, cross_button],
-                    layout=Layout(justify_content="center", margin="0 0 5px 0")
+                    layout=Layout(
+                        width="115px",  # Match image width for perfect centering
+                        justify_content="center", 
+                        margin="0 0 5px 0",
+                        align_self="center"
+                    )
                 )
                 
                 # Create tile container with image
                 tile_container = VBox(
                     [button_row, tile_image],
                     layout=Layout(
-                        width="145px",  # Adjusted for wider buttons and image
+                        width="120px",  # Container sized for smaller images
                         padding="2px",
-                        margin="0px"
+                        margin="0px",
+                        align_items="center"  # Center all children
                     )
                 )
                 
@@ -1130,8 +1177,8 @@ class GeoVibes:
                 error_label = ipyw.Label(
                     value="Error",
                     layout=ipyw.Layout(
-                        width="145px",  # Adjusted for wider buttons and image
-                        height="170px",  # Adjusted for wider image + buttons
+                        width="120px",  # Match container width
+                        height="155px",  # Height for smaller image + buttons
                         border="1px solid #ff0000",
                         display="flex",
                         align_items="center",
@@ -1181,8 +1228,8 @@ class GeoVibes:
             loading_label = ipyw.Label(
                 value="Loading...",
                 layout=ipyw.Layout(
-                    width="145px",  # Adjusted for wider buttons and image
-                    height="170px",  # Adjusted for wider image + buttons
+                    width="120px",  # Match container width
+                    height="155px",  # Height for smaller image + buttons
                     border="1px solid #ccc",
                     display="flex",
                     align_items="center",
@@ -1209,9 +1256,9 @@ class GeoVibes:
                     source=self.tile_basemap, lon=geom.x, lat=geom.y
                 )
                 
-                # Create image sized to fit panel (5% wider)
+                # Create image sized to fit panel
                 tile_image = ipyw.Image(
-                    value=image_bytes, format="png", width=126, height=126
+                    value=image_bytes, format="png", width=115, height=115
                 )
                 
                 # Get point ID
@@ -1282,16 +1329,22 @@ class GeoVibes:
                 # Create button row with map button first
                 button_row = HBox(
                     [map_button, tick_button, cross_button],
-                    layout=Layout(justify_content="center", margin="0 0 5px 0")
+                    layout=Layout(
+                        width="115px",  # Match image width for perfect centering
+                        justify_content="center", 
+                        margin="0 0 5px 0",
+                        align_self="center"
+                    )
                 )
                 
                 # Create tile container with image
                 tile_container = VBox(
                     [button_row, tile_image],
                     layout=Layout(
-                        width="145px",  # Adjusted for wider buttons and image
+                        width="120px",  # Container sized for smaller images
                         padding="2px",
-                        margin="0px"
+                        margin="0px",
+                        align_items="center"  # Center all children
                     )
                 )
                 
@@ -1306,8 +1359,8 @@ class GeoVibes:
                 error_label = ipyw.Label(
                     value="Error",
                     layout=ipyw.Layout(
-                        width="145px",  # Adjusted for wider buttons and image
-                        height="170px",  # Adjusted for wider image + buttons
+                        width="120px",  # Match container width
+                        height="155px",  # Height for smaller image + buttons
                         border="1px solid #ff0000",
                         display="flex",
                         align_items="center",
