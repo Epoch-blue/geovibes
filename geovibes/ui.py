@@ -793,7 +793,7 @@ class GeoVibes:
         self.tile_basemap_dropdown = ipyw.Dropdown(
             options=basemap_options,
             value=self.tile_basemap,
-            description="Basemap:",
+            description="",
             layout=ipyw.Layout(width="150px"),
             style={'description_width': 'initial'}
         )
@@ -880,31 +880,69 @@ class GeoVibes:
             self.tile_page -= 1  # Revert to last valid page
             return
 
-        def create_tile(row):
+        # Clear existing tiles and show loading placeholders
+        num_tiles = len(page_df)
+        loading_tiles = []
+        for i in range(num_tiles):
+            loading_label = ipyw.Label(
+                value="Loading...",
+                layout=ipyw.Layout(
+                    width="100px", 
+                    height="100px", 
+                    border="1px solid #ccc",
+                    display="flex",
+                    align_items="center",
+                    justify_content="center"
+                )
+            )
+            loading_tiles.append(loading_label)
+        
+        self.results_grid.children = loading_tiles
+
+        def create_and_update_tile(idx, row):
             try:
                 geom = shapely.wkt.loads(row["geometry_wkt"])
                 image_bytes = get_map_image(
                     source=self.tile_basemap, lon=geom.x, lat=geom.y
                 )
-                return ipyw.Image(
+                tile = ipyw.Image(
                     value=image_bytes, format="png", width=100, height=100
                 )
+                # Update the specific tile in the grid
+                tiles_list = list(self.results_grid.children)
+                tiles_list[idx] = tile
+                self.results_grid.children = tiles_list
             except Exception as e:
                 if self.verbose:
                     print(f"Error creating tile for result: {e}")
-                return None
+                # Replace loading with error placeholder
+                error_label = ipyw.Label(
+                    value="Error",
+                    layout=ipyw.Layout(
+                        width="100px", 
+                        height="100px", 
+                        border="1px solid #ff0000",
+                        display="flex",
+                        align_items="center",
+                        justify_content="center"
+                    )
+                )
+                tiles_list = list(self.results_grid.children)
+                tiles_list[idx] = error_label
+                self.results_grid.children = tiles_list
 
+        # Load tiles asynchronously
         with ThreadPoolExecutor() as executor:
-            tiles = list(executor.map(create_tile, [row for _, row in page_df.iterrows()]))
-
-        valid_tiles = [tile for tile in tiles if tile is not None]
-
-        if self.tile_page == 0:
-            self.results_grid.children = valid_tiles
-        else:
-            self.results_grid.children += tuple(valid_tiles)
+            futures = []
+            for idx, (_, row) in enumerate(page_df.iterrows()):
+                future = executor.submit(create_and_update_tile, idx, row)
+                futures.append(future)
+            
+            # Wait for all tiles to complete
+            for future in futures:
+                future.result()
         
-        if valid_tiles:
+        if len(page_df) > 0:
             self.tiles_button.button_style = 'success'
 
 
