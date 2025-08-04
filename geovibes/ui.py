@@ -975,7 +975,7 @@ class GeoVibes:
             geom = shapely.wkt.loads(row_data["geometry_wkt"])
             lat, lon = geom.y, geom.x
             self.map.center = (lat, lon)
-            self.map.zoom = 16  # Zoom in to see the tile clearly
+            self.map.zoom = 14  # Moderate zoom to see tile in context
             self._show_operation_status(f"📍 Centered on tile {point_id}")
             if self.verbose:
                 print(f"📍 Panned to tile {point_id} at ({lat:.4f}, {lon:.4f})")
@@ -1045,9 +1045,10 @@ class GeoVibes:
                     description="",
                     icon="fa-map-marker",  # Font Awesome f3c5
                     layout=Layout(
-                        width="25px",
-                        height="25px",
-                        margin="0px 2px"
+                        width="35px",
+                        height="30px",
+                        margin="0px 2px",
+                        padding="2px"
                     ),
                     tooltip="Click to center map on this location"
                 )
@@ -1057,9 +1058,10 @@ class GeoVibes:
                     description="",
                     icon="fa-check",  # Font Awesome f00c
                     layout=Layout(
-                        width="25px",
-                        height="25px",
-                        margin="0px 2px"
+                        width="35px",
+                        height="30px",
+                        margin="0px 2px",
+                        padding="2px"
                     ),
                     button_style="primary" if point_id in self.pos_ids else "",
                     tooltip="Click to label as positive"
@@ -1071,9 +1073,10 @@ class GeoVibes:
                     description="",
                     icon="fa-times",  # Font Awesome f00d
                     layout=Layout(
-                        width="25px",
-                        height="25px",
-                        margin="0px 2px"
+                        width="35px",
+                        height="30px",
+                        margin="0px 2px",
+                        padding="2px"
                     ),
                     button_style="warning" if point_id in self.neg_ids else "",
                     tooltip="Click to label as negative"
@@ -1109,7 +1112,7 @@ class GeoVibes:
                 tile_container = VBox(
                     [button_row, tile_image],
                     layout=Layout(
-                        width="136px",  # Adjusted for wider image
+                        width="145px",  # Adjusted for wider buttons and image
                         padding="2px",
                         margin="0px"
                     )
@@ -1127,8 +1130,8 @@ class GeoVibes:
                 error_label = ipyw.Label(
                     value="Error",
                     layout=ipyw.Layout(
-                        width="136px",  # Adjusted for wider image
-                        height="165px",  # Adjusted for wider image + buttons
+                        width="145px",  # Adjusted for wider buttons and image
+                        height="170px",  # Adjusted for wider image + buttons
                         border="1px solid #ff0000",
                         display="flex",
                         align_items="center",
@@ -1178,8 +1181,8 @@ class GeoVibes:
             loading_label = ipyw.Label(
                 value="Loading...",
                 layout=ipyw.Layout(
-                    width="136px",  # Adjusted for wider image
-                    height="165px",  # Adjusted for wider image + buttons
+                    width="145px",  # Adjusted for wider buttons and image
+                    height="170px",  # Adjusted for wider image + buttons
                     border="1px solid #ccc",
                     display="flex",
                     align_items="center",
@@ -1219,9 +1222,10 @@ class GeoVibes:
                     description="",
                     icon="fa-map-marker",  # Font Awesome f3c5
                     layout=Layout(
-                        width="25px",
-                        height="25px",
-                        margin="0px 2px"
+                        width="35px",
+                        height="30px",
+                        margin="0px 2px",
+                        padding="2px"
                     ),
                     tooltip="Click to center map on this location"
                 )
@@ -1231,9 +1235,10 @@ class GeoVibes:
                     description="",
                     icon="fa-check",  # Font Awesome f00c
                     layout=Layout(
-                        width="25px",
-                        height="25px",
-                        margin="0px 2px"
+                        width="35px",
+                        height="30px",
+                        margin="0px 2px",
+                        padding="2px"
                     ),
                     button_style="primary" if point_id in self.pos_ids else "",
                     tooltip="Click to label as positive"
@@ -1245,9 +1250,10 @@ class GeoVibes:
                     description="",
                     icon="fa-times",  # Font Awesome f00d
                     layout=Layout(
-                        width="25px",
-                        height="25px",
-                        margin="0px 2px"
+                        width="35px",
+                        height="30px",
+                        margin="0px 2px",
+                        padding="2px"
                     ),
                     button_style="warning" if point_id in self.neg_ids else "",
                     tooltip="Click to label as negative"
@@ -1283,7 +1289,7 @@ class GeoVibes:
                 tile_container = VBox(
                     [button_row, tile_image],
                     layout=Layout(
-                        width="136px",  # Adjusted for wider image
+                        width="145px",  # Adjusted for wider buttons and image
                         padding="2px",
                         margin="0px"
                     )
@@ -1300,8 +1306,8 @@ class GeoVibes:
                 error_label = ipyw.Label(
                     value="Error",
                     layout=ipyw.Layout(
-                        width="136px",  # Adjusted for wider image
-                        height="165px",  # Adjusted for wider image + buttons
+                        width="145px",  # Adjusted for wider buttons and image
+                        height="170px",  # Adjusted for wider image + buttons
                         border="1px solid #ff0000",
                         display="flex",
                         align_items="center",
