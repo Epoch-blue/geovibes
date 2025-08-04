@@ -402,8 +402,8 @@ class GeoVibes:
         # Build UI
         self.side_panel, self.ui_widgets = self._build_side_panel()
 
-        # Build results panel
-        self.results_panel, self.results_widgets = self._build_results_panel()
+        # Build tiles panel
+        self._build_tiles_panel()
 
         # Add layers to map
         self._add_map_layers()
@@ -413,6 +413,17 @@ class GeoVibes:
 
         # Add DrawControl
         self._setup_draw_control()
+
+        # Add tiles button
+        self.tiles_button = Button(
+            description="",
+            icon="th",
+            layout=Layout(width="40px", height="40px"),
+            button_style="",
+            tooltip="View search results as tiles",
+        )
+        tiles_control = ipyl.WidgetControl(widget=self.tiles_button, position="topright")
+        self.map.add_control(tiles_control)
 
         # Wire events
         self._wire_events()
@@ -437,6 +448,17 @@ class GeoVibes:
         # Add status bar
         self.status_bar = HTML(value="Ready")
 
+        # Add tiles button
+        self.tiles_button = Button(
+            description="",
+            icon="th",
+            layout=Layout(width="40px", height="40px"),
+            button_style="",
+            tooltip="View search results as tiles",
+        )
+        tiles_control = ipyl.WidgetControl(widget=self.tiles_button, position="topright")
+        self.map.add_control(tiles_control)
+
         # Create main layout
         map_with_overlays = VBox(
             [
@@ -450,7 +472,7 @@ class GeoVibes:
         )
 
         self.main_layout = HBox(
-            [self.side_panel, map_with_overlays, self.results_panel],
+            [self.side_panel, map_with_overlays],
             layout=Layout(height=UIConstants.DEFAULT_HEIGHT, width="100%"),
         )
 
@@ -766,38 +788,8 @@ class GeoVibes:
         return f"data:image/png;base64,{img_data}"
 
 
-    def _build_results_panel(self):
-        """Build the collapsible results panel showing similar point chips."""
-
-        # Results panel collapse/expand button
-        self.results_collapse_btn = Button(
-            description="▶",
-            layout=Layout(
-                width="30px",
-                height="30px",
-            ),
-            tooltip="Show/Hide Results Panel",
-        )
-
-        # Panel header
-        results_header = HBox(
-            [
-                Label("Similar Points", layout=Layout(flex="1")),
-                self.results_collapse_btn,
-            ],
-            layout=Layout(width="100%", justify_content="space-between", padding="2px"),
-        )
-
-        # Results container that will hold the chips
-        self.results_container = VBox(
-            [],
-            layout=Layout(
-                width="100%",
-                height="100%",
-                overflow_y="auto",
-                padding="5px",
-            ),
-        )
+    def _build_tiles_panel(self):
+        """Build the results panel as a VBox overlay."""
         self.tiles_display = ipyw.Output()
         self.results_grid = ipyw.GridBox(
             [],
@@ -807,65 +799,29 @@ class GeoVibes:
                 grid_gap="5px",
             ),
         )
-        self.results_container.children = [self.tiles_display]
         with self.tiles_display:
             display(self.results_grid)
 
-        # Results content (header + container)
-        self.results_content = VBox(
-            [self.results_container], layout=Layout(width="100%", height="100%")
+        self.tiles_pane = VBox(
+            [self.tiles_display],
+            layout=Layout(display="none", width="300px", padding="5px"),
         )
+        tiles_pane_control = ipyl.WidgetControl(widget=self.tiles_pane, position="topright")
+        self.map.add_control(tiles_pane_control)
 
-        # Main results panel (initially collapsed)
-        self.results_panel_collapsed = True
-        panel_content = VBox(
-            [
-                results_header,
-                self.results_content,
-            ],
-            layout=Layout(
-                width="0px",  # Start collapsed
-                height="100%",  # Match main layout height
-                padding="5px",
-                border="1px solid #ccc",
-                display="none",  # Start hidden
-            ),
-        )
 
-        # Wire the collapse button
-        self.results_collapse_btn.on_click(self._on_toggle_results_collapse)
-
-        # Return panel and widget references
-        results_widgets = {
-            "results_collapse_btn": self.results_collapse_btn,
-            "results_container": self.results_container,
-        }
-
-        return panel_content, results_widgets
-
-    def _on_toggle_results_collapse(self, b):
-        """Toggle results panel collapse/expand."""
-        if self.results_panel_collapsed:
-            # Expand
-            self.results_panel.layout.display = "flex"
-            self.results_panel.layout.width = "250px"
-            self.results_collapse_btn.description = "◀"
-            self.results_panel_collapsed = False
-        else:
-            # Collapse
-            self.results_panel.layout.display = "none"
-            self.results_panel.layout.width = "0px"
-            self.results_collapse_btn.description = "▶"
-            self.results_panel_collapsed = True
+    def _on_tiles_click(self, b):
+        """Toggle the tiles panel visibility."""
+        if self.tiles_button.button_style == 'success':
+            if self.tiles_pane.layout.display == 'none':
+                self.tiles_pane.layout.display = ''
+            else:
+                self.tiles_pane.layout.display = 'none'
 
     def _update_results_panel(self, search_results_df):
-        """Update the results panel with chips for each similar point.
-
-        Args:
-            search_results_df: DataFrame with columns ['id', 'geometry_wkt', 'distance']
-        """
+        """Update the results panel with chips for each similar point."""
         if search_results_df.empty:
-            self.results_container.children = []
+            self.results_grid.children = []
             return
 
         def create_tile(row):
@@ -874,7 +830,6 @@ class GeoVibes:
                 image_bytes = get_map_image(
                     source=self.current_basemap, lon=geom.x, lat=geom.y
                 )
-
                 return ipyw.Image(
                     value=image_bytes, format="png", width=100, height=100
                 )
@@ -890,8 +845,9 @@ class GeoVibes:
 
         self.results_grid.children = valid_tiles
         
-        if self.results_panel_collapsed and valid_tiles:
-            self._on_toggle_results_collapse(None)
+        if valid_tiles:
+            self.tiles_button.button_style = 'success'
+
 
 
     def _update_toggle_button_styles(self):
@@ -983,6 +939,9 @@ class GeoVibes:
 
         # Reset button
         self.reset_btn.on_click(self.reset_all)
+
+        # Tiles button
+        self.tiles_button.on_click(self._on_tiles_click)
 
         # Label toggle
         self.label_toggle.observe(self._on_label_change, "value")
@@ -1338,8 +1297,10 @@ class GeoVibes:
                 self.map.remove_layer(self.vector_layer)
             self.vector_layer = None
 
-        # Clear results panel
-        self.results_container.children = []
+        # Clear results panel and reset button style
+        self.results_grid.children = []
+        self.tiles_pane.layout.display = 'none'
+        self.tiles_button.button_style = ''
 
         # Clear operation status
         self._clear_operation_status()
