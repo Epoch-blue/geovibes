@@ -859,6 +859,8 @@ class GeoVibes:
         """Handle tile basemap change."""
         self.tile_basemap = change["new"]
         self.tile_page = 0  # Reset page number
+        # Clear all tiles when switching basemaps
+        self.results_grid.children = []
         self._update_results_panel(self.last_search_results_df)
 
     def _on_next_tiles_click(self, b):
@@ -880,7 +882,7 @@ class GeoVibes:
             self.tile_page -= 1  # Revert to last valid page
             return
 
-        # Clear existing tiles and show loading placeholders
+        # Create loading placeholders
         num_tiles = len(page_df)
         loading_tiles = []
         for i in range(num_tiles):
@@ -897,7 +899,16 @@ class GeoVibes:
             )
             loading_tiles.append(loading_label)
         
-        self.results_grid.children = loading_tiles
+        # If this is page 0, replace all tiles. Otherwise, append new ones
+        if self.tile_page == 0:
+            self.results_grid.children = loading_tiles
+        else:
+            # Keep existing tiles and add new loading placeholders
+            existing_tiles = list(self.results_grid.children)
+            self.results_grid.children = existing_tiles + loading_tiles
+
+        # Calculate the offset for the new tiles in the grid
+        offset = 0 if self.tile_page == 0 else len(existing_tiles)
 
         def create_and_update_tile(idx, row):
             try:
@@ -910,7 +921,7 @@ class GeoVibes:
                 )
                 # Update the specific tile in the grid
                 tiles_list = list(self.results_grid.children)
-                tiles_list[idx] = tile
+                tiles_list[offset + idx] = tile
                 self.results_grid.children = tiles_list
             except Exception as e:
                 if self.verbose:
@@ -928,7 +939,7 @@ class GeoVibes:
                     )
                 )
                 tiles_list = list(self.results_grid.children)
-                tiles_list[idx] = error_label
+                tiles_list[offset + idx] = error_label
                 self.results_grid.children = tiles_list
 
         # Load tiles asynchronously
