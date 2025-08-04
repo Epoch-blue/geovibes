@@ -448,16 +448,16 @@ class GeoVibes:
         # Add status bar
         self.status_bar = HTML(value="Ready")
 
-        # Add tiles button
-        self.tiles_button = Button(
-            description="",
-            icon="th",
-            layout=Layout(width="40px", height="40px"),
-            button_style="",
-            tooltip="View search results as tiles",
-        )
-        tiles_control = ipyl.WidgetControl(widget=self.tiles_button, position="topright")
-        self.map.add_control(tiles_control)
+        # # Add tiles button
+        # self.tiles_button = Button(
+        #     description="",
+        #     icon="th",
+        #     layout=Layout(width="40px", height="40px"),
+        #     button_style="",
+        #     tooltip="View search results as tiles",
+        # )
+        # tiles_control = ipyl.WidgetControl(widget=self.tiles_button, position="topright")
+        # self.map.add_control(tiles_control)
 
         # Create main layout
         map_with_overlays = VBox(
