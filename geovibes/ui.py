@@ -399,6 +399,12 @@ class GeoVibes:
         self.current_operation = None  # Track current operation for status display
         self.vector_layer = None  # Track custom vector layer
 
+        # New state for tiles panel
+        self.tile_basemap = self.current_basemap
+        self.tile_page = 0
+        self.tiles_per_page = 14
+        self.last_search_results_df = None
+
         # Build UI
         self.side_panel, self.ui_widgets = self._build_side_panel()
 
@@ -782,7 +788,27 @@ class GeoVibes:
 
 
     def _build_tiles_panel(self):
-        """Build the results panel as a VBox overlay."""
+        """Build the results panel with controls."""
+        basemap_options = list(BasemapConfig.BASEMAP_TILES.keys())
+        self.tile_basemap_dropdown = ipyw.Dropdown(
+            options=basemap_options,
+            value=self.tile_basemap,
+            description="Basemap:",
+            layout=ipyw.Layout(width="150px"),
+            style={'description_width': 'initial'}
+        )
+
+        self.next_tiles_btn = Button(description="Next", layout=ipyw.Layout(width="auto"))
+        
+        tiles_controls = ipyw.HBox(
+            [self.tile_basemap_dropdown, self.next_tiles_btn],
+            layout=ipyw.Layout(
+                justify_content="space-between", 
+                width="100%",
+                margin="0 0 10px 0"
+            ),
+        )
+
         self.tiles_display = ipyw.Output()
         self.results_grid = ipyw.GridBox(
             [],
@@ -795,18 +821,30 @@ class GeoVibes:
         with self.tiles_display:
             display(self.results_grid)
 
-        self.tiles_pane = VBox(
+        # Create a scrollable container for just the tiles
+        tiles_scroll_container = VBox(
             [self.tiles_display],
+            layout=Layout(
+                width="100%",
+                max_height="600px",
+                overflow_y="auto",
+            ),
+        )
+
+        self.tiles_pane = VBox(
+            [tiles_controls, tiles_scroll_container],
             layout=Layout(
                 display="none",
                 width="235px",
-                max_height="700px",
-                overflow_y="auto",
                 padding="5px",
             ),
         )
         tiles_pane_control = ipyl.WidgetControl(widget=self.tiles_pane, position="topright")
         self.map.add_control(tiles_pane_control)
+
+        # Wire events
+        self.tile_basemap_dropdown.observe(self._on_tile_basemap_change, names="value")
+        self.next_tiles_btn.on_click(self._on_next_tiles_click)
 
 
     def _on_tiles_click(self, b):
@@ -817,17 +855,36 @@ class GeoVibes:
             else:
                 self.tiles_pane.layout.display = 'none'
 
+    def _on_tile_basemap_change(self, change):
+        """Handle tile basemap change."""
+        self.tile_basemap = change["new"]
+        self.tile_page = 0  # Reset page number
+        self._update_results_panel(self.last_search_results_df)
+
+    def _on_next_tiles_click(self, b):
+        """Handle next tiles button click."""
+        self.tile_page += 1
+        self._update_results_panel(self.last_search_results_df)
+
     def _update_results_panel(self, search_results_df):
         """Update the results panel with chips for each similar point."""
-        if search_results_df.empty:
+        if search_results_df is None or search_results_df.empty:
             self.results_grid.children = []
+            return
+
+        start_index = self.tile_page * self.tiles_per_page
+        end_index = start_index + self.tiles_per_page
+        page_df = search_results_df.iloc[start_index:end_index]
+
+        if page_df.empty:
+            self.tile_page -= 1  # Revert to last valid page
             return
 
         def create_tile(row):
             try:
                 geom = shapely.wkt.loads(row["geometry_wkt"])
                 image_bytes = get_map_image(
-                    source=self.current_basemap, lon=geom.x, lat=geom.y
+                    source=self.tile_basemap, lon=geom.x, lat=geom.y
                 )
                 return ipyw.Image(
                     value=image_bytes, format="png", width=100, height=100
@@ -838,11 +895,14 @@ class GeoVibes:
                 return None
 
         with ThreadPoolExecutor() as executor:
-            tiles = list(executor.map(create_tile, [row for _, row in search_results_df.head(14).iterrows()]))
+            tiles = list(executor.map(create_tile, [row for _, row in page_df.iterrows()]))
 
         valid_tiles = [tile for tile in tiles if tile is not None]
 
-        self.results_grid.children = valid_tiles
+        if self.tile_page == 0:
+            self.results_grid.children = valid_tiles
+        else:
+            self.results_grid.children += tuple(valid_tiles)
         
         if valid_tiles:
             self.tiles_button.button_style = 'success'
@@ -1509,8 +1569,11 @@ class GeoVibes:
                     }
                 })
         
+        self.last_search_results_df = search_results_filtered.copy()
+        self.tile_page = 0
+        
         self._update_search_layer_with_colors(detections_geojson)
-        self._update_results_panel(search_results_filtered)
+        self._update_results_panel(self.last_search_results_df)
 
     def label_point(self, **kwargs):
         """Assign a label and map layer to a clicked map point."""
