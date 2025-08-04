@@ -1572,7 +1572,10 @@ class GeoVibes:
             min_distance = search_results_filtered['distance'].min()
             max_distance = search_results_filtered['distance'].max()
             
-            for _, row in search_results_filtered.iterrows():
+            # Sort by distance in descending order so most similar (green) points render last and appear on top
+            search_results_sorted = search_results_filtered.sort_values('distance', ascending=False)
+            
+            for _, row in search_results_sorted.iterrows():
                 color = UIConstants.distance_to_color(row['distance'], min_distance, max_distance)
                 detections_geojson["features"].append({
                     "type": "Feature",
