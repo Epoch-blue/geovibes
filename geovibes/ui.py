@@ -1010,8 +1010,7 @@ class GeoVibes:
                 style={
                     'color': '#ff0000',
                     'weight': 3,
-                    'fillColor': '#ff0000',
-                    'fillOpacity': 0.1
+                    'fillOpacity': 0
                 },
                 name='tile_highlight'
             )
