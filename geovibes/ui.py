@@ -789,14 +789,27 @@ class GeoVibes:
         )
 
         # Results container that will hold the chips
-        self.results_container = ipyw.GridBox(
+        self.results_container = VBox(
             [],
             layout=Layout(
                 width="100%",
-                grid_template_columns="repeat(auto-fill, minmax(100px, 1fr))",
-                grid_gap="5px"
-            )
+                height="100%",
+                overflow_y="auto",
+                padding="5px",
+            ),
         )
+        self.tiles_display = ipyw.Output()
+        self.results_grid = ipyw.GridBox(
+            [],
+            layout=Layout(
+                width="100%",
+                grid_template_columns="1fr 1fr",
+                grid_gap="5px",
+            ),
+        )
+        self.results_container.children = [self.tiles_display]
+        with self.tiles_display:
+            display(self.results_grid)
 
         # Results content (header + container)
         self.results_content = VBox(
@@ -891,7 +904,7 @@ class GeoVibes:
 
         valid_tiles = [tile for tile in tiles if tile is not None]
 
-        self.results_container.children = valid_tiles
+        self.results_grid.children = valid_tiles
         
         if self.results_panel_collapsed and valid_tiles:
             self._on_toggle_results_collapse(None)
