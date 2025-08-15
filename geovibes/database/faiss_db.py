@@ -50,15 +50,19 @@ def _download_single_cloud_file(cloud_path: str, temp_dir: str) -> Optional[str]
     local_filename = os.path.join(temp_dir, os.path.basename(cloud_path))
     if os.path.exists(local_filename):
         return local_filename
-    fs = fsspec.filesystem(protocol)
-    fs.get(cloud_path, local_filename)
+    try:
+        fs = fsspec.filesystem(protocol)
+        fs.get(cloud_path, local_filename)
+    except Exception as e:
+        logging.error(f"Failed to download {cloud_path}: {e}")
+        return None
     return local_filename
 
 
 
 def download_cloud_files(cloud_paths: list[str], temp_dir: str) -> list[str]:
     """Download parquet files from cloud to a temporary directory in parallel."""
-    local_paths = Parallel(n_jobs=-1, verbose=10)(
+    local_paths = Parallel(n_jobs=-1, prefer="threads", verbose=10)(
         delayed(_download_single_cloud_file)(cloud_path, temp_dir)
         for cloud_path in cloud_paths
     )
