@@ -2,13 +2,102 @@ import argparse
 import logging
 import pathlib
 import time
+import os
+import tempfile
+import shutil
 import duckdb
 import geovibes.database.faiss_db as faiss_db
+import faiss
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import glob
 import gc
+import fsspec
+from joblib import Parallel, delayed
+from typing import Optional
+import geovibes.tiling as tiling
+
+
+def get_cloud_protocol(path: str) -> Optional[str]:
+    """Returns 's3' or 'gs' if the path is a cloud path, otherwise None."""
+    if path.startswith("s3://"):
+        return "s3"
+    if path.startswith("gs://"):
+        return "gs"
+    return None
+
+
+
+def list_cloud_parquet_files(cloud_path: str) -> list[str]:
+    """List all parquet files in a cloud directory (GCS or S3)."""
+    protocol = get_cloud_protocol(cloud_path)
+    if not protocol:
+        raise ValueError("Cloud path must start with 'gs://' or 's3://'")
+    if not cloud_path.endswith('/'):
+        cloud_path += '/'
+    fs = fsspec.filesystem(protocol)
+    return [f"{protocol}://{p}" for p in fs.glob(cloud_path + "*.parquet")]
+
+
+
+def _download_single_cloud_file(cloud_path: str, temp_dir: str) -> Optional[str]:
+    """Download one cloud file to a temp directory and return local path."""
+    protocol = get_cloud_protocol(cloud_path)
+    if not protocol:
+        logging.error(f"Invalid cloud path provided to worker: {cloud_path}")
+        return None
+    local_filename = os.path.join(temp_dir, os.path.basename(cloud_path))
+    if os.path.exists(local_filename):
+        return local_filename
+    fs = fsspec.filesystem(protocol)
+    fs.get(cloud_path, local_filename)
+    return local_filename
+
+
+
+def download_cloud_files(cloud_paths: list[str], temp_dir: str) -> list[str]:
+    """Download parquet files from cloud to a temporary directory in parallel."""
+    local_paths = Parallel(n_jobs=-1, verbose=10)(
+        delayed(_download_single_cloud_file)(cloud_path, temp_dir)
+        for cloud_path in cloud_paths
+    )
+    return [path for path in local_paths if path is not None]
+
+
+
+def find_embedding_files_for_mgrs_ids(mgrs_ids: list[str], embedding_dir: str) -> list[str]:
+    """Find parquet files in embedding directory that contain the specified MGRS IDs."""
+    found_files: list[str] = []
+    if get_cloud_protocol(embedding_dir):
+        try:
+            all_parquet_files = list_cloud_parquet_files(embedding_dir)
+            for mgrs_id in mgrs_ids:
+                matching_files = [f for f in all_parquet_files if mgrs_id in os.path.basename(f)]
+                found_files.extend(matching_files)
+        except Exception as e:
+            logging.error(f"Error listing cloud files: {e}")
+            return []
+    else:
+        embedding_path = pathlib.Path(embedding_dir)
+        if not embedding_path.exists():
+            logging.error(f"Embedding directory does not exist: {embedding_dir}")
+            return []
+        for mgrs_id in mgrs_ids:
+            patterns = [
+                f"*{mgrs_id}*.parquet",
+                f"{mgrs_id}_*.parquet",
+                f"*_{mgrs_id}.parquet",
+                f"*{mgrs_id}_embeddings.parquet",
+            ]
+            mgrs_files: list[str] = []
+            for pattern in patterns:
+                matches = list(embedding_path.glob(pattern))
+                mgrs_files.extend([str(f) for f in matches])
+            mgrs_files = list(set(mgrs_files))
+            if mgrs_files:
+                found_files.extend(mgrs_files)
+    return list(set(found_files))
 
 def setup_logging():
     """Configure basic logging settings."""
@@ -193,15 +282,15 @@ def create_faiss_index(db_path: str, index_path: str, embedding_dim: int, dtype:
         if dtype.upper() == 'FLOAT':
             logging.info("Building FAISS index for FLOAT data using IndexIVFPQ.")
             # Use IndexIVFPQ for floating point data
-            quantizer = faiss_db.IndexFlatL2(embedding_dim)
-            index = faiss_db.IndexIVFPQ(quantizer, embedding_dim, nlist, m, nbits)
+            quantizer = faiss.IndexFlatL2(embedding_dim)
+            index = faiss.IndexIVFPQ(quantizer, embedding_dim, nlist, m, nbits)
             input_dtype = np.float32
         
         elif dtype.upper() == 'INT8':
             logging.info("Building FAISS index for INT8 data using IndexIVFScalarQuantizer.")
             # Use IndexIVFScalarQuantizer for quantized integer data
-            quantizer = faiss_db.IndexFlatL2(embedding_dim) # The IVF quantizer still operates in float space
-            index = faiss_db.IndexIVFScalarQuantizer(quantizer, embedding_dim, nlist, faiss_db.ScalarQuantizer.QT_8bit)
+            quantizer = faiss.IndexFlatL2(embedding_dim) # The IVF quantizer still operates in float space
+            index = faiss.IndexIVFScalarQuantizer(quantizer, embedding_dim, nlist, faiss.ScalarQuantizer.QT_8bit)
             input_dtype = np.uint8
 
         else:
@@ -248,13 +337,20 @@ def create_faiss_index(db_path: str, index_path: str, embedding_dim: int, dtype:
         
         # 4. Save the final index to disk
         logging.info(f"Writing index to {index_path}")
-        faiss_db.write_index(index, index_path)
+        faiss.write_index(index, index_path)
         logging.info("FAISS index successfully built and saved.")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Build a FAISS index from geospatial embeddings stored in Parquet files.")
-    parser.add_argument("parquet_files", nargs='+', help="Paths to input Parquet files or a glob pattern.")
+
+    # argparse cannot include positional args in mutually exclusive groups.
+    # Define both inputs and validate exclusivity manually below.
+    parser.add_argument("parquet_files", nargs='*', help="Paths to input Parquet files or directories (local or gs:// or s3://)")
+    parser.add_argument("--roi-file", dest="roi_file", help="ROI geometry file to intersect with MGRS tiles for automatic file discovery")
+
+    parser.add_argument("--mgrs-reference-file", dest="mgrs_reference_file", help="MGRS reference file containing MGRS tile geometries (required with --roi-file)")
+    parser.add_argument("--embedding-dir", dest="embedding_dir", help="Directory containing embedding parquet files (required with --roi-file)")
     parser.add_argument("--name", type=str, required=True, help="A descriptive name for the output files (e.g., 'bali_2024').")
     parser.add_argument("--output_dir", default=".", help="Directory to save the DuckDB and FAISS index files.")
     parser.add_argument("--embedding_dim", type=int, default=384, help="Dimension of the embedding vectors.")
@@ -281,28 +377,89 @@ def main():
 
     db_path = str(output_dir / db_filename)
     index_path = str(output_dir / index_filename)
+    
+    # Validate mutual exclusivity and ROI-based arguments
+    if getattr(args, "roi_file", None) and args.parquet_files:
+        parser.error("Cannot use positional parquet_files with --roi-file; choose one input method.")
+    if not getattr(args, "roi_file", None) and not args.parquet_files:
+        parser.error("You must provide either parquet file paths or --roi-file.")
+    if getattr(args, "roi_file", None):
+        if not getattr(args, "mgrs_reference_file", None):
+            parser.error("--mgrs-reference-file is required when using --roi-file")
+        if not getattr(args, "embedding_dir", None):
+            parser.error("--embedding-dir is required when using --roi-file")
 
-    # --- File Discovery ---
-    all_files = []
-    for path_pattern in args.parquet_files:
-        # Check if it's a directory
-        if pathlib.Path(path_pattern).is_dir():
-            all_files.extend(glob.glob(f"{path_pattern}/**/*.parquet", recursive=True))
-        else:
-            # Assume it's a glob pattern or a single file
-            all_files.extend(glob.glob(path_pattern))
-            
-    if not all_files:
-        logging.error(f"No parquet files found for the given paths: {args.parquet_files}")
+    # --- File Discovery (local and cloud, optional ROI) ---
+    all_parquet_files: list[str] = []
+    cloud_files: list[str] = []
+
+    if getattr(args, "roi_file", None):
+        logging.info("Using ROI-based file discovery")
+        mgrs_tile_ids = tiling.get_mgrs_tile_ids_for_roi_from_roi_file(
+            roi_geojson_file=args.roi_file,
+            mgrs_tiles_file=args.mgrs_reference_file,
+        )
+        mgrs_ids = [str(t) for t in mgrs_tile_ids]
+        if not mgrs_ids:
+            logging.error("No MGRS tiles found intersecting with ROI")
+            return
+        embedding_files = find_embedding_files_for_mgrs_ids(mgrs_ids, args.embedding_dir)
+        if not embedding_files:
+            logging.error("No embedding files found for intersecting MGRS tiles")
+            return
+        for file_path in embedding_files:
+            if get_cloud_protocol(file_path):
+                cloud_files.append(file_path)
+            else:
+                all_parquet_files.append(file_path)
+        logging.info(f"Found {len(embedding_files)} embedding files for ROI ({len(all_parquet_files)} local, {len(cloud_files)} cloud)")
+    else:
+        logging.info("Using explicit parquet file paths")
+        parquet_inputs = getattr(args, "parquet_files", []) or []
+        for path in parquet_inputs:
+            if get_cloud_protocol(path):
+                if path.endswith('.parquet'):
+                    cloud_files.append(path)
+                else:
+                    cloud_parquet_files = list_cloud_parquet_files(path)
+                    cloud_files.extend(cloud_parquet_files)
+                    logging.info(f"Found {len(cloud_parquet_files)} parquet files in {path}")
+            else:
+                path_obj = pathlib.Path(path)
+                if path_obj.is_file() and path_obj.suffix == '.parquet':
+                    all_parquet_files.append(str(path_obj))
+                elif path_obj.is_dir():
+                    all_parquet_files.extend(glob.glob(f"{str(path_obj)}/**/*.parquet", recursive=True))
+                else:
+                    all_parquet_files.extend(glob.glob(path))
+
+    temp_dir = None
+    if cloud_files:
+        temp_dir = tempfile.mkdtemp(prefix="faiss_db_")
+        logging.info(f"Downloading {len(cloud_files)} files from cloud to temporary directory...")
+        local_cloud_files = download_cloud_files(cloud_files, temp_dir)
+        all_parquet_files.extend(local_cloud_files)
+
+    # Deduplicate and validate
+    all_parquet_files = list(dict.fromkeys(all_parquet_files))
+
+    if not all_parquet_files:
+        logging.error("No parquet files found!")
+        if temp_dir:
+            shutil.rmtree(temp_dir)
         return
 
-    files_to_process = all_files
+    logging.info(f"Total {len(all_parquet_files)} parquet files to process")
+
+    files_to_process = all_parquet_files
     if args.dry_run:
         logging.info(f"--- Starting DRY RUN using the first {args.dry_run_size} files. ---")
-        files_to_process = files_to_process[:args.dry_run_size]
+        files_to_process = files_to_process[: args.dry_run_size]
 
     if not files_to_process:
         logging.error("No files left to process after applying dry-run filter.")
+        if temp_dir:
+            shutil.rmtree(temp_dir)
         return
     
     start_total_time = time.time()
@@ -315,6 +472,10 @@ def main():
     
     logging.info(f"Total process completed in {time.time() - start_total_time:.2f} seconds.")
     logging.info(f"Artifacts created:\n- DuckDB: {db_path}\n- FAISS Index: {index_path}")
+
+    if temp_dir:
+        shutil.rmtree(temp_dir)
+        logging.info(f"Cleaned up temporary directory: {temp_dir}")
 
 if __name__ == "__main__":
     main() 
