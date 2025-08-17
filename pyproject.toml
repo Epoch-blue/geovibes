@@ -63,6 +63,7 @@ dependencies = [
     "python-dotenv",
     "PyYAML",
     "rasterio",
+    "s3fs",
     "scikit-learn",
     "shapely",
     "tenacity",

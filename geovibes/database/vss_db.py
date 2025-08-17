@@ -474,7 +474,6 @@ def main():
     input_group = parser.add_mutually_exclusive_group(required=True)
     input_group.add_argument("parquet_files", nargs='*', help="Paths to parquet files or directories (local or gs:// or s3://)")
     input_group.add_argument("--roi-file", help="ROI geometry file to intersect with MGRS tiles for automatic file discovery")
-    
     parser.add_argument("--output_path", help="Output path for the DuckDB database (local path or gs:// or s3:// path)")
     
     # ROI-based discovery arguments
