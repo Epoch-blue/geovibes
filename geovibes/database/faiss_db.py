@@ -119,7 +119,7 @@ class IngestParquetError(Exception):
     pass
 
 
-def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, embedding_dim: int, dtype: str, embedding_col: str):
+def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, embedding_dim: int, dtype: str, embedding_col: str, mgrs_ids: Optional[list[str]] = None, roi_geometry_wkb: Optional[bytes] = None):
     """
     Ingests data from Parquet files into a DuckDB database.
     Args:
@@ -128,6 +128,8 @@ def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, embedding_d
         embedding_dim: The dimension of the vector embeddings.
         dtype: The data type of the embeddings.
         embedding_col: The name of the embedding column in the Parquet files.
+        mgrs_ids: Optional list of MGRS tile IDs; used for filtering when geometry is absent but tile_id is present.
+        roi_geometry_wkb: Optional single ROI geometry as WKB bytes; if provided and geometry exists, rows are filtered by ST_Intersects.
     """
     if not parquet_files:
         raise IngestParquetError("No parquet files provided for ingestion.")
@@ -237,15 +239,48 @@ def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, embedding_d
             if has_geometry:
                 select_clause += ", geometry"
 
-            insert_sql = f"""
-                INSERT INTO geo_embeddings ({insert_columns})
-                SELECT
-                    {select_clause}
-                FROM read_parquet({sql_parquet_files_list_str}, union_by_name=true);
-            """
+                # Apply ROI filter only when WKB geometry is provided
+                if roi_geometry_wkb is not None:
+                    logging.info("Applying ROI geometry (WKB) filter during ingestion (ST_Intersects)...")
+                    insert_sql = f"""
+                        WITH roi AS (
+                            SELECT ST_GeomFromWKB(?) AS geom
+                        )
+                        INSERT INTO geo_embeddings ({insert_columns})
+                        SELECT
+                            {select_clause}
+                        FROM read_parquet({sql_parquet_files_list_str}, union_by_name=true) AS t, roi
+                        WHERE ST_Intersects(t.geometry, roi.geom);
+                    """
+                    con.execute(insert_sql, [roi_geometry_wkb])
+                else:
+                    insert_sql = f"""
+                        INSERT INTO geo_embeddings ({insert_columns})
+                        SELECT
+                            {select_clause}
+                        FROM read_parquet({sql_parquet_files_list_str}, union_by_name=true);
+                    """
+                    logging.info("Inserting data into DuckDB without ROI filter.")
+                    con.execute(insert_sql)
+            else:
+                # No geometry in source; optionally filter by tile_id using MGRS IDs if available
+                where_clause = ""
+                if id_column_in_parquet == 'tile_id' and mgrs_ids:
+                    logging.info("Applying tile_id filter using MGRS IDs during ingestion (no geometry column available)...")
+                    mgrs_list_sql = ", ".join([f"'{mid}'" for mid in mgrs_ids])
+                    where_clause = f" WHERE tile_id IN ({mgrs_list_sql})"
 
-            logging.info(f"Inserting data into DuckDB with sql: {insert_sql}")
-            con.execute(insert_sql)
+                insert_sql = f"""
+                    INSERT INTO geo_embeddings ({insert_columns})
+                    SELECT
+                        {select_clause}
+                    FROM read_parquet({sql_parquet_files_list_str}, union_by_name=true){where_clause};
+                """
+                if where_clause:
+                    logging.info("Inserting data into DuckDB with tile filter.")
+                else:
+                    logging.info("Inserting data into DuckDB without tile filter.")
+                con.execute(insert_sql)
         except Exception as e:
             raise IngestParquetError(f"Failed to ingest parquet files: {e}. Please ensure all parquet files have a consistent schema.")
 
@@ -396,6 +431,8 @@ def main():
     # --- File Discovery (local and cloud, optional ROI) ---
     all_parquet_files: list[str] = []
     cloud_files: list[str] = []
+    mgrs_ids: Optional[list[str]] = None
+    roi_wkb: Optional[bytes] = None
 
     if getattr(args, "roi_file", None):
         logging.info("Using ROI-based file discovery")
@@ -407,6 +444,24 @@ def main():
         if not mgrs_ids:
             logging.error("No MGRS tiles found intersecting with ROI")
             return
+        # Derive a single ROI geometry WKB once (to pass into ingestion for row-level filtering)
+        try:
+            with duckdb.connect() as con_roi:
+                con_roi.execute("INSTALL spatial; LOAD spatial;")
+                row = con_roi.execute(
+                    """
+                    WITH roi AS (
+                        SELECT ST_Union_Agg(geom) AS geom
+                        FROM ST_Read(?)
+                    )
+                    SELECT ST_AsWKB(geom) FROM roi;
+                    """,
+                    [args.roi_file],
+                ).fetchone()
+                if row and row[0] is not None:
+                    roi_wkb = bytes(row[0]) if not isinstance(row[0], (bytes, bytearray)) else row[0]
+        except Exception as e:
+            logging.error(f"Failed to derive ROI WKB from file {args.roi_file}: {e}")
         embedding_files = find_embedding_files_for_mgrs_ids(mgrs_ids, args.embedding_dir)
         if not embedding_files:
             logging.error("No embedding files found for intersecting MGRS tiles")
@@ -469,7 +524,15 @@ def main():
     start_total_time = time.time()
 
     # --- Phase 1: Ingest data into DuckDB ---
-    ingest_parquet_to_duckdb(files_to_process, db_path, args.embedding_dim, args.dtype, args.embedding_col)
+    ingest_parquet_to_duckdb(
+        files_to_process,
+        db_path,
+        args.embedding_dim,
+        args.dtype,
+        args.embedding_col,
+        mgrs_ids=mgrs_ids,
+        roi_geometry_wkb=roi_wkb,
+    )
 
     # --- Phase 2: Build FAISS index ---
     create_faiss_index(db_path, index_path, args.embedding_dim, args.dtype, args.nlist, args.m, args.nbits, args.batch_size)
