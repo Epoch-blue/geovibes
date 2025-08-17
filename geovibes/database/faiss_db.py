@@ -28,6 +28,21 @@ def get_cloud_protocol(path: str) -> Optional[str]:
     return None
 
 
+def infer_embedding_dim_from_file(parquet_file: str, embedding_col: str) -> int:
+    with duckdb.connect() as con_inf:
+        row = con_inf.execute(
+            f"SELECT {embedding_col} FROM read_parquet(?) WHERE {embedding_col} IS NOT NULL LIMIT 1;",
+            (parquet_file,),
+        ).fetchone()
+        if not row or row[0] is None:
+            raise IngestParquetError(f"Could not infer embedding dimension; column '{embedding_col}' has no non-null rows in {parquet_file}")
+        arr = np.asarray(row[0])
+        dim = int(arr.shape[0])
+        logging.info(f"Inferred embedding_dim={dim} from first row of {parquet_file}")
+        logging.info(f"Sample embedding values: {arr[:8].tolist()}")
+        return dim
+
+
 
 def list_cloud_parquet_files(cloud_path: str) -> list[str]:
     """List all parquet files in a cloud directory (GCS or S3)."""
@@ -36,7 +51,11 @@ def list_cloud_parquet_files(cloud_path: str) -> list[str]:
         raise ValueError("Cloud path must start with 'gs://' or 's3://'")
     if not cloud_path.endswith('/'):
         cloud_path += '/'
-    fs = fsspec.filesystem(protocol)
+    if protocol == "s3":
+        endpoint = os.environ.get("S3_ENDPOINT_URL", "https://data.source.coop")
+        fs = fsspec.filesystem("s3", client_kwargs={"endpoint_url": endpoint})
+    else:
+        fs = fsspec.filesystem(protocol)
     return [f"{protocol}://{p}" for p in fs.glob(cloud_path + "*.parquet")]
 
 
@@ -51,7 +70,11 @@ def _download_single_cloud_file(cloud_path: str, temp_dir: str) -> Optional[str]
     if os.path.exists(local_filename):
         return local_filename
     try:
-        fs = fsspec.filesystem(protocol)
+        if protocol == "s3":
+            endpoint = os.environ.get("S3_ENDPOINT_URL", "https://data.source.coop")
+            fs = fsspec.filesystem("s3", client_kwargs={"endpoint_url": endpoint})
+        else:
+            fs = fsspec.filesystem(protocol)
         fs.get(cloud_path, local_filename)
     except Exception as e:
         logging.error(f"Failed to download {cloud_path}: {e}")
@@ -119,7 +142,7 @@ class IngestParquetError(Exception):
     pass
 
 
-def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, embedding_dim: int, dtype: str, embedding_col: str, mgrs_ids: Optional[list[str]] = None, roi_geometry_wkb: Optional[bytes] = None):
+def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, dtype: str, embedding_col: str, mgrs_ids: Optional[list[str]] = None, roi_geometry_wkb: Optional[bytes] = None):
     """
     Ingests data from Parquet files into a DuckDB database.
     Args:
@@ -164,6 +187,11 @@ def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, embedding_d
         raise IngestParquetError(f"Could not read schema from {parquet_files[0]}: {e}")
 
     has_geometry = 'geometry' in available_columns
+
+    try:
+        embedding_dim = infer_embedding_dim_from_file(parquet_files[0], embedding_col)
+    except Exception as e:
+        raise IngestParquetError(str(e))
     
     # Use 'tile_id' if available, otherwise fall back to 'id'
     id_column_in_parquet = 'tile_id' if 'tile_id' in available_columns else 'id' if 'id' in available_columns else None
@@ -292,6 +320,7 @@ def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, embedding_d
             con.execute("CREATE INDEX geom_spatial_idx ON geo_embeddings USING RTREE (geometry);")
             logging.info("Spatial index created successfully.")
 
+        return embedding_dim
 
 def create_faiss_index(db_path: str, index_path: str, embedding_dim: int, dtype: str, nlist: int, m: int, nbits: int, batch_size: int):
     """
@@ -392,7 +421,6 @@ def main():
     parser.add_argument("--embedding-dir", dest="embedding_dir", help="Directory containing embedding parquet files (required with --roi-file)")
     parser.add_argument("--name", type=str, required=True, help="A descriptive name for the output files (e.g., 'bali_2024').")
     parser.add_argument("--output_dir", default=".", help="Directory to save the DuckDB and FAISS index files.")
-    parser.add_argument("--embedding_dim", type=int, default=384, help="Dimension of the embedding vectors.")
     parser.add_argument("--embedding_col", type=str, default="embedding", help="Name of the embedding column in the Parquet files.")
     parser.add_argument("--dtype", type=str, default="FLOAT", choices=["FLOAT", "INT8"], help="Data type of the embeddings (FLOAT or INT8).")
     parser.add_argument("--nlist", type=int, default=4096, help="Number of clusters (IVF cells) for the FAISS index.")
@@ -524,18 +552,18 @@ def main():
     start_total_time = time.time()
 
     # --- Phase 1: Ingest data into DuckDB ---
-    ingest_parquet_to_duckdb(
+    inferred_dim = ingest_parquet_to_duckdb(
         files_to_process,
         db_path,
-        args.embedding_dim,
         args.dtype,
         args.embedding_col,
         mgrs_ids=mgrs_ids,
         roi_geometry_wkb=roi_wkb,
     )
+    logging.info(f"Using inferred embedding_dim={inferred_dim} for index creation")
 
     # --- Phase 2: Build FAISS index ---
-    create_faiss_index(db_path, index_path, args.embedding_dim, args.dtype, args.nlist, args.m, args.nbits, args.batch_size)
+    create_faiss_index(db_path, index_path, inferred_dim, args.dtype, args.nlist, args.m, args.nbits, args.batch_size)
     
     logging.info(f"Total process completed in {time.time() - start_total_time:.2f} seconds.")
     logging.info(f"Artifacts created:\n- DuckDB: {db_path}\n- FAISS Index: {index_path}")
