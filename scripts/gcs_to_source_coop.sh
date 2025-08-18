@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   echo "Usage: $0 -d DATE_RANGE -s SRC_DIR -t DST_PREFIX [-p CONCURRENCY] [-e S3_ENDPOINT]"
-  echo "  -d  Date range to append before .parquet (e.g. 2024-01-01_2025-01-01)"
+  echo "  -d  Date range suffix filter; only files ending with _<DATE_RANGE>.parquet are copied (e.g. 2024-01-01_2025-01-01)"
   echo "  -s  Source GCS dir (e.g. gs://bucket/path)"
   echo "  -t  Destination S3 prefix (e.g. s3://bucket/prefix)"
   echo "  -p  Concurrency (default: 8)"
@@ -35,12 +35,11 @@ command -v aws >/dev/null 2>&1 || { echo "aws CLI not found"; exit 2; }
 
 export DATE_RANGE DST_PREFIX S3_ENDPOINT
 
-gsutil ls "${SRC_DIR%/}"/*.parquet \
+gsutil ls "${SRC_DIR%/}/"*"_${DATE_RANGE}.parquet" \
 | xargs -n1 -P"${CONCURRENCY}" -I{} bash -c '
   src="$1"
-  base="${src##*/}"                                # e.g., 16RCA_2024.parquet
-  out="${base%.parquet}-${DATE_RANGE}.parquet"     # e.g., 16RCA_2024-01-01_2025-01-01.parquet
-  dest="${DST_PREFIX%/}/$out"
+  base="${src##*/}"
+  dest="${DST_PREFIX%/}/$base"
   echo "Copying $src -> $dest"
   gsutil cat "$src" | aws s3 cp - "$dest" --endpoint-url="$S3_ENDPOINT" --only-show-errors
 ' _ {}
