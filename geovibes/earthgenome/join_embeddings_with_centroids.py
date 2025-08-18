@@ -6,6 +6,7 @@ import re
 import shutil
 import tempfile
 from typing import List, Optional, Tuple
+import io
 
 import fsspec
 import geopandas as gpd
@@ -42,6 +43,7 @@ def discover_embedding_files(
             mgrs_tiles_file=mgrs_reference_file,
         )
         mgrs_ids = [str(t) for t in mgrs_tile_ids]
+        logging.info(f"Found {len(mgrs_ids)} MGRS tiles intersecting with ROI")
         if not mgrs_ids:
             logging.error("No MGRS tiles found intersecting with ROI")
             return [], []
@@ -49,6 +51,19 @@ def discover_embedding_files(
         if not embedding_files:
             logging.error("No embedding files found for intersecting MGRS tiles")
             return [], []
+        
+        # Find which MGRS IDs have corresponding files
+        found_mgrs_ids = set()
+        for file_path in embedding_files:
+            mgrs_id = extract_mgrs_id_from_filename(file_path)
+            if mgrs_id:
+                found_mgrs_ids.add(mgrs_id)
+        
+        # Log missing MGRS IDs
+        missing_mgrs_ids = set(mgrs_ids) - found_mgrs_ids
+        if missing_mgrs_ids:
+            logging.warning(f"No embedding files found for {len(missing_mgrs_ids)} MGRS IDs: {sorted(missing_mgrs_ids)}")
+        
         for file_path in embedding_files:
             if get_cloud_protocol(file_path):
                 cloud_files.append(file_path)
@@ -197,9 +212,20 @@ def join_one(embedding_path: str, tiles_dir: str, temp_dir: Optional[str], outpu
         return None
 
     base_name = os.path.basename(embedding_path)
-    out_path = os.path.join(output_dir, base_name)
-    gpd.GeoDataFrame(merged, geometry='geometry', crs='EPSG:4326').to_parquet(out_path, index=False)
-    return out_path
+    if output_dir.startswith("s3://"):
+        endpoint = os.environ.get("S3_ENDPOINT_URL", "https://data.source.coop")
+        dest = output_dir.rstrip('/') + '/' + base_name
+        buffer = io.BytesIO()
+        gpd.GeoDataFrame(merged, geometry='geometry', crs='EPSG:4326').to_parquet(buffer, index=False)
+        buffer.seek(0)
+        fs = fsspec.filesystem("s3", client_kwargs={"endpoint_url": endpoint})
+        with fs.open(dest, "wb") as f:
+            f.write(buffer.read())
+        return dest
+    else:
+        out_path = os.path.join(output_dir, base_name)
+        gpd.GeoDataFrame(merged, geometry='geometry', crs='EPSG:4326').to_parquet(out_path, index=False)
+        return out_path
 
 
 
@@ -249,7 +275,8 @@ def main() -> None:
         local_files = local_files[: args.dry_run_size]
         logging.info(f"Dry run: limiting to {len(local_files)} files")
 
-    pathlib.Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+    if not get_cloud_protocol(args.output_dir):
+        pathlib.Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
     def _worker(emb_path: str) -> Optional[str]:
         try:
