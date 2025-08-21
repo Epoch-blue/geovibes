@@ -5,6 +5,8 @@ import time
 import os
 import tempfile
 import shutil
+import subprocess
+import shlex
 import duckdb
 import geovibes.database.faiss_db as faiss_db
 import faiss
@@ -571,6 +573,34 @@ def main():
     if temp_dir:
         shutil.rmtree(temp_dir)
         logging.info(f"Cleaned up temporary directory: {temp_dir}")
+
+    # Create compressed tarball and upload to output directory
+    try:
+        tar_name = f"{args.name}.tar.gz"
+        is_s3_output = str(output_dir).startswith("s3://")
+        tar_local_dir = tempfile.mkdtemp(prefix="faiss_tar_") if is_s3_output else str(output_dir)
+        tar_local_path = os.path.join(tar_local_dir, tar_name)
+
+        cmd = f"tar -c {shlex.quote(db_path)} {shlex.quote(index_path)} | pigz > {shlex.quote(tar_local_path)}"
+        try:
+            subprocess.run(["bash", "-lc", cmd], check=True)
+            logging.info(f"Created tarball with pigz: {tar_local_path}")
+        except Exception as e:
+            fallback_cmd = f"tar -czf {shlex.quote(tar_local_path)} {shlex.quote(db_path)} {shlex.quote(index_path)}"
+            subprocess.run(["bash", "-lc", fallback_cmd], check=True)
+            logging.info(f"Created tarball with gzip fallback: {tar_local_path}")
+
+        if is_s3_output:
+            endpoint = os.environ.get("S3_ENDPOINT_URL", "https://data.source.coop")
+            fs = fsspec.filesystem("s3", client_kwargs={"endpoint_url": endpoint})
+            s3_dest = str(output_dir).rstrip("/") + "/" + tar_name
+            fs.put(tar_local_path, s3_dest)
+            logging.info(f"Uploaded tarball to {s3_dest}")
+            shutil.rmtree(tar_local_dir, ignore_errors=True)
+        else:
+            logging.info(f"Tarball available at {tar_local_path}")
+    except Exception as e:
+        logging.error(f"Failed to create/upload tarball: {e}")
 
 if __name__ == "__main__":
     main() 
