@@ -209,7 +209,6 @@ class GeoVibes:
                 start_date=start_date or "2024-01-01",
                 end_date=end_date or "2025-01-01",
                 gcp_project=gcp_project,
-                faiss_index_path=None # No longer passed manually
             )
 
             self.config.validate()
@@ -235,8 +234,6 @@ class GeoVibes:
                     )
             else:
                 raise FileNotFoundError("⚠️  No .db files found in directory")
-        elif self.config.duckdb_path:
-            raise NotImplementedError("Manual duckdb_path and faiss_index_path is not supported anymore. Please use duckdb_directory.")
 
         if baselayer_url is None:
             baselayer_url = BasemapConfig.BASEMAP_TILES["MAPTILER"]
