@@ -87,85 +87,119 @@ def print_gcs_setup_help():
     print()
 
 
-def list_databases_in_directory(directory_path: str, verbose: bool = False) -> List[str]:
+def list_databases_in_directory(
+    directory_path: str, verbose: bool = False
+) -> List[Dict[str, str]]:
     """List DuckDB database files in a directory.
-    
+
     Args:
         directory_path: Path to directory (local or GCS)
         verbose: Whether to print debug information
-        
+
     Returns:
         List of database file paths
     """
-    
+
     databases = []
-    
-    if directory_path.startswith('gs://'):
-        # Handle GCS directory
+
+    if directory_path.startswith("gs://"):
         databases = _list_gcs_databases(directory_path, verbose)
     else:
-        # Handle local directory
         databases = _list_local_databases(directory_path, verbose)
-    
+
     if verbose:
         print(f"Found {len(databases)} database(s) in {directory_path}")
-    
-    return sorted(databases)
+
+    return sorted(databases, key=lambda x: x["db_path"])
 
 
-def _list_local_databases(directory_path: str, verbose: bool = False) -> List[str]:
-    """List local DuckDB database files."""
+def _list_local_databases(
+    directory_path: str, verbose: bool = False
+) -> List[Dict[str, str]]:
+    """List local DuckDB database files and their associated FAISS indexes."""
     import glob
-    
+
     databases = []
-    
+
     try:
         # Look for .db files
         pattern = os.path.join(directory_path, "*.db")
         db_files = glob.glob(pattern)
-        
+
         for db_file in db_files:
             if os.path.isfile(db_file):
-                databases.append(db_file)
-                if verbose:
-                    print(f"  Found: {db_file}")
+                # Find associated FAISS index
+                base_name, _ = os.path.splitext(db_file)
+
+                # Heuristic to find index file, e.g. for something_metadata.db, look for something*.index
+                if base_name.endswith("_metadata"):
+                    prefix = base_name[: -len("_metadata")]
+                    index_pattern = f"{prefix}*.index"
+                else:
+                    index_pattern = f"{base_name}*.index"
+
+                index_files = glob.glob(index_pattern)
+                if index_files:
+                    databases.append({"db_path": db_file, "faiss_path": index_files[0]})
+                    if verbose:
+                        print(f"  Found DB: {db_file} with Index: {index_files[0]}")
+                elif verbose:
+                    print(
+                        f"  Found DB: {db_file}, but no associated FAISS index found."
+                    )
+
     except Exception as e:
         if verbose:
             print(f"Error listing local databases: {e}")
-    
+
     return databases
 
 
-def _list_gcs_databases(directory_path: str, verbose: bool = False) -> List[str]:
-    """List GCS DuckDB database files.
-    
+def _list_gcs_databases(
+    directory_path: str, verbose: bool = False
+) -> List[Dict[str, str]]:
+    """List GCS DuckDB database files and their associated FAISS indexes.
+
     Args:
         directory_path: Path to directory (local or GCS)
         verbose: Whether to print debug information
-        
+
     Returns:
         List of database file paths
     """
-    
+
     databases = []
-    
 
     import gcsfs
+
     fs = gcsfs.GCSFileSystem()
-    
+
     # Remove gs:// prefix for gcsfs
-    path_without_prefix = directory_path.replace('gs://', '')
-    if not path_without_prefix.endswith('/'):
-        path_without_prefix += '/'
-    
-    files = fs.glob(path_without_prefix + "*.db")
-    for file_path in files:
-        full_path = f"gs://{file_path}"
-        databases.append(full_path)
-        if verbose:
-            print(f"  Found: {full_path}")
+    path_without_prefix = directory_path.replace("gs://", "")
+    if not path_without_prefix.endswith("/"):
+        path_without_prefix += "/"
 
+    db_files = fs.glob(path_without_prefix + "*.db")
+    for file_path in db_files:
+        db_path = f"gs://{file_path}"
+        # Find associated FAISS index
+        base_name, _ = os.path.splitext(os.path.basename(file_path))
+        dir_name = os.path.dirname(file_path)
 
+        if base_name.endswith("_metadata"):
+            prefix = base_name[: -len("_metadata")]
+            index_pattern = os.path.join(dir_name, f"{prefix}*.index")
+        else:
+            index_pattern = os.path.join(dir_name, f"{base_name}*.index")
+
+        index_files = fs.glob(index_pattern)
+        if index_files:
+            index_path = f"gs://{index_files[0]}"
+            databases.append({"db_path": db_path, "faiss_path": index_path})
+            if verbose:
+                print(f"  Found DB: {db_path} with Index: {index_path}")
+        elif verbose:
+            print(f"  Found DB: {db_path}, but no associated FAISS index found.")
 
     return databases
 

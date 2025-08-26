@@ -77,7 +77,7 @@ class GeoVibes:
     """Interactive map interface for geospatial similarity search using satellite embeddings.
 
     Provides point-and-click labeling interface with similarity search capabilities
-    using vector embeddings stored in DuckDB with HNSW indexing.
+    using vector embeddings and Faiss indexing.
     """
 
     @classmethod
@@ -106,8 +106,6 @@ class GeoVibes:
               start_date: str = "2024-01-01",
               end_date: str = "2025-01-01",
               gcp_project: Optional[str] = None,
-              index_type: str = 'vss',
-              faiss_index_path: Optional[str] = None,
               verbose: bool = False,
               **kwargs):
         """Create a GeoVibes instance with explicit parameters.
@@ -119,8 +117,6 @@ class GeoVibes:
             start_date: Start date in YYYY-MM-DD format for Earth Engine basemaps
             end_date: End date in YYYY-MM-DD format for Earth Engine basemaps
             gcp_project: Google Cloud Project ID for Earth Engine authentication
-            index_type: The ANN backend to use ('vss' or 'faiss').
-            faiss_index_path: Path to the FAISS index file (required if index_type is 'faiss').
             verbose: Enable detailed progress messages
             **kwargs: Additional arguments
 
@@ -134,8 +130,6 @@ class GeoVibes:
             start_date=start_date,
             end_date=end_date,
             gcp_project=gcp_project,
-            index_type=index_type,
-            faiss_index_path=faiss_index_path,
             verbose=verbose,
             **kwargs,
         )
@@ -152,8 +146,6 @@ class GeoVibes:
             config: Optional[Dict] = None, 
             config_path: Optional[str] = None,
             baselayer_url: Optional[str] = None,
-            index_type: str = 'vss',
-            faiss_index_path: Optional[str] = None,
             disable_ee: bool = False,
             verbose: bool = False, 
             **kwargs) -> None:
@@ -170,8 +162,6 @@ class GeoVibes:
             config: Configuration dictionary (deprecated, use individual parameters).
             config_path: Path to JSON configuration file (deprecated, use individual parameters).
             baselayer_url: Custom basemap tile URL.
-            index_type: The ANN backend to use ('vss' or 'faiss').
-            faiss_index_path: Path to the FAISS index file (required if index_type is 'faiss').
             disable_ee: Disable Earth Engine basemaps.
             verbose: Enable detailed progress messages.
             **kwargs: Additional arguments for backwards compatibility.
@@ -219,8 +209,7 @@ class GeoVibes:
                 start_date=start_date or "2024-01-01",
                 end_date=end_date or "2025-01-01",
                 gcp_project=gcp_project,
-                index_type=index_type,
-                faiss_index_path=faiss_index_path
+                faiss_index_path=None # No longer passed manually
             )
 
             self.config.validate()
@@ -231,12 +220,15 @@ class GeoVibes:
         # Initialize database list if directory is provided
         self.available_databases = []
         self.current_database_path = None
+        self.current_faiss_path = None
         if self.config.duckdb_directory:
             self.available_databases = list_databases_in_directory(
                 self.config.duckdb_directory, verbose=self.verbose
             )
             if self.available_databases:
-                self.current_database_path = self.available_databases[0]
+                db_info = self.available_databases[0]
+                self.current_database_path = db_info["db_path"]
+                self.current_faiss_path = db_info["faiss_path"]
                 if self.verbose:
                     print(
                         f"📁 Found {len(self.available_databases)} databases in directory"
@@ -244,7 +236,7 @@ class GeoVibes:
             else:
                 raise FileNotFoundError("⚠️  No .db files found in directory")
         elif self.config.duckdb_path:
-            self.current_database_path = self.config.duckdb_path
+            raise NotImplementedError("Manual duckdb_path and faiss_index_path is not supported anymore. Please use duckdb_directory.")
 
         if baselayer_url is None:
             baselayer_url = BasemapConfig.BASEMAP_TILES["MAPTILER"]
@@ -328,7 +320,7 @@ class GeoVibes:
 
         # Setup extensions in DuckDB (spatial and httpfs if needed)
         if self.current_database_path:
-            extension_queries = DatabaseConstants.get_extension_setup_queries(self.current_database_path, self.config.index_type)
+            extension_queries = DatabaseConstants.get_extension_setup_queries(self.current_database_path)
             for query in extension_queries:
                 try:
                     self.duckdb_connection.execute(query)
@@ -337,23 +329,17 @@ class GeoVibes:
                             print("📦 httpfs extension loaded for GCS support")
                         elif "spatial" in query:
                             print("🗺️  spatial extension loaded for geometry support")
-                        elif "vss" in query:
-                            print("⚡ vss extension loaded for vector search")
                 except Exception as e:
                     raise RuntimeError(f"Failed to load required extension: {str(e)}")
 
         # Load FAISS index if specified
-        if self.config.index_type == 'faiss':
-            if not self.config.faiss_index_path:
-                raise ValueError("faiss_index_path must be provided for index_type 'faiss'")
-            try:
-                if self.verbose:
-                    print(f"🧠 Loading FAISS index from: {self.config.faiss_index_path}")
-                self.faiss_index = faiss.read_index(self.config.faiss_index_path)
-                if self.verbose:
-                    print(f"✅ FAISS index loaded. Contains {self.faiss_index.ntotal} vectors.")
-            except Exception as e:
-                raise RuntimeError(f"Failed to load FAISS index: {e}")
+        if not self.current_faiss_path:
+            raise ValueError("Could not find a FAISS index for the selected database.")
+        if self.verbose:
+            print(f"🧠 Loading FAISS index from: {self.current_faiss_path}")
+        self.faiss_index = faiss.read_index(self.current_faiss_path)
+        if self.verbose:
+            print(f"✅ FAISS index loaded. Contains {self.faiss_index.ntotal} vectors.")
 
         # Detect embedding dimension from database
         try:
@@ -419,8 +405,6 @@ class GeoVibes:
 
         # Add DrawControl
         self._setup_draw_control()
-
-
 
         # Wire events
         self._wire_events()
@@ -631,7 +615,8 @@ class GeoVibes:
         if self.available_databases:
             # Create dropdown with database names (showing just filenames for clarity)
             database_options = [
-                (os.path.basename(db), db) for db in self.available_databases
+                (os.path.basename(db["db_path"]), db["db_path"])
+                for db in self.available_databases
             ]
             self.database_dropdown = Dropdown(
                 options=database_options,
@@ -1925,33 +1910,7 @@ class GeoVibes:
                 )
             return
 
-        if self.config.index_type == 'vss':
-            self._search_vss()
-        elif self.config.index_type == 'faiss':
-            self._search_faiss()
-        else:
-            raise ValueError(f"Unknown index_type: {self.config.index_type}")
-
-    def _search_vss(self):
-        """Perform similarity search using DuckDB's VSS extension."""
-        if self.verbose:
-            print("⚡ Performing search with DuckDB VSS...")
-        
-        n_neighbors = self.neighbors_slider.value
-        query_vec = self.query_vector.tolist()
-        all_labeled_ids = self.pos_ids + self.neg_ids
-        
-        extra_results = min(len(all_labeled_ids), n_neighbors // 2)
-        total_requested = n_neighbors + extra_results
-        
-        sql = DatabaseConstants.get_similarity_search_light_query(self.embedding_dim)
-        query_params = [query_vec, total_requested]
-        
-        self._show_operation_status(f"🔍 VSS Search: Finding {n_neighbors} neighbors...")
-        arrow_table = self.duckdb_connection.execute(sql, query_params).fetch_arrow_table()
-        search_results = arrow_table.select(['id', 'geometry_json', 'geometry_wkt', 'distance']).to_pandas()
-        
-        self._process_and_display_search_results(search_results, n_neighbors)
+        self._search_faiss()
 
     def _search_faiss(self):
         """Perform similarity search using the loaded FAISS index."""
@@ -2905,10 +2864,20 @@ class GeoVibes:
             
             # Setup extensions
             if new_database_path:
-                extension_queries = DatabaseConstants.get_extension_setup_queries(new_database_path, self.config.index_type)
+                extension_queries = DatabaseConstants.get_extension_setup_queries(new_database_path)
                 for query in extension_queries:
                     self.duckdb_connection.execute(query)
 
+            # Load new FAISS index
+            new_faiss_path = [
+                db["faiss_path"]
+                for db in self.available_databases
+                if db["db_path"] == new_database_path
+            ][0]
+            self.current_faiss_path = new_faiss_path
+            self._show_operation_status("🔄 Loading search index...")
+            self.faiss_index = faiss.read_index(self.current_faiss_path)
+            
             # Detect embedding dimension
             self._show_operation_status("🔄 Analyzing database structure...")
             try:
