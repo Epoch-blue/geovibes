@@ -18,8 +18,6 @@ class GeoVibesConfig:
     start_date: str = "2024-01-01"
     end_date: str = "2025-01-01"
     gcp_project: Optional[str] = None
-    index_type: str = 'vss'  # 'vss' or 'faiss'
-    faiss_index_path: Optional[str] = None
     
     @classmethod
     def from_file(cls, config_path: str) -> 'GeoVibesConfig':
@@ -70,10 +68,6 @@ class GeoVibesConfig:
             config_dict['boundary_path'] = config_data['boundary_path']
         if 'gcp_project' in config_data:
             config_dict['gcp_project'] = config_data['gcp_project']
-        if 'index_type' in config_data:
-            config_dict['index_type'] = config_data['index_type']
-        if 'faiss_index_path' in config_data:
-            config_dict['faiss_index_path'] = config_data['faiss_index_path']
         
         return cls(**config_dict)
     
@@ -92,9 +86,7 @@ class GeoVibesConfig:
             boundary_path=config_dict['boundary_path'],
             start_date=config_dict['start_date'],
             end_date=config_dict['end_date'],
-            gcp_project=config_dict.get('gcp_project'),
-            index_type=config_dict.get('index_type', 'vss'),
-            faiss_index_path=config_dict.get('faiss_index_path')
+            gcp_project=config_dict.get('gcp_project')
         )
     
     def _path_exists(self, path: str) -> bool:
@@ -157,12 +149,6 @@ class GeoVibesConfig:
         
         if self.duckdb_directory and not self._path_exists(self.duckdb_directory):
             raise FileNotFoundError(f"DuckDB directory not found: {self.duckdb_directory}")
-
-        if self.index_type == 'faiss':
-            if not self.faiss_index_path:
-                raise ValueError("`faiss_index_path` must be provided when `index_type` is 'faiss'")
-            if not self._path_exists(self.faiss_index_path):
-                raise FileNotFoundError(f"FAISS index file not found: {self.faiss_index_path}")
         
         # Validate date format (basic check)
         import datetime
@@ -193,7 +179,4 @@ class GeoVibesConfig:
         }
         if self.gcp_project:
             config_dict['gcp_project'] = self.gcp_project
-        config_dict['index_type'] = self.index_type
-        if self.faiss_index_path:
-            config_dict['faiss_index_path'] = self.faiss_index_path
         return config_dict 

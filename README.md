@@ -121,15 +121,15 @@ Run `python run.py --help` for all available options.
 
 ## Architecture
 
-The GeoVibes system is designed for efficient large-scale geospatial similarity search. The core of the system is a DuckDB database that stores vector embeddings and their corresponding geometries.
+The GeoVibes system is designed for efficient large-scale geospatial similarity search. The core of the system is a hybrid architecture combining a FAISS index for fast vector search with a DuckDB database for storing metadata and geometries.
 
-The database is built using the script in `src/database.py` and is optimized for performance with the following features:
+This dual-component system is built using the script in `geovibes/database/faiss_db.py` and is optimized for performance with the following features:
 
--   **Vector Similarity Search (VSS):** It uses DuckDB's `vss` extension for efficient similarity search on high-dimensional vector embeddings.
--   **HNSW Index:** A Hierarchical Navigable Small World (HNSW) index is created on the embeddings for fast approximate nearest neighbor search. This is ideal for finding "similar" vibes quickly.
--   **R-Tree Index:** A spatial index (R-Tree) is built on the geometries of the embeddings. This allows for fast spatial querying, like finding all points within a drawn polygon.
+-   **FAISS Index:** It uses a highly optimized FAISS (Facebook AI Similarity Search) index for efficient similarity search on high-dimensional vector embeddings. The script builds an Inverted File (IVF) index with Product Quantization (PQ) for float embeddings or Scalar Quantization for int8 embeddings, enabling fast approximate nearest neighbor search.
+-   **DuckDB Metadata Store:** A DuckDB database stores metadata associated with each vector, including a unique ID and the geometry. This allows for quick retrieval of spatial and other attributes after a vector search.
+-   **R-Tree Index:** A spatial index (R-Tree) is built on the geometries within DuckDB. This allows for fast spatial querying, like finding all points within a drawn polygon.
 
-This combination of vector and spatial indexing allows GeoVibes to perform complex queries that combine both content-based similarity and geographic location.
+This combination of a dedicated vector index and a spatial database allows GeoVibes to perform complex queries that combine both content-based similarity and geographic location.
 
 ## Prerequisites
 
@@ -302,35 +302,16 @@ This processes each tile through Google's satellite embedding model and exports 
 
 ### Step 3: Build Searchable Database
 
-There are two options for building a searchable database from embeddings:
 
-**Option 1: VSS-based Database (DuckDB HNSW)**
 
-This method uses DuckDB's native `vss` extension to create a Hierarchical Navigable Small World (HNSW) index directly within the DuckDB file.
-
-Download the embeddings from GCS and create a DuckDB index:
-```bash
-python src/database/vss_database.py \
-  aoi.geojson \
-  ./processed_embeddings \
-  aoi_google.db \
-  --mgrs_reference_file geometries/mgrs_tiles.parquet \
-  --gcs_bucket your-bucket \
-  --metric cosine
-```
-This downloads embeddings from GCS, processes them into point geometries with 64-dimensional vectors, and builds HNSW and spatial indexes for fast similarity search.
-
-**Option 2: FAISS-based Database**
-
-This method uses Facebook AI's FAISS library to create a highly optimized index, which is stored separately from the metadata in a DuckDB database. **This approach builds the index faster and with significantly less memory pressure than the VSS method.**
-
+This method uses Facebook AI's FAISS library to create a highly optimized index, which is stored separately from the metadata in a DuckDB database. 
 Create a FAISS index and a corresponding metadata database from local parquet files:
 ```bash
 # Create a full index from embeddings in a directory
-python src/faiss_database.py embeddings/eg_nm --name new-mexico --output_dir faiss_db --dtype INT8
+python geovibes/database/faiss_db.py embeddings/eg_nm --name new-mexico --output_dir faiss_db --dtype INT8
 
 # Create a smaller index for testing (dry run)
-python src/faiss_database.py embeddings/eg_nm --name new-mexico-dry-run --output_dir faiss_db --dtype INT8 --dry-run
+python geovibes/database/faiss_db.py embeddings/eg_nm --name new-mexico-dry-run --output_dir faiss_db --dtype INT8 --dry-run
 ```
 This script processes parquet files from an input directory, builds a FAISS index, and creates a separate DuckDB file containing the metadata for the embeddings.
 
@@ -383,8 +364,8 @@ The `vibe_checker.ipynb` notebook provides the same functionality as the web app
     -   **Application chunking**: 10,000 embeddings per chunk prevents Python memory overflow during data transfer
     -   Both are necessary: DuckDB limits control internal operations, chunking controls Python data loading
     -   Modify `DatabaseConstants.MEMORY_LIMIT` and `EMBEDDING_CHUNK_SIZE` for custom allocation
--   **Index performance**: HNSW index creation takes ~10-15 minutes for 5M vectors
--   **Future work**: Investigating FAISS integration, external vector databases (Qdrant), and custom embedding pipelines
+-   **Index performance**: FAISS index creation time varies depending on the number of vectors and parameters. For example, training on a sample of a few million vectors can take several minutes.
+-   **Future work**: Investigating external vector databases (e.g., Qdrant) and custom embedding pipelines.
 
 ## Contributing
 
