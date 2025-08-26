@@ -1923,10 +1923,11 @@ class GeoVibes:
         total_requested = n_neighbors + extra_results
 
         # Step A: Query FAISS
+        # TODO: make nprobe dynamic based on number of labeled points, or allow user input
+        params = faiss.SearchParametersIVF(nprobe=4096)
         query_vector_np = self.query_vector.reshape(1, -1).astype('float32')
         self._show_operation_status(f"🔍 FAISS Search: Finding {n_neighbors} neighbors...")
-        distances, ids = self.faiss_index.search(query_vector_np, total_requested)
-
+        distances, ids = self.faiss_index.search(query_vector_np, total_requested, params=params)
         faiss_ids = ids[0].tolist()
         faiss_distances = distances[0].tolist()
 
