@@ -161,7 +161,6 @@ class DatabaseConstants:
         
         Args:
             duckdb_path: Path to DuckDB database (local or GCS)
-            index_type: The ANN backend to use ('vss' or 'faiss')
             
         Returns:
             List of SQL queries to set up required extensions
