@@ -142,10 +142,6 @@ class DatabaseConstants:
     LOAD httpfs;
     """
 
-    VSS_EXTENSION_SETUP_QUERY = """
-    INSTALL vss;
-    LOAD vss;
-    """
     
     @classmethod
     def get_memory_setup_queries(cls):
@@ -160,7 +156,7 @@ class DatabaseConstants:
         ]
     
     @classmethod
-    def get_extension_setup_queries(cls, duckdb_path: str, index_type: str = 'vss'):
+    def get_extension_setup_queries(cls, duckdb_path: str):
         """Get extension setup queries based on database path and index type.
         
         Args:
@@ -175,10 +171,6 @@ class DatabaseConstants:
         # Add httpfs extension if using GCS
         if cls.is_gcs_path(duckdb_path):
             queries.insert(0, cls.HTTPFS_EXTENSION_SETUP_QUERY)
-
-        # Add vss extension if using that index type
-        if index_type == 'vss':
-            queries.append(cls.VSS_EXTENSION_SETUP_QUERY)
         
         return queries
     
