@@ -8,12 +8,21 @@ This repo was originally inspired by the [Earth Genome notebook tooling](https:/
 
 ## Installation
 
-GeoVibes can be installed locally using `mamba` and `pip`.
+GeoVibes can be installed using `uv`.
 
 ```bash
-mamba create -n geovibes python=3.12 -y
-mamba activate geovibes
-pip install -e .
+# 1) Install uv (if not already)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 2) Create and activate a virtual environment
+uv venv .venv
+source .venv/bin/activate
+
+# 3) Install GeoVibes in editable mode
+uv pip install -e .
+
+# 4) Register a Jupyter kernel for the notebook app
+python -m ipykernel install --user --name geovibes --display-name "Python (geovibes)"
 ```
 
 ## Quick Start
@@ -135,13 +144,15 @@ This combination of vector and spatial indexing allows GeoVibes to perform compl
 
 ### 1. Python Environment
 
-Create and activate a conda environment:
+Create and activate a `uv` virtual environment and install dependencies:
 
 ```bash
-mamba create -n geovibes python=3.12 -y
-mamba activate geovibes
-pip install -e .
+uv venv .venv
+source .venv/bin/activate
+uv pip install -e .
 
+# Ensure the environment is selectable in Jupyter/Voila
+python -m ipykernel install --user --name geovibes --display-name "Python (geovibes)"
 ```
 
 ### 2. Database Access
@@ -154,7 +165,7 @@ You can either download pre-built databases or create your own:
 mkdir -p local_databases && gsutil -m cp "gs://geovibes/databases/google/*.db" local_databases/
 ```
 
-Note: This requires the `gcp` optional dependencies. Install with `pip install -e ".[gcp]"` if not already done.
+Note: GCP- and Earth Engine-related dependencies are included in the default installation above.
 
 **Option 2: Build your own databases** (see [Generate Embeddings](#generate-embeddings) section)
 
@@ -165,8 +176,8 @@ Earth Engine authentication is **completely optional**. GeoVibes works perfectly
 If you want to use NDVI and NDWI basemaps, you'll need to authenticate with Google Earth Engine:
 
 ```bash
-# Make sure you have the GCP dependencies installed
-pip install -e ".[gcp]"
+# Make sure dependencies are installed
+uv pip install -e .
 
 # Authenticate with Earth Engine
 earthengine authenticate
@@ -373,7 +384,7 @@ vibes = GeoVibes(
 )
 ```
 
-The `vibe_checker.ipynb` notebook provides the same functionality as the web application but in an interactive notebook environment. You will either need to access `.db` files on GCS via `httpfs` or download the .db files to a local folder.
+The `vibe_checker.ipynb` notebook provides the same functionality as the web application but in an interactive notebook environment. After installing, select the "Python (geovibes)" kernel in Jupyter/JupyterLab. You will either need to access `.db` files on GCS via `httpfs` or download the .db files to a local folder.
 
 ## Performance & Limitations
 
