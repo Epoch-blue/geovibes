@@ -1190,6 +1190,7 @@ class GeoVibes:
 
     def _on_next_tiles_click(self, b):
         """Handle next tiles button click."""
+        self._show_operation_status("⏳ Loading next 50 tiles...")
         self.tile_page += 1
         self._update_results_panel(self.last_search_results_df)
 
@@ -1243,6 +1244,7 @@ class GeoVibes:
             self.next_tiles_btn.layout.display = 'none'
 
         self.tiles_button.button_style = 'success'
+        self._show_operation_status("✅ Tiles loaded!")
         
     def _update_toggle_button_styles(self):
         """Update toggle button colors based on selection."""
