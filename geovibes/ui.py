@@ -1666,38 +1666,31 @@ class GeoVibes:
         if self.verbose:
             print("🗑️ Resetting all labels and search results...")
 
-        # Clear all label lists
         self.pos_ids = []
         self.neg_ids = []
-
-        # Clear cached embeddings
         self.cached_embeddings = {}
-
-        # Reset query vector
         self.query_vector = None
-
-        # Clear detections
         self.detections_with_embeddings = None
 
-        # Clear all map layers
         empty_geojson = {"type": "FeatureCollection", "features": []}
         self.pos_layer.data = empty_geojson
         self.neg_layer.data = empty_geojson
         self.erase_layer.data = empty_geojson
         self.points.data = empty_geojson
 
-        # Remove vector layer if it exists
         if self.vector_layer:
             if self.vector_layer in self.map.layers:
                 self.map.remove_layer(self.vector_layer)
             self.vector_layer = None
+        
+        for layer in self.map.layers:
+            if hasattr(layer, 'name') and layer.name == 'tile_highlight':
+                self.map.remove_layer(layer)
 
-        # Clear results panel and reset button style
         self.results_grid.children = []
         self.tiles_pane.layout.display = 'none'
         self.tiles_button.button_style = ''
 
-        # Clear operation status
         self._clear_operation_status()
 
         if self.verbose:
