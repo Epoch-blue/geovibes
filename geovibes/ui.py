@@ -385,9 +385,8 @@ class GeoVibes:
         # New state for tiles panel
         self.tile_basemap = self.current_basemap
         self.tile_page = 0
-        self.tiles_per_page = 100
-        self.initial_load_size = 14
-        self.is_first_page_view = True
+        self.tiles_per_page = 50 # Subsequent page size
+        self.initial_load_size = 8
         self.last_search_results_df = None
 
         # Build UI
@@ -853,9 +852,6 @@ class GeoVibes:
         if self.tiles_button.button_style == 'success':
             if self.tiles_pane.layout.display == 'none':
                 self.tiles_pane.layout.display = ''
-                if self.is_first_page_view:
-                    self._load_remaining_placeholders()
-                    self.is_first_page_view = False
             else:
                 self.tiles_pane.layout.display = 'none'
     
@@ -1194,31 +1190,14 @@ class GeoVibes:
 
     def _on_next_tiles_click(self, b):
         """Handle next tiles button click."""
-        self.next_tiles_btn.layout.display = 'none' # Hide to prevent double clicks
-        
-        # Remove the text reminder from the end of the grid
-        current_children = list(self.results_grid.children)
-        if current_children and isinstance(current_children[-1], ipyw.HTML):
-            self.results_grid.children = current_children[:-1]
-
         self.tile_page += 1
         self._update_results_panel(self.last_search_results_df)
 
     def _update_results_panel(self, search_results_df):
-        """Update results panel: on page 0, loads initial batch. On >0, loads placeholders."""
+        """Loads 8 tiles initially, then pages of 50. All synchronous."""
         if search_results_df is None or search_results_df.empty:
             self.results_grid.children = []
             return
-
-        if self.tile_page == 0:
-            self.results_grid.children = []
-            self.next_tiles_btn.layout.display = 'none'
-
-        start_index = self.tile_page * self.tiles_per_page
-        end_index = start_index + self.tiles_per_page
-        page_df = search_results_df.iloc[start_index:end_index]
-
-        if page_df.empty: return
 
         def create_tile_widget(row):
             geom = shapely.wkt.loads(row["geometry_wkt"])
@@ -1240,76 +1219,31 @@ class GeoVibes:
             return VBox([tile_image, buttons], layout=Layout(border="1px solid #ccc", padding="2px", width="120px", height="155px"))
 
         if self.tile_page == 0:
-            # On the first page, just load the initial small batch synchronously
-            initial_df = page_df.head(self.initial_load_size)
-            initial_tiles = [create_tile_widget(row) for _, row in initial_df.iterrows()]
-            self.results_grid.children = tuple(initial_tiles)
+            self.results_grid.children = []
+            page_df = search_results_df.head(self.initial_load_size)
+            end_index = self.initial_load_size
+            self.is_first_page_view = True
         else:
-            # On subsequent pages, load the full page with placeholders
-            self._load_remaining_placeholders(is_full_page=True)
+            start_index = self.initial_load_size + (self.tile_page - 1) * self.tiles_per_page
+            end_index = start_index + self.tiles_per_page
+            page_df = search_results_df.iloc[start_index:end_index]
+        
+        if page_df.empty:
+            self.next_tiles_btn.layout.display = 'none'
+            return
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            new_tiles = list(executor.map(create_tile_widget, [row for _, row in page_df.iterrows()]))
+        
+        self.results_grid.children = tuple(list(self.results_grid.children) + new_tiles)
+
+        if end_index < len(search_results_df):
+            self.next_tiles_btn.layout.display = 'flex'
+        else:
+            self.next_tiles_btn.layout.display = 'none'
 
         self.tiles_button.button_style = 'success'
         
-    def _load_remaining_placeholders(self, is_full_page=False):
-        """Append and asynchronously load placeholders for the rest of the current page."""
-        start_index = self.tile_page * self.tiles_per_page
-        end_index = start_index + self.tiles_per_page
-        page_df = self.last_search_results_df.iloc[start_index:end_index]
-
-        if is_full_page:
-            placeholder_df = page_df
-            placeholder_offset = start_index
-        else: # First page, partial load
-            placeholder_df = page_df.iloc[self.initial_load_size:]
-            placeholder_offset = self.initial_load_size
-        
-        if placeholder_df.empty:
-            if end_index < len(self.last_search_results_df):
-                self.next_tiles_btn.layout.display = 'flex'
-                reminder = ipyw.HTML(value="<div style='text-align: center; padding: 10px; width: 98%;'>Click 'Next' for more tiles.</div>")
-                self.results_grid.children = tuple(list(self.results_grid.children) + [reminder])
-            return
-
-        placeholders = [ipyw.Label(value="Loading...", layout=ipyw.Layout(width="120px", height="155px", border="1px solid #ccc", display="flex", align_items="center", justify_content="center")) for _ in range(len(placeholder_df))]
-        self.results_grid.children = tuple(list(self.results_grid.children) + placeholders)
-
-        def create_tile_widget(row):
-            geom = shapely.wkt.loads(row["geometry_wkt"])
-            image_bytes = get_map_image(source=self.tile_basemap, lon=geom.x, lat=geom.y)
-            tile_image = ipyw.Image(value=image_bytes, format="png", width=115, height=115)
-            point_id = str(row["id"])
-            map_button = Button(icon="fa-map-marker", layout=Layout(width="35px", height="30px", margin="0px 2px", padding="2px"), tooltip="Center map")
-            tick_button = Button(icon="fa-check", layout=Layout(width="35px", height="30px", margin="0px 2px", padding="2px"), button_style="primary" if point_id in self.pos_ids else "", tooltip="Label as positive")
-            tick_button.layout.opacity = "1.0" if point_id in self.pos_ids else "0.3"
-            cross_button = Button(icon="fa-times", layout=Layout(width="35px", height="30px", margin="0px 2px", padding="2px"), button_style="danger" if point_id in self.neg_ids else "", tooltip="Label as negative")
-            cross_button.layout.opacity = "1.0" if point_id in self.neg_ids else "0.3"
-            map_button.on_click(lambda b, g=geom: self._on_center_map_click(g))
-            tick_button.on_click(lambda b, p=point_id, r=row, t=tick_button, c=cross_button: self._on_label_click(p, r, "pos", t, c))
-            cross_button.on_click(lambda b, p=point_id, r=row, t=tick_button, c=cross_button: self._on_label_click(p, r, "neg", t, c))
-            buttons = HBox([map_button, tick_button, cross_button], layout=Layout(justify_content="center"))
-            return VBox([tile_image, buttons], layout=Layout(border="1px solid #ccc", padding="2px", width="120px", height="155px"))
-
-        def async_update_tile(idx, row):
-            try:
-                tile_container = create_tile_widget(row)
-                current_grid_children = list(self.results_grid.children)
-                current_grid_children[placeholder_offset + idx] = tile_container
-                self.results_grid.children = tuple(current_grid_children)
-            except Exception as e:
-                error_label = ipyw.Label(value=f"Error", layout=ipyw.Layout(width="120px", height="155px", border="1px solid red"))
-                current_grid_children = list(self.results_grid.children)
-                current_grid_children[placeholder_offset + idx] = error_label
-                self.results_grid.children = tuple(current_grid_children)
-        
-        with ThreadPoolExecutor() as executor:
-            for idx, (_, row) in enumerate(placeholder_df.iterrows()):
-                executor.submit(async_update_tile, idx, row)
-
-        if end_index < len(self.last_search_results_df):
-            self.next_tiles_btn.layout.display = 'flex'
-            reminder = ipyw.HTML(value="<div style='text-align: center; padding: 10px; width: 98%;'>Click 'Next' for more tiles.</div>")
-            self.results_grid.children = tuple(list(self.results_grid.children) + [reminder])
-
     def _update_toggle_button_styles(self):
         """Update toggle button colors based on selection."""
         style = """
@@ -1838,16 +1772,10 @@ class GeoVibes:
 
     def search_click(self, b):
         """Handle the main search button click event."""
-        # Reset state for a new search
-        self.is_first_page_view = True
         self.tile_page = 0
-
-        # Create a placeholder DataFrame for immediate feedback if needed
         if self.query_vector is None or len(self.query_vector) == 0:
             if self.verbose:
-                print(
-                    "⚠️ No query vector available. Please add some positive labels first."
-                )
+                print("🔍 No query vector. Please label some points first.")
             return
 
         self._search_faiss()
