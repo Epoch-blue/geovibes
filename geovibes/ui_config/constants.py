@@ -128,6 +128,12 @@ class BasemapConfig:
         'palette': ['brown', 'white', 'blue']
     }
 
+    S2_HSV_VIS_PARAMS = {
+        'min': 0,
+        'max': 1,
+        'bands': ['hue', 'saturation', 'value']
+    }
+
 
 class DatabaseConstants:
     """Database-related constants."""

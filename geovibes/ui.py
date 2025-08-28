@@ -52,6 +52,7 @@ from .ee_tools import (
     get_s2_rgb_median,
     get_s2_ndvi_median,
     get_s2_ndwi_median,
+    get_s2_hsv_median,
     get_ee_image_url,
 )
 from .ui_config import (
@@ -452,10 +453,10 @@ class GeoVibes:
         """Set up Earth Engine basemaps (Sentinel-2 RGB, NDVI, NDWI) if available."""
         self.basemap_tiles = BasemapConfig.BASEMAP_TILES.copy()
 
-        if self.ee_available and self.ee_boundary is not None:
+        if self.ee_available:
             try:
                 if self.verbose:
-                    print("🛰️ Setting up Earth Engine basemaps (S2 RGB, NDVI, NDWI)...")
+                    print("🛰️ Setting up Earth Engine basemaps (S2 RGB, NDVI, NDWI, HSV)...")
 
                 s2_rgb_median = get_s2_rgb_median(
                     self.ee_boundary, self.config.start_date, self.config.end_date
@@ -469,13 +470,19 @@ class GeoVibes:
                     self.ee_boundary, self.config.start_date, self.config.end_date
                 )
                 ndvi_url = get_ee_image_url(ndvi_median, BasemapConfig.NDVI_VIS_PARAMS)
-                self.basemap_tiles["NDVI"] = ndvi_url
+                self.basemap_tiles["S2_NDVI"] = ndvi_url
 
                 ndwi_median = get_s2_ndwi_median(
                     self.ee_boundary, self.config.start_date, self.config.end_date
                 )
                 ndwi_url = get_ee_image_url(ndwi_median, BasemapConfig.NDWI_VIS_PARAMS)
-                self.basemap_tiles["NDWI"] = ndwi_url
+                self.basemap_tiles["S2_NDWI"] = ndwi_url
+
+                hsv_median = get_s2_hsv_median(
+                    self.ee_boundary, self.config.start_date, self.config.end_date
+                )
+                hsv_url = get_ee_image_url(hsv_median, BasemapConfig.S2_HSV_VIS_PARAMS)
+                self.basemap_tiles["S2_HSV"] = hsv_url
 
                 if self.verbose:
                     print("✅ Earth Engine basemaps added successfully!")
@@ -574,10 +581,8 @@ class GeoVibes:
         self.basemap_buttons = {}
         basemap_section_widgets = []
 
-        # Use instance basemap_tiles which includes EE basemaps (NDVI/NDWI)
-        basemap_tiles_to_use = getattr(
-            self, "basemap_tiles", BasemapConfig.BASEMAP_TILES
-        )
+        # Use instance basemap_tiles which includes EE basemaps (S2_RGB, S2_NDVI, S2_NDWI, S2_HSV)
+        basemap_tiles_to_use = self.basemap_tiles
 
         for basemap_name in basemap_tiles_to_use.keys():
             btn = Button(
