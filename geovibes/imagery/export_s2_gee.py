@@ -46,36 +46,35 @@ def create_s2_composite(aoi_geometry, start_date, end_date, clear_threshold=0.80
         clear_threshold
     )
     
+    # Add NDVI and NDWI to each image in the collection
+    def add_indices(image):
+        ndvi = image.normalizedDifference(['B8', 'B4']).rename('NDVI')
+        ndwi = image.normalizedDifference(['B3', 'B8']).rename('NDWI')
+        return image.addBands(ndvi).addBands(ndwi)
+    
+    collection = collection.map(add_indices)
+    
     # Define the bands to export
     # Using the most commonly needed Sentinel-2 bands
     bands_to_export = [
-        'B2',   # Blue
-        'B3',   # Green  
-        'B4',   # Red
-        'B5',   # Red Edge 1
-        'B6',   # Red Edge 2
-        'B7',   # Red Edge 3
-        'B8',   # NIR
-        'B8A',  # NIR Narrow
-        'B9',   # Water Vapour
-        'B11',  # SWIR 1
-        'B12'   # SWIR 2
+        # 'B2',   # Blue
+        # 'B3',   # Green  
+        # 'B4',   # Red
+        # 'B5',   # Red Edge 1
+        # 'B6',   # Red Edge 2
+        # 'B7',   # Red Edge 3
+        # 'B8',   # NIR
+        # 'B8A',  # NIR Narrow
+        # 'B9',   # Water Vapour
+        # 'B11',  # SWIR 1
+        # 'B12'   # SWIR 2
     ]
+    bands_to_export.extend(['NDVI', 'NDWI'])
     
     # Create median composite
     composite = collection.select(bands_to_export).median()
+
     return composite, bands_to_export
-
-
-def detect_export_destination() -> str:
-    """Automatically detect whether to use Drive or Cloud Storage."""
-    try:
-        storage_client = storage.Client()
-        for bucket in storage_client.list_buckets(max_results=1):
-            return 'cloud'
-    except Exception:
-        pass
-    return 'drive'
 
 
 def export_band_to_drive(
@@ -133,6 +132,12 @@ def export_band_to_cloud_storage(
     )
     
     return task
+
+
+def check_gcs_file_exists(bucket, object_name: str) -> bool:
+    """Check if a file exists in Google Cloud Storage."""
+    blob = bucket.blob(object_name)
+    return blob.exists()
 
 
 def track_task_status(tasks: List[ee.batch.Task], check_interval: int = 30) -> Dict:
@@ -262,9 +267,9 @@ def main():
     )
     parser.add_argument(
         '--destination',
-        choices=['drive', 'cloud', 'auto'],
-        default='auto',
-        help='Export destination: drive, cloud, or auto-detect (default: auto)'
+        choices=['drive', 'cloud'],
+        default='cloud',
+        help='Export destination: drive or cloud (default: cloud)'
     )
     parser.add_argument(
         '--start-date',
@@ -307,13 +312,21 @@ def main():
         return 1
     
     destination = args.destination
-    if destination == 'auto':
-        destination = detect_export_destination()
-        print(f"🤖 Auto-detected export destination: {destination}")
     
     if destination == 'cloud' and not args.bucket_name:
         print("❌ Cloud storage export requires --bucket-name argument")
         return 1
+    
+    # Initialize GCS client if needed
+    gcs_bucket = None
+    if destination == 'cloud':
+        try:
+            storage_client = storage.Client()
+            gcs_bucket = storage_client.bucket(args.bucket_name)
+            print(f"✅ Connected to GCS bucket: {args.bucket_name}")
+        except Exception as e:
+            print(f"❌ Failed to connect to GCS bucket: {e}")
+            return 1
     
     try:
         print(f"🎯 Finding intersecting MGRS tiles for ROI: {args.roi_file}...")
@@ -348,12 +361,11 @@ def main():
         print(f"☁️  Using CloudScore+ threshold: {args.clear_threshold}")
         
         all_tasks = []
-        total_exports = len(intersecting_tiles) * 11  # 11 bands per tile
         
         if destination == 'drive':
-            print(f"📤 Exporting {total_exports} band images to Google Drive folder: {args.output_folder}")
+            print(f"📤 Exporting band images to Google Drive folder: {args.output_folder}")
         else:
-            print(f"📤 Exporting {total_exports} band images to Cloud Storage: gs://{args.bucket_name}/{args.output_folder}")
+            print(f"📤 Exporting band images to Cloud Storage: gs://{args.bucket_name}/{args.output_folder}")
         
         for i, tile_info in enumerate(intersecting_tiles, 1):
             print(f"\n🔄 Processing tile {i}/{len(intersecting_tiles)}: {tile_info['mgrs_code']}")
@@ -369,6 +381,18 @@ def main():
             
             # Export each band for this tile
             for band_name in bands:
+                file_name = f"{tile_info['mgrs_code']}_{band_name}_{args.start_date}_{args.end_date}.tif"
+                
+                # Check if file exists
+                if destination == 'cloud' and gcs_bucket:
+                    object_name = f"{args.output_folder}/{file_name}"
+                    if check_gcs_file_exists(gcs_bucket, object_name):
+                        print(f"   ⏩ Skipping (exists): {file_name}")
+                        continue
+                elif destination == 'drive':
+                    # NOTE: Checking for existing files in Google Drive is not supported.
+                    pass
+
                 if destination == 'drive':
                     task = export_band_to_drive(
                         composite,
@@ -395,8 +419,12 @@ def main():
                         args.scale
                     )
                 all_tasks.append(task)
-                print(f"   📁 Queued: {tile_info['mgrs_code']}_{band_name}.tif")
+                print(f"   📁 Queued: {file_name}")
         
+        if not all_tasks:
+            print("\n✅ All files already exist. No new tasks to start.")
+            return 0
+
         # Start all tasks
         print(f"\n🚀 Starting {len(all_tasks)} export tasks...")
         for task in all_tasks:
