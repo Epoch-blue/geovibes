@@ -3,6 +3,7 @@
 import math
 
 import requests
+import tenacity
 
 from .ui_config import BasemapConfig
 
@@ -25,6 +26,11 @@ def deg2num(lat_deg: float, lon_deg: float, zoom: int):
     return (xtile, ytile)
 
 
+@tenacity.retry(
+    stop=tenacity.stop_after_attempt(3),
+    wait=tenacity.wait_fixed(2),
+    retry=tenacity.retry_if_exception_type(requests.exceptions.RequestException),
+)
 def get_map_image(source: str, lon: float, lat: float, zoom: int = 17) -> bytes:
     """Fetch a map tile image for a given coordinate and source.
 

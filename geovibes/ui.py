@@ -385,7 +385,8 @@ class GeoVibes:
         # New state for tiles panel
         self.tile_basemap = self.current_basemap
         self.tile_page = 0
-        self.tiles_per_page = 14
+        self.tiles_per_page = 50 # Subsequent page size
+        self.initial_load_size = 8
         self.last_search_results_df = None
 
         # Build UI
@@ -641,6 +642,9 @@ class GeoVibes:
             description="🌍 Google Maps ↗", layout=Layout(width="100%"), button_style=""
         )
 
+        # --- Run Button ---
+        self.run_button = Button(description=f"Find Similar", button_style='primary', layout=Layout(width='120px'))
+
         # Build accordion - conditionally include database section
         accordion_children = [
             VBox(
@@ -661,6 +665,7 @@ class GeoVibes:
                     self.add_vector_btn,
                     self.vector_file_upload,
                     self.google_maps_btn,
+                    self.run_button,
                 ],
                 layout=Layout(padding="5px"),
             ),
@@ -730,6 +735,7 @@ class GeoVibes:
             "google_maps_btn": self.google_maps_btn,
             "collapse_btn": self.collapse_btn,
             "tiles_button": self.tiles_button,
+            "run_button": self.run_button,
         }
 
         return panel_content, ui_widgets
@@ -791,7 +797,7 @@ class GeoVibes:
 
         self.next_tiles_btn = Button(
             description="Next", 
-            layout=ipyw.Layout(width="60px", margin="0 0 0 5px")
+            layout=ipyw.Layout(width="60px", margin="0 0 0 5px", display='none')
         )
         
         tiles_controls = ipyw.HBox(
@@ -840,7 +846,6 @@ class GeoVibes:
         # Wire events
         self.tile_basemap_dropdown.observe(self._on_tile_basemap_change, names="value")
         self.next_tiles_btn.on_click(self._on_next_tiles_click)
-
 
     def _on_tiles_click(self, b):
         """Toggle the tiles panel visibility."""
@@ -1185,189 +1190,62 @@ class GeoVibes:
 
     def _on_next_tiles_click(self, b):
         """Handle next tiles button click."""
+        self._show_operation_status("⏳ Loading next 50 tiles...")
         self.tile_page += 1
         self._update_results_panel(self.last_search_results_df)
 
     def _update_results_panel(self, search_results_df):
-        """Update the results panel with chips for each similar point."""
+        """Loads 8 tiles initially, then pages of 50. All synchronous."""
         if search_results_df is None or search_results_df.empty:
             self.results_grid.children = []
             return
 
-        start_index = self.tile_page * self.tiles_per_page
-        end_index = start_index + self.tiles_per_page
-        page_df = search_results_df.iloc[start_index:end_index]
+        def create_tile_widget(row):
+            geom = shapely.wkt.loads(row["geometry_wkt"])
+            image_bytes = get_map_image(source=self.tile_basemap, lon=geom.x, lat=geom.y)
+            tile_image = ipyw.Image(value=image_bytes, format="png", width=115, height=115)
+            point_id = str(row["id"])
+            
+            map_button = Button(icon="fa-map-marker", layout=Layout(width="35px", height="30px", margin="0px 2px", padding="2px"), tooltip="Center map")
+            tick_button = Button(icon="fa-check", layout=Layout(width="35px", height="30px", margin="0px 2px", padding="2px"), button_style="primary" if point_id in self.pos_ids else "", tooltip="Label as positive")
+            tick_button.layout.opacity = "1.0" if point_id in self.pos_ids else "0.3"
+            cross_button = Button(icon="fa-times", layout=Layout(width="35px", height="30px", margin="0px 2px", padding="2px"), button_style="danger" if point_id in self.neg_ids else "", tooltip="Label as negative")
+            cross_button.layout.opacity = "1.0" if point_id in self.neg_ids else "0.3"
 
+            map_button.on_click(lambda b, g=geom: self._on_center_map_click(g))
+            tick_button.on_click(lambda b, p=point_id, r=row, t=tick_button, c=cross_button: self._on_label_click(p, r, "pos", t, c))
+            cross_button.on_click(lambda b, p=point_id, r=row, t=tick_button, c=cross_button: self._on_label_click(p, r, "neg", t, c))
+
+            buttons = HBox([map_button, tick_button, cross_button], layout=Layout(justify_content="center"))
+            return VBox([tile_image, buttons], layout=Layout(border="1px solid #ccc", padding="2px", width="120px", height="155px"))
+
+        if self.tile_page == 0:
+            self.results_grid.children = []
+            page_df = search_results_df.head(self.initial_load_size)
+            end_index = self.initial_load_size
+            self.is_first_page_view = True
+        else:
+            start_index = self.initial_load_size + (self.tile_page - 1) * self.tiles_per_page
+            end_index = start_index + self.tiles_per_page
+            page_df = search_results_df.iloc[start_index:end_index]
+        
         if page_df.empty:
-            self.tile_page -= 1  # Revert to last valid page
+            self.next_tiles_btn.layout.display = 'none'
             return
 
-        # Create loading placeholders
-        num_tiles = len(page_df)
-        loading_tiles = []
-        for i in range(num_tiles):
-            loading_label = ipyw.Label(
-                value="Loading...",
-                layout=ipyw.Layout(
-                    width="120px",  # Match container width
-                    height="155px",  # Height for smaller image + buttons
-                    border="1px solid #ccc",
-                    display="flex",
-                    align_items="center",
-                    justify_content="center"
-                )
-            )
-            loading_tiles.append(loading_label)
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            new_tiles = list(executor.map(create_tile_widget, [row for _, row in page_df.iterrows()]))
         
-        # If this is page 0, replace all tiles. Otherwise, append new ones
-        if self.tile_page == 0:
-            self.results_grid.children = loading_tiles
+        self.results_grid.children = tuple(list(self.results_grid.children) + new_tiles)
+
+        if end_index < len(search_results_df):
+            self.next_tiles_btn.layout.display = 'flex'
         else:
-            # Keep existing tiles and add new loading placeholders
-            existing_tiles = list(self.results_grid.children)
-            self.results_grid.children = existing_tiles + loading_tiles
+            self.next_tiles_btn.layout.display = 'none'
 
-        # Calculate the offset for the new tiles in the grid
-        offset = 0 if self.tile_page == 0 else len(existing_tiles)
-
-        def create_and_update_tile(idx, row):
-            try:
-                geom = shapely.wkt.loads(row["geometry_wkt"])
-                image_bytes = get_map_image(
-                    source=self.tile_basemap, lon=geom.x, lat=geom.y
-                )
-                
-                # Create image sized to fit panel
-                tile_image = ipyw.Image(
-                    value=image_bytes, format="png", width=115, height=115
-                )
-                
-                # Get point ID
-                point_id = str(row["id"])
-                
-                # Create map/location button (first)
-                map_button = Button(
-                    description="",
-                    icon="fa-map-marker",  # Font Awesome f3c5
-                    layout=Layout(
-                        width="35px",
-                        height="30px",
-                        margin="0px 2px",
-                        padding="2px"
-                    ),
-                    tooltip="Click to center map on this location"
-                )
-                
-                # Create tick (positive) button
-                tick_button = Button(
-                    description="",
-                    icon="fa-check",  # Font Awesome f00c
-                    layout=Layout(
-                        width="35px",
-                        height="30px",
-                        margin="0px 2px",
-                        padding="2px"
-                    ),
-                    button_style="primary" if point_id in self.pos_ids else "",
-                    tooltip="Click to label as positive"
-                )
-                tick_button.layout.opacity = "1.0" if point_id in self.pos_ids else "0.3"
-                
-                # Create cross (negative) button
-                cross_button = Button(
-                    description="",
-                    icon="fa-times",  # Font Awesome f00d
-                    layout=Layout(
-                        width="35px",
-                        height="30px",
-                        margin="0px 2px",
-                        padding="2px"
-                    ),
-                    button_style="warning" if point_id in self.neg_ids else "",
-                    tooltip="Click to label as negative"
-                )
-                cross_button.layout.opacity = "1.0" if point_id in self.neg_ids else "0.3"
-                
-                # Store data for click handlers
-                tick_button.point_id = point_id
-                tick_button.row_data = row
-                tick_button.is_positive = True
-                tick_button.partner_button = cross_button
-                
-                cross_button.point_id = point_id
-                cross_button.row_data = row
-                cross_button.is_positive = False
-                cross_button.partner_button = tick_button
-                
-                map_button.point_id = point_id
-                map_button.row_data = row
-                
-                # Add click handlers
-                tick_button.on_click(self._on_tile_label_click)
-                cross_button.on_click(self._on_tile_label_click)
-                map_button.on_click(self._on_tile_map_click)
-                
-                # Create button row with map button first
-                button_row = HBox(
-                    [map_button, tick_button, cross_button],
-                    layout=Layout(
-                        width="115px",  # Match image width for perfect centering
-                        justify_content="center", 
-                        margin="0 0 5px 0",
-                        align_self="center"
-                    )
-                )
-                
-                # Create tile container with image
-                tile_container = VBox(
-                    [button_row, tile_image],
-                    layout=Layout(
-                        width="120px",  # Container sized for smaller images
-                        padding="2px",
-                        margin="0px",
-                        align_items="center"  # Center all children
-                    )
-                )
-                
-                # Update the specific tile in the grid
-                tiles_list = list(self.results_grid.children)
-                tiles_list[offset + idx] = tile_container
-                self.results_grid.children = tiles_list
-            except Exception as e:
-                if self.verbose:
-                    print(f"Error creating tile for result: {e}")
-                # Replace loading with error placeholder
-                error_label = ipyw.Label(
-                    value="Error",
-                    layout=ipyw.Layout(
-                        width="120px",  # Match container width
-                        height="155px",  # Height for smaller image + buttons
-                        border="1px solid #ff0000",
-                        display="flex",
-                        align_items="center",
-                        justify_content="center"
-                    )
-                )
-                tiles_list = list(self.results_grid.children)
-                tiles_list[offset + idx] = error_label
-                self.results_grid.children = tiles_list
-
-        # Load tiles asynchronously
-        with ThreadPoolExecutor() as executor:
-            futures = []
-            for idx, (_, row) in enumerate(page_df.iterrows()):
-                future = executor.submit(create_and_update_tile, idx, row)
-                futures.append(future)
-            
-            # Wait for all tiles to complete
-            for future in futures:
-                future.result()
+        self.tiles_button.button_style = 'success'
+        self._show_operation_status("✅ Tiles loaded!")
         
-        if len(page_df) > 0:
-            self.tiles_button.button_style = 'success'
-
-
-
     def _update_toggle_button_styles(self):
         """Update toggle button colors based on selection."""
         style = """
@@ -1488,6 +1366,7 @@ class GeoVibes:
         self.add_vector_btn.on_click(self._on_add_vector_click)
         self.vector_file_upload.observe(self._on_vector_file_upload, names=["value"])
         self.google_maps_btn.on_click(self._on_google_maps_click)
+        self.run_button.on_click(self.search_click)
 
         # Map interactions
         self.map.on_interaction(self._on_map_interaction)
@@ -1789,69 +1668,57 @@ class GeoVibes:
         if self.verbose:
             print("🗑️ Resetting all labels and search results...")
 
-        # Clear all label lists
         self.pos_ids = []
         self.neg_ids = []
-
-        # Clear cached embeddings
         self.cached_embeddings = {}
-
-        # Reset query vector
         self.query_vector = None
-
-        # Clear detections
         self.detections_with_embeddings = None
 
-        # Clear all map layers
         empty_geojson = {"type": "FeatureCollection", "features": []}
         self.pos_layer.data = empty_geojson
         self.neg_layer.data = empty_geojson
         self.erase_layer.data = empty_geojson
         self.points.data = empty_geojson
 
-        # Remove vector layer if it exists
         if self.vector_layer:
             if self.vector_layer in self.map.layers:
                 self.map.remove_layer(self.vector_layer)
             self.vector_layer = None
+        
+        for layer in self.map.layers:
+            if hasattr(layer, 'name') and layer.name == 'tile_highlight':
+                self.map.remove_layer(layer)
 
-        # Clear results panel and reset button style
         self.results_grid.children = []
         self.tiles_pane.layout.display = 'none'
         self.tiles_button.button_style = ''
 
-        # Clear operation status
         self._clear_operation_status()
 
         if self.verbose:
             print("✅ All data cleared!")
 
-    def _fetch_embeddings(self, point_ids, chunk_size=None):
+    def _fetch_embeddings(self, point_ids):
         """Fetch embeddings for given point IDs in chunks and cache them."""
-        if chunk_size is None:
-            chunk_size = DatabaseConstants.EMBEDDING_CHUNK_SIZE
-
-        missing_ids = [pid for pid in point_ids if pid not in self.cached_embeddings]
-
-        if not missing_ids:
+        if not point_ids:
             return
 
         # Show progress for large batches
-        if len(missing_ids) > 100:
+        if len(point_ids) > 100:
             self._show_operation_status(
-                f"🔄 Fetching embeddings for {len(missing_ids)} points..."
+                f"🔄 Fetching embeddings for {len(point_ids)} points..."
             )
             if self.verbose:
-                print(f"🔄 Fetching embeddings for {len(missing_ids)} points...")
+                print(f"🔄 Fetching embeddings for {len(point_ids)} points...")
 
         # Process in chunks to avoid memory issues
-        for i in range(0, len(missing_ids), chunk_size):
-            chunk = missing_ids[i : i + chunk_size]
+        for i in range(0, len(point_ids), DatabaseConstants.EMBEDDING_CHUNK_SIZE):
+            chunk = point_ids[i : i + DatabaseConstants.EMBEDDING_CHUNK_SIZE]
 
             # Show chunk progress for very large batches
-            if len(missing_ids) > chunk_size:
-                chunk_num = i // chunk_size + 1
-                total_chunks = (len(missing_ids) - 1) // chunk_size + 1
+            if len(point_ids) > DatabaseConstants.EMBEDDING_CHUNK_SIZE:
+                chunk_num = i // DatabaseConstants.EMBEDDING_CHUNK_SIZE + 1
+                total_chunks = (len(point_ids) - 1) // DatabaseConstants.EMBEDDING_CHUNK_SIZE + 1
                 self._show_operation_status(
                     f"🔄 Processing chunk {chunk_num}/{total_chunks}"
                 )
@@ -1891,20 +1758,19 @@ class GeoVibes:
                 point_id = str(row["id"])
                 self.cached_embeddings[point_id] = embedding
 
-        if len(missing_ids) > 100:
+        if len(point_ids) > 100:
             self._show_operation_status(
-                f"✅ Cached embeddings for {len(missing_ids)} points"
+                f"✅ Cached embeddings for {len(point_ids)} points"
             )
             if self.verbose:
-                print(f"✅ Cached embeddings for {len(missing_ids)} points")
+                print(f"✅ Cached embeddings for {len(point_ids)} points")
 
     def search_click(self, b):
-        """Perform similarity search based on current query vector."""
-        if self.query_vector is None:
+        """Handle the main search button click event."""
+        self.tile_page = 0
+        if self.query_vector is None or len(self.query_vector) == 0:
             if self.verbose:
-                print(
-                    "⚠️ No query vector available. Please add some positive labels first."
-                )
+                print("🔍 No query vector. Please label some points first.")
             return
 
         self._search_faiss()
@@ -2962,3 +2828,69 @@ class GeoVibes:
                 self.duckdb_connection.close()
                 if self.verbose:
                     print("🔌 DuckDB connection closed.")
+
+    def _on_label_click(self, point_id, row_data, label_type, tick_button, cross_button):
+        """Handle tick/cross button click for labeling tiles."""
+        if point_id not in self.cached_embeddings:
+            self._fetch_embeddings([point_id])
+
+        is_positive = label_type == "pos"
+        was_selected = (is_positive and point_id in self.pos_ids) or (not is_positive and point_id in self.neg_ids)
+        
+        if point_id in self.pos_ids: self.pos_ids.remove(point_id)
+        if point_id in self.neg_ids: self.neg_ids.remove(point_id)
+        
+        if not was_selected:
+            if is_positive:
+                self.pos_ids.append(point_id)
+                tick_button.button_style = "primary"
+                tick_button.layout.opacity = "1.0"
+                cross_button.button_style = ""
+                cross_button.layout.opacity = "0.3"
+                self._show_operation_status(f"✅ Labeled tile as Positive")
+            else:
+                self.neg_ids.append(point_id)
+                cross_button.button_style = "danger"
+                cross_button.layout.opacity = "1.0"
+                tick_button.button_style = ""
+                tick_button.layout.opacity = "0.3"
+                self._show_operation_status(f"✅ Labeled tile as Negative")
+        else:
+            tick_button.button_style = ""
+            cross_button.button_style = ""
+            tick_button.layout.opacity = "0.3"
+            cross_button.layout.opacity = "0.3"
+            self._show_operation_status(f"✅ Removed label from tile")
+        
+        self.update_layers()
+        self.update_query_vector()
+
+    def _on_center_map_click(self, geom):
+        """Handle map button click to pan and zoom to tile location."""
+        try:
+            lat, lon = geom.y, geom.x
+            self.map.center = (lat, lon)
+            self.map.zoom = 14
+            
+            half_size = 0.0025 / 2
+            square_coords = [
+                (lon - half_size, lat - half_size), (lon + half_size, lat - half_size),
+                (lon + half_size, lat + half_size), (lon - half_size, lat + half_size),
+                (lon - half_size, lat - half_size)
+            ]
+            
+            from shapely.geometry import Polygon
+            square_poly = Polygon(square_coords)
+            
+            for layer in self.map.layers:
+                if hasattr(layer, 'name') and layer.name == 'tile_highlight':
+                    self.map.remove_layer(layer)
+            
+            highlight_layer = ipyl.GeoJSON(
+                data={"type": "Feature", "geometry": shapely.geometry.mapping(square_poly)},
+                name='tile_highlight', style={'color': 'yellow', 'fillOpacity': 0.1, 'weight': 3}
+            )
+            self.map.add_layer(highlight_layer)
+        except Exception as e:
+            if self.verbose:
+                print(f"Error centering map: {e}")
