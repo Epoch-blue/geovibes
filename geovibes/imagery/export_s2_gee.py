@@ -57,17 +57,17 @@ def create_s2_composite(aoi_geometry, start_date, end_date, clear_threshold=0.80
     # Define the bands to export
     # Using the most commonly needed Sentinel-2 bands
     bands_to_export = [
-        # 'B2',   # Blue
-        # 'B3',   # Green  
-        # 'B4',   # Red
-        # 'B5',   # Red Edge 1
-        # 'B6',   # Red Edge 2
-        # 'B7',   # Red Edge 3
-        # 'B8',   # NIR
-        # 'B8A',  # NIR Narrow
-        # 'B9',   # Water Vapour
-        # 'B11',  # SWIR 1
-        # 'B12'   # SWIR 2
+        'B2',   # Blue
+        'B3',   # Green  
+        'B4',   # Red
+        'B5',   # Red Edge 1
+        'B6',   # Red Edge 2
+        'B7',   # Red Edge 3
+        'B8',   # NIR
+        'B8A',  # NIR Narrow
+        'B9',   # Water Vapour
+        'B11',  # SWIR 1
+        'B12'   # SWIR 2
     ]
     bands_to_export.extend(['NDVI', 'NDWI'])
     
