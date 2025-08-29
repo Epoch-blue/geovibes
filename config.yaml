@@ -2,11 +2,11 @@
 # This file contains the configuration for running GeoVibes as a web application
 
 # Database configuration - specify either duckdb_path OR duckdb_directory
-duckdb_directory: /Users/noah/Dev/geovibes/local_databases
+duckdb_directory: local_databases
 # duckdb_path: ./local_databases/alabama_google.db
 
 # Geographic boundary file
-boundary_path: /Users/noah/Dev/geovibes/geometries/alabama.geojson
+boundary_path: geometries/alabama.geojson
 
 # Date range for Earth Engine basemaps (YYYY-MM-DD format)
 start_date: "2024-01-01"
