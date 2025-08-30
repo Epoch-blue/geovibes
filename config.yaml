@@ -3,7 +3,7 @@
 
 # Database configuration - specify either duckdb_path OR duckdb_directory
 duckdb_directory: local_databases
-# duckdb_path: ./local_databases/alabama_google.db
+duckdb_path: ./local_databases/alabama_google_satellite_embeddings_v1_2024_2025_25_0_10_metadata.db
 
 # Geographic boundary file
 boundary_path: geometries/alabama.geojson
