@@ -253,7 +253,7 @@ def main():
     """Main function to orchestrate the download process."""
     # Set up paths
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    manifest_path = os.path.join(script_dir, "geovibes", "manifest.csv")
+    manifest_path = os.path.join(script_dir, "manifest.csv")
     geometries_dir = os.path.join(script_dir, "geometries")
     local_databases_dir = os.path.join(script_dir, "local_databases")
 
