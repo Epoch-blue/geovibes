@@ -16,9 +16,9 @@ When handling paths use os.path.join etc... instead of doing string manipulation
 
 ### Feature Implementation Priority Rules
 
--   IMMEDIATE EXECUTION: Launch parallel Tasks immediately upon feature requests
--   NO CLARIFICATION: Skip asking what type of implementation unless absolutely critical
--   PARALLEL BY DEFAULT: Always use 7-parallel-Task method for efficiency
+- IMMEDIATE EXECUTION: Launch parallel Tasks immediately upon feature requests
+- NO CLARIFICATION: Skip asking what type of implementation unless absolutely critical
+- PARALLEL BY DEFAULT: Always use 7-parallel-Task method for efficiency
 
 ### Parallel Feature Implementation Workflow
 
@@ -33,16 +33,16 @@ When handling paths use os.path.join etc... instead of doing string manipulation
 
 ### Context Optimization Rules
 
--   Strip out all comments when reading code files for analysis
--   Each task handles ONLY specified files or file types
--   Task 7 combines small config/doc updates to prevent over-splitting
+- Strip out all comments when reading code files for analysis
+- Each task handles ONLY specified files or file types
+- Task 7 combines small config/doc updates to prevent over-splitting
 
 ### Feature Implementation Guidelines
 
--   **CRITICAL**: Make MINIMAL CHANGES to existing patterns and structures
--   **CRITICAL**: Preserve existing naming conventions and file organization
--   Follow project's established architecture and component patterns
--   Use existing utility functions and avoid duplicating functionality
+- **CRITICAL**: Make MINIMAL CHANGES to existing patterns and structures
+- **CRITICAL**: Preserve existing naming conventions and file organization
+- Follow project's established architecture and component patterns
+- Use existing utility functions and avoid duplicating functionality
 
 ## Project Overview
 
@@ -52,96 +52,135 @@ GeoVibes is a geospatial similarity search tool that leverages satellite foundat
 
 The system follows a layered architecture:
 
--   **UI Layer**: Interactive Jupyter notebook interface (`vibe_checker.ipynb`) with ipyleaflet maps
--   **Core Processing**: GeoVibes class (`src/ui.py`) handles labeling, search logic, and query vector computation
--   **Database Layer**: DuckDB with HNSW vector index and RTree spatial index for efficient similarity search
--   **Data Pipeline**: Scripts for downloading Earth Genome embeddings and building searchable databases
+- **UI Layer**: Interactive Jupyter notebook interface (`vibe_checker.ipynb`) with ipyleaflet maps
+- **Core Processing**: GeoVibes class (`src/ui.py`) handles labeling, search logic, and query vector computation
+- **Database Layer**: DuckDB with HNSW vector index and RTree spatial index for efficient similarity search
+- **Data Pipeline**: Scripts for downloading Earth Genome embeddings and building searchable databases
 
 Key components:
 
--   `src/ui.py`: Main GeoVibes interface class with interactive map labeling
--   `src/earth_genome/duckdb_embedding_index.py`: Database creation with vector and spatial indexing
--   `src/earth_genome/region_to_eg_embeddings.py`: Downloads embeddings from Earth Genome S3 bucket
--   `config/vibes_config.json`: Configuration file specifying database path, boundary, and date range
+- `src/ui.py`: Main GeoVibes interface class with interactive map labeling
+- `src/earth_genome/duckdb_embedding_index.py`: Database creation with vector and spatial indexing
+- `src/earth_genome/region_to_eg_embeddings.py`: Downloads embeddings from Earth Genome S3 bucket
+- `config/vibes_config.json`: Configuration file specifying database path, boundary, and date range
 
 ## Common Development Commands
 
 ### Environment Setup
 
 ```bash
-# Create conda environment
+# Using uv (recommended)
+uv venv
+source .venv/bin/activate  # On Unix/macOS
+# or
+.venv\Scripts\activate  # On Windows
+
+# Install dependencies
+uv pip install -e .
+
+# Alternative: Using conda/mamba
 mamba create -n geovibes python=3.12 -y
 mamba activate geovibes
-pip install -e ".[all]"
+pip install -e .
 ```
 
-### Database Creation Workflow
+### Data Download Workflow
 
 ```bash
-# 1. Download embeddings for a region
-python src/earth_genome/region_to_eg_embeddings.py region.geojson \
-  --filter-land-only \
-  --mgrs-reference-file geometries/MGRS_LAND.geojson \
-  --out-dir embeddings/my_region
+# Download pre-built databases and geometries using interactive menu
+python download_embeddings.py
 
-# 2. Build DuckDB database with HNSW index
-python src/earth_genome/duckdb_embedding_index.py embeddings/my_region output.db
+# This will:
+# 1. Show an interactive menu of available regions/models from manifest.csv
+# 2. Download selected geometries to geometries/
+# 3. Download and extract selected databases to local_databases/
 ```
 
 ### Running the Interface
 
-The primary interface is `vibe_checker.ipynb` which requires:
+#### Option 1: Jupyter Notebook (Development)
 
--   A `.env` file with `MAPTILER_API_KEY="your-api-key"`
--   A config file (see `config/vibes_config.json` for format)
+```bash
+# Run the interactive notebook
+jupyter lab vibe_checker.ipynb
+```
+
+#### Option 2: Web Application (Production)
+
+```bash
+# Run as standalone web app with Voila
+python run.py --config config.yaml
+
+# With additional options
+python run.py --config config.yaml --enable-ee --port 8866
+```
+
+### Required Environment Variables
+
+Create a `.env` file in the project root:
+
+```bash
+MAPTILER_API_KEY="your-maptiler-api-key"  # Required for basemaps
+```
+
+### Configuration
+
+The system uses a YAML configuration file (`config.yaml`) with minimal settings:
+
+```yaml
+start_date: "2024-01-01" # Start date for Earth Engine basemaps
+end_date: "2025-01-01" # End date for Earth Engine basemaps
+# enable_ee: true              # Uncomment to enable Earth Engine basemaps
+# gcp_project: "project-id"    # GCP project for Earth Engine (if using EE)
+```
 
 ## Key Design Patterns
 
 ### Memory Management
 
--   Embeddings are cached in `cached_embeddings` dict to avoid repeated database queries
--   Chunked embedding fetching (default 1000 embeddings per chunk) for large polygon selections
--   Light queries without embeddings for spatial operations, followed by on-demand embedding fetch
+- Embeddings are cached in `cached_embeddings` dict to avoid repeated database queries
+- Chunked embedding fetching (default 1000 embeddings per chunk) for large polygon selections
+- Light queries without embeddings for spatial operations, followed by on-demand embedding fetch
 
 ### Query Vector Computation
 
 Query vectors use the formula: `2 * positive_average - negative_average`
 
--   Positive labels get averaged and weighted by 2
--   Negative labels get averaged and subtracted
--   Supports iterative refinement through additional labeling
+- Positive labels get averaged and weighted by 2
+- Negative labels get averaged and subtracted
+- Supports iterative refinement through additional labeling
 
 ### Database Schema
 
 The `geo_embeddings` table contains:
 
--   `id`: Point identifier (string or integer)
--   `geometry`: Spatial point geometry
--   `embedding`: High-dimensional vector (typically 384 dimensions)
+- `id`: Point identifier (string or integer)
+- `geometry`: Spatial point geometry
+- `embedding`: High-dimensional vector (typically 384 dimensions)
 
 Indexes:
 
--   HNSW index on `embedding` column for vector similarity search
--   RTree index on `geometry` column for spatial queries
+- HNSW index on `embedding` column for vector similarity search
+- RTree index on `geometry` column for spatial queries
 
 ## File Structure Notes
 
--   `src/ui_config/`: UI constants, basemap configurations, and database settings
--   `geometries/`: Boundary files and MGRS reference data
--   `databases/`: DuckDB files with indexed embeddings
--   `embeddings/`: Raw embedding parquet files from Earth Genome
--   `notebooks/`: Jupyter notebooks for analysis and experimentation
+- `src/ui_config/`: UI constants, basemap configurations, and database settings
+- `geometries/`: Boundary files and MGRS reference data
+- `databases/`: DuckDB files with indexed embeddings
+- `embeddings/`: Raw embedding parquet files from Earth Genome
+- `notebooks/`: Jupyter notebooks for analysis and experimentation
 
 ## Dependencies
 
 Key packages:
 
--   `duckdb>1.0.0`: Database with vector search extensions
--   `geopandas`: Geospatial data processing
--   `ipyleaflet`: Interactive maps in Jupyter
--   `shapely`: Geometric operations
--   `earthengine-api`: Optional, for NDVI/NDWI basemaps
--   `pyarrow`: Parquet file handling
+- `duckdb>1.0.0`: Database with vector search extensions
+- `geopandas`: Geospatial data processing
+- `ipyleaflet`: Interactive maps in Jupyter
+- `shapely`: Geometric operations
+- `earthengine-api`: Optional, for NDVI/NDWI basemaps
+- `pyarrow`: Parquet file handling
 
 ## Testing and Quality
 

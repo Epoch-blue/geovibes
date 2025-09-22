@@ -77,30 +77,24 @@ if not BasemapConfig.MAPTILER_API_KEY:
     )
 
 
+def _parse_env_flag(value: Optional[str]) -> Optional[bool]:
+    """Return boolean for recognized truthy/falsey strings, otherwise None."""
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return None
+
+
 class GeoVibes:
     """Interactive map interface for geospatial similarity search using satellite embeddings.
 
     Provides point-and-click labeling interface with similarity search capabilities
     using vector embeddings and Faiss indexing.
     """
-
-    @classmethod
-    def from_config(cls, config_path, verbose=False, **kwargs):
-        """Create a GeoVibes instance from a configuration file (deprecated).
-
-        Args:
-            config_path: Path to JSON configuration file
-            verbose: If True, print detailed progress messages
-            **kwargs: Additional keyword arguments to override config values
-
-        Returns:
-            GeoVibes instance
-        """
-        if verbose:
-            print(
-                "⚠️  from_config() is deprecated. Use GeoVibes() with individual parameters instead."
-            )
-        return cls(config_path=config_path, verbose=verbose, **kwargs)
 
     @classmethod
     def create(
@@ -113,6 +107,7 @@ class GeoVibes:
         config_path: Optional[str] = None,
         duckdb_connection: Optional[duckdb.DuckDBPyConnection] = None,
         baselayer_url: Optional[str] = None,
+        enable_ee: Optional[bool] = None,
         disable_ee: bool = False,
     ):
         """Create a GeoVibes instance with explicit parameters.
@@ -126,6 +121,7 @@ class GeoVibes:
             config_path: Optional path to configuration file.
             duckdb_connection: Optional DuckDB connection to reuse (advanced/testing).
             baselayer_url: Optional custom basemap tile URL.
+            enable_ee: Opt into Earth Engine basemaps (overrides config/env flags if set).
             disable_ee: Disable Earth Engine basemaps.
 
         Returns:
@@ -140,6 +136,7 @@ class GeoVibes:
             config_path=config_path,
             duckdb_connection=duckdb_connection,
             baselayer_url=baselayer_url,
+            enable_ee=enable_ee,
             disable_ee=disable_ee,
         )
 
@@ -152,6 +149,7 @@ class GeoVibes:
         config: Optional[Dict] = None,
         config_path: Optional[str] = None,
         baselayer_url: Optional[str] = None,
+        enable_ee: Optional[bool] = None,
         disable_ee: bool = False,
         verbose: bool = False,
     ) -> None:
@@ -165,7 +163,8 @@ class GeoVibes:
             config: Optional configuration dictionary containing start/end dates and optional GCP project.
             config_path: Optional path to configuration file (YAML) with the same keys as `config`.
             baselayer_url: Custom basemap tile URL.
-            disable_ee: Disable Earth Engine basemaps.
+            enable_ee: Opt into Earth Engine basemaps (overrides config/env flags if set).
+            disable_ee: Disable Earth Engine basemaps (overrides all other flags).
             verbose: Enable detailed progress messages.
 
         Raises:
@@ -190,9 +189,27 @@ class GeoVibes:
 
         self.config.validate()
 
-        self.ee_available = not disable_ee and initialize_ee_with_credentials(
-            self.config.gcp_project
-        )
+        env_enable = _parse_env_flag(os.getenv("GEOVIBES_ENABLE_EE"))
+        env_disable = _parse_env_flag(os.getenv("GEOVIBES_DISABLE_EE"))
+
+        ee_opt_in = enable_ee
+        if disable_ee:
+            ee_opt_in = False
+        elif ee_opt_in is None and env_disable is True:
+            ee_opt_in = False
+        elif ee_opt_in is None and env_enable is True:
+            ee_opt_in = True
+        elif ee_opt_in is None:
+            ee_opt_in = self.config.enable_ee
+
+        self.enable_ee = bool(ee_opt_in)
+        self.ee_available = False
+        if self.enable_ee:
+            self.ee_available = initialize_ee_with_credentials(
+                self.config.gcp_project, verbose=self.verbose
+            )
+        elif self.verbose:
+            print("ℹ️ Earth Engine disabled - running with basic basemaps only")
         self.faiss_index = None
 
         # Initialize manifest-driven database list
@@ -3106,17 +3123,23 @@ class GeoVibes:
                 if self.verbose:
                     print("🔌 DuckDB connection closed.")
 
-    def _on_label_click(self, point_id, row_data, label_type, tick_button, cross_button):
+    def _on_label_click(
+        self, point_id, row_data, label_type, tick_button, cross_button
+    ):
         """Handle tick/cross button click for labeling tiles."""
         if point_id not in self.cached_embeddings:
             self._fetch_embeddings([point_id])
 
         is_positive = label_type == "pos"
-        was_selected = (is_positive and point_id in self.pos_ids) or (not is_positive and point_id in self.neg_ids)
-        
-        if point_id in self.pos_ids: self.pos_ids.remove(point_id)
-        if point_id in self.neg_ids: self.neg_ids.remove(point_id)
-        
+        was_selected = (is_positive and point_id in self.pos_ids) or (
+            not is_positive and point_id in self.neg_ids
+        )
+
+        if point_id in self.pos_ids:
+            self.pos_ids.remove(point_id)
+        if point_id in self.neg_ids:
+            self.neg_ids.remove(point_id)
+
         if not was_selected:
             if is_positive:
                 self.pos_ids.append(point_id)
@@ -3124,20 +3147,20 @@ class GeoVibes:
                 tick_button.layout.opacity = "1.0"
                 cross_button.button_style = ""
                 cross_button.layout.opacity = "0.3"
-                self._show_operation_status(f"✅ Labeled tile as Positive")
+                self._show_operation_status("✅ Labeled tile as Positive")
             else:
                 self.neg_ids.append(point_id)
                 cross_button.button_style = "danger"
                 cross_button.layout.opacity = "1.0"
                 tick_button.button_style = ""
                 tick_button.layout.opacity = "0.3"
-                self._show_operation_status(f"✅ Labeled tile as Negative")
+                self._show_operation_status("✅ Labeled tile as Negative")
         else:
             tick_button.button_style = ""
             cross_button.button_style = ""
             tick_button.layout.opacity = "0.3"
             cross_button.layout.opacity = "0.3"
-            self._show_operation_status(f"✅ Removed label from tile")
+            self._show_operation_status("✅ Removed label from tile")
 
         self.update_layers()
         self.update_query_vector()
@@ -3163,12 +3186,16 @@ class GeoVibes:
             square_poly = Polygon(square_coords)
 
             for layer in self.map.layers:
-                if hasattr(layer, 'name') and layer.name == 'tile_highlight':
+                if hasattr(layer, "name") and layer.name == "tile_highlight":
                     self.map.remove_layer(layer)
 
             highlight_layer = ipyl.GeoJSON(
-                data={"type": "Feature", "geometry": shapely.geometry.mapping(square_poly)},
-                name='tile_highlight', style={'color': 'yellow', 'fillOpacity': 0.1, 'weight': 3}
+                data={
+                    "type": "Feature",
+                    "geometry": shapely.geometry.mapping(square_poly),
+                },
+                name="tile_highlight",
+                style={"color": "yellow", "fillOpacity": 0.1, "weight": 3},
             )
             self.map.add_layer(highlight_layer)
         except Exception as e:

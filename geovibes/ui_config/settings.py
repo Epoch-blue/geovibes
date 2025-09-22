@@ -13,6 +13,7 @@ class GeoVibesConfig:
     start_date: str = "2024-01-01"
     end_date: str = "2025-01-01"
     gcp_project: Optional[str] = None
+    enable_ee: bool = False
 
     @classmethod
     def from_file(cls, config_path: str) -> "GeoVibesConfig":
@@ -28,10 +29,16 @@ class GeoVibesConfig:
     @classmethod
     def from_dict(cls, config_dict: dict) -> "GeoVibesConfig":
         """Create configuration from dictionary."""
+        def _parse_bool(value) -> bool:
+            if isinstance(value, str):
+                return value.strip().lower() in {"1", "true", "yes", "on"}
+            return bool(value)
+
         return cls(
             start_date=config_dict.get("start_date", "2024-01-01"),
             end_date=config_dict.get("end_date", "2025-01-01"),
             gcp_project=config_dict.get("gcp_project"),
+            enable_ee=_parse_bool(config_dict.get("enable_ee", False)),
         )
 
     def validate(self) -> None:
@@ -55,4 +62,6 @@ class GeoVibesConfig:
         }
         if self.gcp_project:
             config_dict["gcp_project"] = self.gcp_project
+        if self.enable_ee:
+            config_dict["enable_ee"] = self.enable_ee
         return config_dict

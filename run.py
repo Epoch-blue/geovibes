@@ -7,6 +7,7 @@ that can be accessed via a web browser instead of Jupyter notebook.
 
 Usage:
     python run.py --config config.yaml
+    python run.py --enable-ee
     python run.py --help
 
 The script will start a web server and open the GeoVibes interface in your default browser.
@@ -64,6 +65,18 @@ Examples:
         type=str,
         help="Google Cloud Project ID for Earth Engine authentication",
     )
+    parser.add_argument(
+        "--enable-ee",
+        action="store_true",
+        default=False,
+        help="Opt in to Earth Engine basemaps (requires prior earthengine authenticate)",
+    )
+    parser.add_argument(
+        "--disable-ee",
+        action="store_true",
+        default=False,
+        help="Force Earth Engine basemaps off even if config enables them",
+    )
 
     # Web server options
     parser.add_argument(
@@ -120,6 +133,11 @@ def merge_config(file_config, args):
         if value is not None:
             config[key] = value
 
+    if args.enable_ee:
+        config["enable_ee"] = True
+    if args.disable_ee:
+        config["enable_ee"] = False
+
     return config
 
 
@@ -137,6 +155,38 @@ def sanitize_config(config: dict) -> dict:
 
 def create_notebook_content(config, verbose=False):
     """Create a temporary notebook that initializes GeoVibes with the given config."""
+    enable_ee = config.get("enable_ee")
+
+    init_source = [
+        "# Auto-generated GeoVibes initialization\n",
+        "import sys\n",
+        "import os\n",
+        "\n",
+        "# Add src directory to path\n",
+        "sys.path.insert(0, os.path.join(os.getcwd(), 'src'))\n",
+        "\n",
+        "from geovibes.ui import GeoVibes\n",
+        "\n",
+        "# Initialize GeoVibes with configuration\n",
+        f"config = {repr(config)}\n",
+        f"verbose = {verbose}\n",
+        "\n",
+        "vibes = GeoVibes(\n",
+        "    start_date=config.get('start_date', '2024-01-01'),\n",
+        "    end_date=config.get('end_date', '2025-01-01'),\n",
+        "    gcp_project=config.get('gcp_project'),\n",
+    ]
+
+    if enable_ee is not None:
+        init_source.append(f"    enable_ee={enable_ee},\n")
+
+    init_source.extend(
+        [
+            "    verbose=verbose\n",
+            ")",
+        ]
+    )
+
     notebook_content = {
         "cells": [
             {
@@ -144,27 +194,7 @@ def create_notebook_content(config, verbose=False):
                 "execution_count": None,
                 "metadata": {},
                 "outputs": [],
-                "source": [
-                    "# Auto-generated GeoVibes initialization\n",
-                    "import sys\n",
-                    "import os\n",
-                    "\n",
-                    "# Add src directory to path\n",
-                    "sys.path.insert(0, os.path.join(os.getcwd(), 'src'))\n",
-                    "\n",
-                    "from geovibes.ui import GeoVibes\n",
-                    "\n",
-                    "# Initialize GeoVibes with configuration\n",
-                    f"config = {repr(config)}\n",
-                    f"verbose = {verbose}\n",
-                    "\n",
-                    "vibes = GeoVibes(\n",
-                    "    start_date=config.get('start_date', '2024-01-01'),\n",
-                    "    end_date=config.get('end_date', '2025-01-01'),\n",
-                    "    gcp_project=config.get('gcp_project'),\n",
-                    "    verbose=verbose\n",
-                    ")",
-                ],
+                "source": init_source,
             },
         ],
         "metadata": {
@@ -267,6 +297,10 @@ def run_with_voila(config, args):
 def main():
     """Main entry point for the GeoVibes web application."""
     args = parse_arguments()
+
+    if args.enable_ee and args.disable_ee:
+        print("❌ --enable-ee and --disable-ee cannot be used together")
+        sys.exit(1)
 
     # Load configuration
     file_config = {}
