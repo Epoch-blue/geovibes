@@ -214,7 +214,7 @@ gcloud auth application-default login
 
 ## Interactive Vibe Checking
 
-The `geovibes.ipynb` notebook provides the main interface for geospatial similarity search. Run `prep_data.py` to pull down the models listed in `manifest.csv`; they will be extracted into `local_databases/` at the project root.
+The `vibe_checker.ipynb` notebook provides the main interface for geospatial similarity search. Run `prep_data.py` to pull down the models listed in `manifest.csv`; they will be extracted into `local_databases/` at the project root.
 Once the assets are downloaded, instantiate GeoVibes without any additional database paths:
 
 ```python
