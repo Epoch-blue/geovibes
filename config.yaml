@@ -1,16 +1,6 @@
 # GeoVibes Configuration File
-# This file contains the configuration for running GeoVibes as a web application
+# Minimal settings for basemap date range and optional GCP project
 
-# Database configuration - specify either duckdb_path OR duckdb_directory
-duckdb_directory: local_databases
-duckdb_path: ./local_databases/alabama_google_satellite_embeddings_v1_2024_2025_25_0_10_metadata.db
-
-# Geographic boundary file
-boundary_path: geometries/alabama.geojson
-
-# Date range for Earth Engine basemaps (YYYY-MM-DD format)
 start_date: "2024-01-01"
 end_date: "2025-01-01"
-# Google Cloud Project for Earth Engine authentication (optional)
-# Uncomment and set your project ID if you want NDVI/NDWI basemaps
 # gcp_project: "your-gcp-project-id"

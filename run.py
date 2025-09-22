@@ -7,7 +7,6 @@ that can be accessed via a web browser instead of Jupyter notebook.
 
 Usage:
     python run.py --config config.yaml
-    python run.py --duckdb-directory ./local_databases --boundary geometries/alabama.geojson
     python run.py --help
 
 The script will start a web server and open the GeoVibes interface in your default browser.
@@ -34,35 +33,15 @@ def parse_arguments():
 Examples:
   # Use YAML config file
   python run.py --config config.yaml
-  
-  # Use individual parameters
-  python run.py --duckdb-directory ./local_databases --boundary geometries/alabama.geojson
-  
-  # Override config with individual parameters
-  python run.py --config config.yaml --verbose --start-date 2024-06-01
+
+  # Override defaults for basemap dates
+  python run.py --start-date 2024-06-01 --end-date 2024-12-31
         """,
     )
 
     # Configuration file options
     parser.add_argument(
         "--config", type=str, help="Path to configuration file (YAML or JSON format)"
-    )
-
-    # Database options
-    parser.add_argument("--duckdb-path", type=str, help="Path to DuckDB database file")
-    parser.add_argument(
-        "--duckdb-directory",
-        type=str,
-        help="Directory containing DuckDB database files",
-    )
-
-    # Geographic options
-    parser.add_argument(
-        "--boundary",
-        "--boundary-path",
-        dest="boundary_path",
-        type=str,
-        help="Path to boundary GeoJSON file",
     )
 
     # Date options
@@ -132,9 +111,6 @@ def merge_config(file_config, args):
 
     # Override with command line arguments (only if they were explicitly provided)
     arg_mappings = {
-        "duckdb_path": args.duckdb_path,
-        "duckdb_directory": args.duckdb_directory,
-        "boundary_path": args.boundary_path,
         "start_date": args.start_date,
         "end_date": args.end_date,
         "gcp_project": args.gcp_project,
@@ -145,6 +121,18 @@ def merge_config(file_config, args):
             config[key] = value
 
     return config
+
+
+def sanitize_config(config: dict) -> dict:
+    """Remove empty entries and deprecated CLI keys before notebook init."""
+    sanitized = {k: v for k, v in config.items() if v is not None}
+
+    # Remove deprecated path-based configuration keys
+    sanitized.pop("duckdb_directory", None)
+    sanitized.pop("duckdb_path", None)
+    sanitized.pop("boundary_path", None)
+
+    return sanitized
 
 
 def create_notebook_content(config, verbose=False):
@@ -171,9 +159,6 @@ def create_notebook_content(config, verbose=False):
                     f"verbose = {verbose}\n",
                     "\n",
                     "vibes = GeoVibes(\n",
-                    "    duckdb_path=config.get('duckdb_path'),\n",
-                    "    duckdb_directory=config.get('duckdb_directory'),\n",
-                    "    boundary_path=config.get('boundary_path'),\n",
                     "    start_date=config.get('start_date', '2024-01-01'),\n",
                     "    end_date=config.get('end_date', '2025-01-01'),\n",
                     "    gcp_project=config.get('gcp_project'),\n",
@@ -296,11 +281,7 @@ def main():
 
     # Merge file config with command line arguments
     config = merge_config(file_config, args)
-
-    # Validate configuration
-    if not config.get("duckdb_path") and not config.get("duckdb_directory"):
-        print("❌ Error: Either --duckdb-path or --duckdb-directory must be provided")
-        sys.exit(1)
+    config = sanitize_config(config)
 
     if args.verbose:
         print("🔧 Final configuration:")
