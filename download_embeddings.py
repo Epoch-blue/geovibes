@@ -53,23 +53,96 @@ def s3_to_https_url(s3_url: str) -> str:
 def download_file_with_progress(url: str, local_path: str) -> bool:
     """Download a file with progress bar using tqdm."""
     try:
-        response = requests.get(url, stream=True)
-        response.raise_for_status()
-
-        total_size = int(response.headers.get("content-length", 0))
-
-        # Create parent directories if they don't exist
+        # Determine existing progress, if any
+        temp_path = f"{local_path}.part"
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
-
         filename = os.path.basename(local_path)
 
-        with open(local_path, "wb") as f:
+        # Retrieve total size using HEAD so we can compare when resuming
+        total_size = 0
+        try:
+            head_response = requests.head(url, allow_redirects=True)
+            head_response.raise_for_status()
+            total_size = int(head_response.headers.get("content-length", 0))
+        except requests.exceptions.RequestException:
+            # Fall back to determining total size from GET response
+            total_size = 0
+
+        # Pick the best existing partial to resume from
+        resume_source = None
+        existing_size = 0
+
+        if os.path.exists(temp_path):
+            existing_size = os.path.getsize(temp_path)
+            resume_source = temp_path
+
+        if os.path.exists(local_path):
+            full_size = os.path.getsize(local_path)
+            if total_size and full_size == total_size:
+                print(f"{filename} already downloaded, skipping...")
+                return True
+            if full_size > existing_size:
+                existing_size = full_size
+                resume_source = local_path
+
+        if resume_source and resume_source != temp_path:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            shutil.move(resume_source, temp_path)
+
+        if total_size and existing_size > total_size:
+            # Local copy is larger than expected, restart download
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            existing_size = 0
+            print(f"Existing copy of {filename} is larger than expected. Restarting...")
+
+        headers = {}
+        if existing_size:
+            headers["Range"] = f"bytes={existing_size}-"
+            print(
+                f"Resuming {filename}: already have {existing_size / (1024 ** 2):.2f} MB"
+            )
+
+        response = requests.get(url, stream=True, headers=headers)
+        response.raise_for_status()
+
+        # If the server ignored our range request, start over
+        if existing_size and response.status_code == 200:
+            existing_size = 0
+            response.close()
+            response = requests.get(url, stream=True)
+            response.raise_for_status()
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            print(f"Server ignored resume request for {filename}. Restarting download...")
+
+        # Capture total size information from the response when possible
+        if existing_size and "content-range" in response.headers:
+            content_range = response.headers.get("content-range", "")
+            try:
+                _, range_spec = content_range.split(" ", 1)
+                _, total_part = range_spec.split("/", 1)
+                if total_part.isdigit():
+                    total_size = int(total_part)
+            except ValueError:
+                pass
+        elif not total_size:
+            remaining = int(response.headers.get("content-length", 0))
+            if remaining:
+                total_size = existing_size + remaining
+
+        mode = "ab" if existing_size else "wb"
+        target_path = temp_path
+
+        with open(target_path, mode) as f:
             with tqdm(
-                total=total_size,
+                total=total_size or None,
                 unit="B",
                 unit_scale=True,
                 unit_divisor=1024,
                 desc=filename,
+                initial=existing_size,
                 ascii=True,
             ) as pbar:
                 for chunk in response.iter_content(chunk_size=8192):
@@ -77,10 +150,17 @@ def download_file_with_progress(url: str, local_path: str) -> bool:
                         f.write(chunk)
                         pbar.update(len(chunk))
 
+        response.close()
+
+        # Finalize download
+        if os.path.exists(local_path):
+            os.remove(local_path)
+        os.rename(target_path, local_path)
+
         print(f"✓ {filename} downloaded successfully")
         return True
 
-    except requests.exceptions.RequestException as e:
+    except (requests.exceptions.RequestException, OSError) as e:
         print(f"✗ Error downloading {url}: {e}")
         return False
 
