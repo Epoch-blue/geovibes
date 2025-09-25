@@ -1,0 +1,280 @@
+"""Tile panel for displaying search results as thumbnails."""
+
+from __future__ import annotations
+
+import concurrent.futures
+from functools import partial
+from typing import Callable, Optional
+
+import ipywidgets as ipyw
+import shapely.wkt
+from ipywidgets import Button, GridBox, HBox, Image, Label, Layout, VBox
+
+from geovibes.ui_config import BasemapConfig, UIConstants
+from geovibes.xyz import get_map_image
+
+
+class TilePanel:
+    """Manages the tile-based results pane."""
+
+    def __init__(
+        self,
+        *,
+        state,
+        map_manager,
+        on_label: Callable[[str, dict, str], None],
+        on_center: Callable[[dict], None],
+        verbose: bool = False,
+    ) -> None:
+        self.state = state
+        self.map_manager = map_manager
+        self.on_label = on_label
+        self.on_center = on_center
+        self.verbose = verbose
+
+        basemap_options = list(BasemapConfig.BASEMAP_TILES.keys())
+        if self.state.tile_basemap not in basemap_options:
+            self.state.tile_basemap = basemap_options[0]
+
+        self.tile_basemap_dropdown = ipyw.Dropdown(
+            options=basemap_options,
+            value=self.state.tile_basemap,
+            description="",
+            layout=Layout(width="180px"),
+            style={"description_width": "initial"},
+        )
+        self.tile_basemap_dropdown.observe(self._on_tile_basemap_change, names="value")
+
+        self.next_tiles_btn = Button(
+            description="Next",
+            layout=Layout(width="60px", margin="0 0 0 5px", display="none"),
+        )
+        self.next_tiles_btn.on_click(self._on_next_tiles_click)
+
+        controls = HBox(
+            [self.tile_basemap_dropdown, self.next_tiles_btn],
+            layout=Layout(align_items="center", margin="0 0 10px 0"),
+        )
+
+        self.results_grid = GridBox(
+            [],
+            layout=Layout(
+                width="100%",
+                grid_template_columns="1fr 1fr",
+                grid_gap="3px",
+            ),
+        )
+
+        self.container = VBox(
+            [controls, self.results_grid],
+            layout=Layout(
+                display="none",
+                width="265px",
+                padding="5px",
+                max_height="600px",
+                overflow_y="auto",
+            ),
+        )
+
+        self.control = self.map_manager.add_widget_control(self.container, position="topright")
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def toggle(self) -> None:
+        if self.container.layout.display == "none":
+            self.container.layout.display = "block"
+        else:
+            self.container.layout.display = "none"
+
+    def show(self) -> None:
+        self.container.layout.display = "block"
+
+    def hide(self) -> None:
+        self.container.layout.display = "none"
+
+    def clear(self) -> None:
+        self.results_grid.children = []
+        self.next_tiles_btn.layout.display = "none"
+        self.state.last_search_results_df = None
+        self.state.tile_page = 0
+
+    def update_results(self, search_results_df) -> None:
+        self.state.last_search_results_df = search_results_df
+        self.state.tile_page = 0
+        self.results_grid.children = []
+        self.show()
+        self._render_current_page(append=False)
+
+    def reload_tiles_for_new_basemap(self) -> None:
+        if self.state.last_search_results_df is None:
+            return
+        current_count = len(self.results_grid.children)
+        if current_count == 0:
+            return
+        self._render_current_page(append=False, limit=current_count)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _on_tile_basemap_change(self, change) -> None:
+        self.state.tile_basemap = change["new"]
+        self.reload_tiles_for_new_basemap()
+
+    def _on_next_tiles_click(self, _button) -> None:
+        self.state.tile_page += 1
+        self._render_current_page(append=True)
+
+    def _render_current_page(self, append: bool, limit: Optional[int] = None) -> None:
+        df = self.state.last_search_results_df
+        if df is None or df.empty:
+            self.results_grid.children = []
+            self.next_tiles_btn.layout.display = "none"
+            return
+
+        if append:
+            start_index = (
+                self.state.initial_load_size
+                + (self.state.tile_page - 1) * self.state.tiles_per_page
+            )
+            end_index = start_index + self.state.tiles_per_page
+        else:
+            start_index = 0
+            if limit is not None:
+                end_index = limit
+            elif self.state.tile_page == 0:
+                end_index = self.state.initial_load_size
+            else:
+                end_index = (
+                    self.state.initial_load_size
+                    + self.state.tile_page * self.state.tiles_per_page
+                )
+
+        page_df = df.iloc[start_index:end_index]
+        if page_df.empty:
+            self.next_tiles_btn.layout.display = "none"
+            return
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            tiles = list(
+                executor.map(
+                    partial(self._create_tile_widget, append=append),
+                    [row for _, row in page_df.iterrows()],
+                )
+            )
+
+        current_children = list(self.results_grid.children)
+        if append:
+            current_children.extend(tiles)
+        else:
+            current_children = tiles
+        self.results_grid.children = tuple(current_children)
+
+        if end_index < len(df):
+            self.next_tiles_btn.layout.display = "flex"
+        else:
+            self.next_tiles_btn.layout.display = "none"
+
+    def _create_tile_widget(self, row, append: bool):
+        geom = shapely.wkt.loads(row["geometry_wkt"])
+        try:
+            image_bytes = get_map_image(
+                source=self.state.tile_basemap, lon=geom.x, lat=geom.y
+            )
+            tile_image = Image(value=image_bytes, format="png", width=115, height=115)
+        except Exception:
+            tile_image = Label(
+                value="Image unavailable",
+                layout=Layout(
+                    width="115px",
+                    height="115px",
+                    border="1px solid #ccc",
+                    display="flex",
+                    align_items="center",
+                    justify_content="center",
+                ),
+            )
+
+        point_id = str(row["id"])
+
+        map_button = Button(
+            icon="fa-map-marker",
+            layout=Layout(width="35px", height="30px", margin="0px 2px", padding="2px"),
+            tooltip="Center map",
+        )
+        map_button.on_click(lambda _b, r=row: self.on_center(r))
+
+        tick_button = Button(
+            icon="fa-check",
+            layout=Layout(width="35px", height="30px", margin="0px 2px", padding="2px"),
+            tooltip="Label as positive",
+        )
+        cross_button = Button(
+            icon="fa-times",
+            layout=Layout(width="35px", height="30px", margin="0px 2px", padding="2px"),
+            tooltip="Label as negative",
+        )
+
+        self._apply_label_style(point_id, tick_button, cross_button)
+
+        tick_button.on_click(
+            lambda _b, pid=point_id, r=row: self._handle_label_click(
+                pid, r, UIConstants.POSITIVE_LABEL, tick_button, cross_button
+            )
+        )
+        cross_button.on_click(
+            lambda _b, pid=point_id, r=row: self._handle_label_click(
+                pid, r, UIConstants.NEGATIVE_LABEL, tick_button, cross_button
+            )
+        )
+
+        button_row = HBox(
+            [map_button, tick_button, cross_button],
+            layout=Layout(justify_content="center"),
+        )
+
+        return VBox(
+            [button_row, tile_image],
+            layout=Layout(
+                border="1px solid #ccc",
+                padding="2px",
+                width="120px",
+                height="155px",
+            ),
+        )
+
+    def _handle_label_click(
+        self,
+        point_id: str,
+        row,
+        label: str,
+        tick_button: Button,
+        cross_button: Button,
+    ) -> None:
+        self.on_label(point_id, row, label)
+        self._apply_label_style(point_id, tick_button, cross_button)
+
+    def _apply_label_style(
+        self,
+        point_id: str,
+        tick_button: Button,
+        cross_button: Button,
+    ) -> None:
+        if point_id in self.state.pos_ids:
+            tick_button.button_style = "success"
+            tick_button.layout.opacity = "1.0"
+        else:
+            tick_button.button_style = ""
+            tick_button.layout.opacity = "0.3"
+
+        if point_id in self.state.neg_ids:
+            cross_button.button_style = "danger"
+            cross_button.layout.opacity = "1.0"
+        else:
+            cross_button.button_style = ""
+            cross_button.layout.opacity = "0.3"
+
+
+__all__ = ["TilePanel"]
