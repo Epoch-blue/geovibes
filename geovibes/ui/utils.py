@@ -4,22 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Iterable, List
 
 LOG_FILE = "geovibes_crash.log"
-
-
-def parse_env_flag(value: Optional[str]) -> Optional[bool]:
-    """Return a boolean for recognized truthy/falsey strings."""
-    if value is None:
-        return None
-    normalized = value.strip().lower()
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off"}:
-        return False
-    return None
-
 
 def prepare_ids_for_query(ids: Iterable[object]) -> List[str]:
     """Normalize identifiers before passing them to DuckDB."""
@@ -33,4 +20,4 @@ def log_to_file(message: str, logfile: str = LOG_FILE) -> None:
         handle.write(f"{datetime.now().isoformat()} - {message}\n")
 
 
-__all__ = ["parse_env_flag", "prepare_ids_for_query", "log_to_file", "LOG_FILE"]
+__all__ = ["prepare_ids_for_query", "log_to_file", "LOG_FILE"]
