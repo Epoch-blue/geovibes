@@ -16,9 +16,13 @@ import shapely.geometry
 
 from geovibes.ee_tools import initialize_ee_with_credentials
 from geovibes.ui_config import BasemapConfig, DatabaseConstants, GeoVibesConfig
-from geovibes.utils import get_database_centroid, list_databases_in_directory
 
-from .utils import log_to_file, prepare_ids_for_query
+from .utils import (
+    get_database_centroid,
+    list_databases_in_directory,
+    log_to_file,
+    prepare_ids_for_query,
+)
 
 
 class DataManager:

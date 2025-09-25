@@ -2,22 +2,64 @@
 
 from __future__ import annotations
 
+import glob
+import os
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, List
+from typing import Dict, Iterable, List
 
 LOG_FILE = "geovibes_crash.log"
 
+
 def prepare_ids_for_query(ids: Iterable[object]) -> List[str]:
-    """Normalize identifiers before passing them to DuckDB."""
     return [str(identifier) for identifier in ids]
 
 
 def log_to_file(message: str, logfile: str = LOG_FILE) -> None:
-    """Append a timestamped message to the crash log."""
     Path(logfile).parent.mkdir(parents=True, exist_ok=True)
     with open(logfile, "a", encoding="utf-8") as handle:
         handle.write(f"{datetime.now().isoformat()} - {message}\n")
 
 
-__all__ = ["prepare_ids_for_query", "log_to_file", "LOG_FILE"]
+def list_databases_in_directory(
+    directory_path: str, verbose: bool = False
+) -> List[Dict[str, str]]:
+    databases: List[Dict[str, str]] = []
+    pattern = os.path.join(directory_path, "*.db")
+    for db_file in glob.glob(pattern):
+        if not os.path.isfile(db_file):
+            continue
+        base_name, _ = os.path.splitext(db_file)
+        if base_name.endswith("_metadata"):
+            prefix = base_name[: -len("_metadata")]
+            index_pattern = f"{prefix}*.index"
+        else:
+            index_pattern = f"{base_name}*.index"
+        index_files = glob.glob(index_pattern)
+        if len(index_files) == 1:
+            databases.append({"db_path": db_file, "faiss_path": index_files[0]})
+            if verbose:
+                print(f"  Found DB: {db_file} with Index: {index_files[0]}")
+        elif verbose:
+            if index_files:
+                print(f"⚠️  Multiple index files found for {db_file}: {index_files}")
+            else:
+                print(f"  Found DB: {db_file}, but no associated FAISS index found.")
+    if verbose:
+        print(f"Found {len(databases)} database(s) in {directory_path}")
+    return sorted(databases, key=lambda x: x["db_path"])
+
+
+def get_database_centroid(duckdb_connection, verbose: bool = False) -> tuple[float, float]:
+    if verbose:
+        print("📍 Using default center (0, 0)")
+    return 0.0, 0.0
+
+
+__all__ = [
+    "prepare_ids_for_query",
+    "log_to_file",
+    "LOG_FILE",
+    "list_databases_in_directory",
+    "get_database_centroid",
+]
