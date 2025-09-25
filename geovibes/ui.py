@@ -2010,11 +2010,27 @@ class GeoVibes:
             # Build parameterized query for this chunk
             prepared_chunk = self._prepare_ids_for_query(chunk)
             placeholders = ",".join(["?" for _ in prepared_chunk])
-            query = f"""
-            SELECT id, tile_id, CAST(embedding AS FLOAT[]) as embedding, geometry 
-            FROM geo_embeddings 
-            WHERE id IN ({placeholders})
+            
+            # Check if tile_id column exists in the table
+            column_check_query = """
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'geo_embeddings' AND column_name = 'tile_id'
             """
+            has_tile_id = len(self.duckdb_connection.execute(column_check_query).fetchall()) > 0
+            
+            if has_tile_id:
+                query = f"""
+                SELECT id, tile_id, CAST(embedding AS FLOAT[]) as embedding, geometry 
+                FROM geo_embeddings 
+                WHERE id IN ({placeholders})
+                """
+            else:
+                query = f"""
+                SELECT id, CAST(embedding AS FLOAT[]) as embedding, geometry 
+                FROM geo_embeddings 
+                WHERE id IN ({placeholders})
+                """
 
             _log_to_file(
                 f"Fetch embeddings: Built query for chunk with IDs: {prepared_chunk}"
