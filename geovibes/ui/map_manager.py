@@ -12,6 +12,7 @@ import shapely.geometry
 import shapely.geometry.base
 from ipyleaflet import DrawControl, Map
 from ipywidgets import HTML, HBox, Layout, VBox
+from tqdm import tqdm
 
 from geovibes.ee_tools import (
     get_ee_image_url,
@@ -79,40 +80,17 @@ class MapManager:
                 boundary = self.data.ee_boundary
                 start = self.data.config.start_date
                 end = self.data.config.end_date
-                total_maps = 4
-                loaded_count = 0
-
-                s2_rgb = get_s2_rgb_median(boundary, start, end)
-                basemap_tiles["S2_RGB"] = get_ee_image_url(
-                    s2_rgb, BasemapConfig.S2_RGB_VIS_PARAMS
-                )
-                loaded_count += 1
-                if self.verbose:
-                    print(f"⏱️  Loaded {loaded_count}/{total_maps} maps")
-
-                ndvi = get_s2_ndvi_median(boundary, start, end)
-                basemap_tiles["S2_NDVI"] = get_ee_image_url(
-                    ndvi, BasemapConfig.NDVI_VIS_PARAMS
-                )
-                loaded_count += 1
-                if self.verbose:
-                    print(f"⏱️  Loaded {loaded_count}/{total_maps} maps")
-
-                ndwi = get_s2_ndwi_median(boundary, start, end)
-                basemap_tiles["S2_NDWI"] = get_ee_image_url(
-                    ndwi, BasemapConfig.NDWI_VIS_PARAMS
-                )
-                loaded_count += 1
-                if self.verbose:
-                    print(f"⏱️  Loaded {loaded_count}/{total_maps} maps")
-
-                hsv = get_s2_hsv_median(boundary, start, end)
-                basemap_tiles["S2_HSV"] = get_ee_image_url(
-                    hsv, BasemapConfig.S2_HSV_VIS_PARAMS
-                )
-                loaded_count += 1
-                if self.verbose:
-                    print(f"⏱️  Loaded {loaded_count}/{total_maps} maps")
+                
+                basemap_tasks = [
+                    ("S2_RGB", lambda: get_s2_rgb_median(boundary, start, end), BasemapConfig.S2_RGB_VIS_PARAMS),
+                    ("S2_NDVI", lambda: get_s2_ndvi_median(boundary, start, end), BasemapConfig.NDVI_VIS_PARAMS),
+                    ("S2_NDWI", lambda: get_s2_ndwi_median(boundary, start, end), BasemapConfig.NDWI_VIS_PARAMS),
+                    ("S2_HSV", lambda: get_s2_hsv_median(boundary, start, end), BasemapConfig.S2_HSV_VIS_PARAMS),
+                ]
+                
+                for name, image_func, vis_params in tqdm(basemap_tasks, desc="Loading Earth Engine basemaps"):
+                    image = image_func()
+                    basemap_tiles[name] = get_ee_image_url(image, vis_params)
 
                 if self.verbose:
                     print("✅ Earth Engine basemaps added successfully!")
