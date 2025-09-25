@@ -1,13 +1,15 @@
 """Interactive map interface for geospatial similarity search using satellite embeddings."""
 
 import base64
+import csv
 import json
 import os
 import warnings
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from io import BytesIO
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Tuple
 
 import duckdb
 import ee
@@ -32,20 +34,21 @@ from ipywidgets import (
 import numpy as np
 import pandas as pd
 import shapely
-from shapely.geometry import Point
 import webbrowser
 from PIL import Image as PILImage, ImageDraw
-import base64
-from io import BytesIO
 import faiss
 import pathlib
 
 # --- Crash Debugging Logger ---
 LOG_FILE = "geovibes_crash.log"
+
+
 def _log_to_file(message):
     """Appends a timestamped message to the log file immediately."""
     with open(LOG_FILE, "a") as f:
         f.write(f"{datetime.now().isoformat()} - {message}\\n")
+
+
 # -----------------------------
 
 from .ee_tools import (
@@ -63,7 +66,7 @@ from .ui_config import (
     LayerStyles,
 )
 from .ee_tools import initialize_ee_with_credentials
-from .utils import list_databases_in_directory, get_database_centroid
+from .utils import get_database_centroid
 from .xyz import get_map_image
 
 warnings.simplefilter("ignore", category=FutureWarning)
@@ -74,6 +77,18 @@ if not BasemapConfig.MAPTILER_API_KEY:
     )
 
 
+def _parse_env_flag(value: Optional[str]) -> Optional[bool]:
+    """Return boolean for recognized truthy/falsey strings, otherwise None."""
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return None
+
+
 class GeoVibes:
     """Interactive map interface for geospatial similarity search using satellite embeddings.
 
@@ -82,159 +97,177 @@ class GeoVibes:
     """
 
     @classmethod
-    def from_config(cls, config_path, verbose=False, **kwargs):
-        """Create a GeoVibes instance from a configuration file (deprecated).
-
-        Args:
-            config_path: Path to JSON configuration file
-            verbose: If True, print detailed progress messages
-            **kwargs: Additional keyword arguments to override config values
-
-        Returns:
-            GeoVibes instance
-        """
-        if verbose:
-            print(
-                "⚠️  from_config() is deprecated. Use GeoVibes() with individual parameters instead."
-            )
-        return cls(config_path=config_path, verbose=verbose, **kwargs)
-
-    @classmethod
-    def create(cls, 
-              duckdb_path: Optional[str] = None,
-              duckdb_directory: Optional[str] = None,
-              boundary_path: Optional[str] = None,
-              start_date: str = "2024-01-01",
-              end_date: str = "2025-01-01",
-              gcp_project: Optional[str] = None,
-              verbose: bool = False,
-              **kwargs):
+    def create(
+        cls,
+        start_date: str = "2024-01-01",
+        end_date: str = "2025-01-01",
+        gcp_project: Optional[str] = None,
+        verbose: bool = False,
+        config: Optional[Dict] = None,
+        config_path: Optional[str] = None,
+        duckdb_connection: Optional[duckdb.DuckDBPyConnection] = None,
+        baselayer_url: Optional[str] = None,
+        enable_ee: Optional[bool] = None,
+        disable_ee: bool = False,
+    ):
         """Create a GeoVibes instance with explicit parameters.
 
         Args:
-            duckdb_path: Path to DuckDB database file
-            duckdb_directory: Directory containing multiple DuckDB database files
-            boundary_path: Path to boundary GeoJSON file
             start_date: Start date in YYYY-MM-DD format for Earth Engine basemaps
             end_date: End date in YYYY-MM-DD format for Earth Engine basemaps
             gcp_project: Google Cloud Project ID for Earth Engine authentication
             verbose: Enable detailed progress messages
-            **kwargs: Additional arguments
+            config: Optional configuration dictionary with start/end dates and GCP project.
+            config_path: Optional path to configuration file.
+            duckdb_connection: Optional DuckDB connection to reuse (advanced/testing).
+            baselayer_url: Optional custom basemap tile URL.
+            enable_ee: Opt into Earth Engine basemaps (overrides config/env flags if set).
+            disable_ee: Disable Earth Engine basemaps.
 
         Returns:
             GeoVibes instance
         """
         return cls(
-            duckdb_path=duckdb_path,
-            duckdb_directory=duckdb_directory,
-            boundary_path=boundary_path,
             start_date=start_date,
             end_date=end_date,
             gcp_project=gcp_project,
             verbose=verbose,
-            **kwargs,
+            config=config,
+            config_path=config_path,
+            duckdb_connection=duckdb_connection,
+            baselayer_url=baselayer_url,
+            enable_ee=enable_ee,
+            disable_ee=disable_ee,
         )
 
     def __init__(
-            self, 
-            duckdb_path: Optional[str] = None,
-            duckdb_directory: Optional[str] = None,
-            boundary_path: Optional[str] = None,
-            start_date: Optional[str] = None, 
-            end_date: Optional[str] = None,
-            gcp_project: Optional[str] = None,
-            duckdb_connection: Optional[duckdb.DuckDBPyConnection] = None, 
-            config: Optional[Dict] = None, 
-            config_path: Optional[str] = None,
-            baselayer_url: Optional[str] = None,
-            disable_ee: bool = False,
-            verbose: bool = False, 
-            **kwargs) -> None:
+        self,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        gcp_project: Optional[str] = None,
+        duckdb_connection: Optional[duckdb.DuckDBPyConnection] = None,
+        config: Optional[Dict] = None,
+        config_path: Optional[str] = None,
+        baselayer_url: Optional[str] = None,
+        enable_ee: Optional[bool] = None,
+        disable_ee: bool = False,
+        verbose: bool = False,
+    ) -> None:
         """Initialize GeoVibes interface.
 
         Args:
-            duckdb_path: Path to DuckDB database file.
-            duckdb_directory: Directory containing multiple DuckDB database files.
-            boundary_path: Path to boundary GeoJSON file.
             start_date: Start date in YYYY-MM-DD format for Earth Engine basemaps.
             end_date: End date in YYYY-MM-DD format for Earth Engine basemaps.
             gcp_project: Google Cloud Project ID for Earth Engine authentication.
-            duckdb_connection: Existing DuckDB connection to reuse.
-            config: Configuration dictionary (deprecated, use individual parameters).
-            config_path: Path to JSON configuration file (deprecated, use individual parameters).
+            duckdb_connection: Existing DuckDB connection to reuse (advanced/testing).
+            config: Optional configuration dictionary containing start/end dates and optional GCP project.
+            config_path: Optional path to configuration file (YAML) with the same keys as `config`.
             baselayer_url: Custom basemap tile URL.
-            disable_ee: Disable Earth Engine basemaps.
+            enable_ee: Opt into Earth Engine basemaps (overrides config/env flags if set).
+            disable_ee: Disable Earth Engine basemaps (overrides all other flags).
             verbose: Enable detailed progress messages.
-            **kwargs: Additional arguments for backwards compatibility.
 
         Raises:
-            ValueError: If no database is available given the provided parameters.
-            FileNotFoundError: If no .db files are found in the provided directory.
+            FileNotFoundError: If manifest.csv or the referenced model assets are missing.
             RuntimeError: If there is an error connecting to the database.
         """
         self.verbose = verbose
         if self.verbose:
             print("Initializing GeoVibes...")
 
-        # Handle backwards compatibility with config files
+        # Handle configuration loading
         if config_path is not None:
-            if self.verbose:
-                print(
-                    "⚠️  config_path is deprecated. Use individual parameters instead."
-                )
             self.config = GeoVibesConfig.from_file(config_path)
-            self.config.validate()
         elif config is not None:
-            if self.verbose:
-                print(
-                    "⚠️  config dict is deprecated. Use individual parameters instead."
-                )
             self.config = GeoVibesConfig.from_dict(config)
-            self.config.validate()
         else:
-            # Only validate if we have the minimum required parameters
-            if (
-                duckdb_path is None
-                and duckdb_directory is None
-                and duckdb_connection is None
-            ):
-                raise ValueError(
-                    "Either duckdb_path, duckdb_directory, or duckdb_connection must be provided"
-                )
-
-            # Use individual parameters to create config
             self.config = GeoVibesConfig(
-                duckdb_path=duckdb_path,
-                duckdb_directory=duckdb_directory,
-                boundary_path=boundary_path,
                 start_date=start_date or "2024-01-01",
                 end_date=end_date or "2025-01-01",
                 gcp_project=gcp_project,
             )
 
-            self.config.validate()
-        
-        self.ee_available = not disable_ee and initialize_ee_with_credentials(self.config.gcp_project)
+        self.config.validate()
+
+        env_enable = _parse_env_flag(os.getenv("GEOVIBES_ENABLE_EE"))
+        env_disable = _parse_env_flag(os.getenv("GEOVIBES_DISABLE_EE"))
+
+        ee_opt_in = enable_ee
+        if disable_ee:
+            ee_opt_in = False
+        elif ee_opt_in is None and env_disable is True:
+            ee_opt_in = False
+        elif ee_opt_in is None and env_enable is True:
+            ee_opt_in = True
+        elif ee_opt_in is None:
+            ee_opt_in = self.config.enable_ee
+
+        self.enable_ee = bool(ee_opt_in)
+        self.ee_available = False
+        if self.enable_ee:
+            self.ee_available = initialize_ee_with_credentials(
+                self.config.gcp_project, verbose=self.verbose
+            )
+        elif self.verbose:
+            print("ℹ️ Earth Engine disabled - running with basic basemaps only")
         self.faiss_index = None
-        
-        # Initialize database list if directory is provided
+
+        # Initialize manifest-driven database list
         self.available_databases = []
+        self.database_info_by_path = {}
+        self.current_database_info = None
         self.current_database_path = None
         self.current_faiss_path = None
-        if self.config.duckdb_directory:
-            self.available_databases = list_databases_in_directory(
-                self.config.duckdb_directory, verbose=self.verbose
+        self.current_geometry_path = None
+        self.effective_boundary_path = None
+        self.manifest_entries = []
+        self.geometries_dir = self._resolve_geometries_directory()
+        self.local_database_directory = self._resolve_local_database_directory()
+
+        manifest_path = self._resolve_manifest_path()
+        if manifest_path is None:
+            raise FileNotFoundError(
+                "manifest.csv not found at project root. Run prep_data.py to download models."
             )
-            if self.available_databases:
-                db_info = self.available_databases[0]
-                self.current_database_path = db_info["db_path"]
-                self.current_faiss_path = db_info["faiss_path"]
-                if self.verbose:
-                    print(
-                        f"📁 Found {len(self.available_databases)} databases in directory"
-                    )
-            else:
-                raise FileNotFoundError("⚠️  No .db files found in directory")
+
+        self.manifest_entries = self._load_manifest_entries(manifest_path)
+        if not self.manifest_entries:
+            raise FileNotFoundError(
+                "manifest.csv is empty. Run prep_data.py to populate available models."
+            )
+
+        if self.verbose:
+            print(
+                f"📄 Loaded {len(self.manifest_entries)} manifest entries from {manifest_path}"
+            )
+
+        self.available_databases = self._discover_available_models(
+            self.local_database_directory, self.manifest_entries
+        )
+
+        if self.available_databases:
+            self.available_databases = sorted(
+                self.available_databases,
+                key=lambda entry: entry.get(
+                    "display_name", os.path.basename(entry["db_path"])
+                ),
+            )
+            self.database_info_by_path = {
+                entry["db_path"]: entry for entry in self.available_databases
+            }
+            self.current_database_info = self.available_databases[0]
+            self.current_database_path = self.current_database_info["db_path"]
+            self.current_faiss_path = self.current_database_info["faiss_path"]
+            self.current_geometry_path = self.current_database_info.get("geometry_path")
+
+            if self.verbose:
+                print(
+                    f"📁 Found {len(self.available_databases)} downloaded model(s) in {self.local_database_directory}"
+                )
+        else:
+            raise FileNotFoundError(
+                "No downloaded models found. Run prep_data.py to fetch assets referenced in manifest.csv."
+            )
 
         if baselayer_url is None:
             baselayer_url = BasemapConfig.BASEMAP_TILES["MAPTILER"]
@@ -249,7 +282,6 @@ class GeoVibes:
                     print(
                         f"🌐 Connecting to GCS database: {self.current_database_path}"
                     )
-                    import os
 
                     if os.getenv("GCS_ACCESS_KEY_ID"):
                         print("🔑 Using HMAC key authentication")
@@ -277,11 +309,11 @@ class GeoVibes:
                     raise RuntimeError(error_msg)
                 else:
                     raise RuntimeError(f"Failed to connect to local database: {str(e)}")
-            
+
             # Configure memory limits and disable progress bar to prevent kernel crashes
             for query in DatabaseConstants.get_memory_setup_queries():
                 self.duckdb_connection.execute(query)
-            
+
             # Extra insurance: explicitly disable progress bar again
             try:
                 self.duckdb_connection.execute("SET enable_progress_bar=false")
@@ -301,24 +333,13 @@ class GeoVibes:
             name="basemap",
             attribution="",  # Empty attribution since we're using custom control
         )
-        if self.ee_available:
-            try:
-                self.ee_boundary = ee.Geometry(
-                    shapely.geometry.mapping(
-                        gpd.read_file(self.config.boundary_path).union_all()
-                    )
-                )
-            except Exception as e:
-                if self.verbose:
-                    print(f"⚠️  Failed to create Earth Engine boundary: {e}")
-                    print("⚠️  NDVI/NDWI basemaps will be unavailable")
-                self.ee_boundary = None
-        else:
-            self.ee_boundary = None
+        self.ee_boundary = None
 
         # Setup extensions in DuckDB (spatial and httpfs if needed)
         if self.current_database_path:
-            extension_queries = DatabaseConstants.get_extension_setup_queries(self.current_database_path)
+            extension_queries = DatabaseConstants.get_extension_setup_queries(
+                self.current_database_path
+            )
             for query in extension_queries:
                 try:
                     self.duckdb_connection.execute(query)
@@ -359,6 +380,9 @@ class GeoVibes:
         # Get map center and set up boundary path
         center_y, center_x = self._setup_boundary_and_center()
 
+        # Ensure Earth Engine boundary reflects the active geometry before basemap setup
+        self._update_ee_boundary()
+
         # Build map
         self.map = self._build_map(center_y, center_x)
 
@@ -386,7 +410,7 @@ class GeoVibes:
         # New state for tiles panel
         self.tile_basemap = self.current_basemap
         self.tile_page = 0
-        self.tiles_per_page = 50 # Subsequent page size
+        self.tiles_per_page = 50  # Subsequent page size
         self.initial_load_size = 8
         self.last_search_results_df = None
 
@@ -428,8 +452,6 @@ class GeoVibes:
         # Add status bar
         self.status_bar = HTML(value="Ready")
 
-
-
         # Create main layout
         map_with_overlays = VBox(
             [
@@ -449,6 +471,201 @@ class GeoVibes:
 
         display(self.main_layout)
 
+    @staticmethod
+    def _project_root() -> pathlib.Path:
+        """Return the root directory of the GeoVibes project."""
+        return pathlib.Path(__file__).resolve().parent.parent
+
+    def _resolve_manifest_path(self) -> Optional[str]:
+        """Determine the manifest path for the downloaded models."""
+        override = os.getenv("GEOVIBES_MANIFEST_PATH")
+        if override:
+            candidate = pathlib.Path(override).expanduser()
+            if candidate.exists():
+                return str(candidate)
+
+        manifest_path = self._project_root() / "manifest.csv"
+        return str(manifest_path) if manifest_path.exists() else None
+
+    def _resolve_geometries_directory(self) -> Optional[str]:
+        """Infer the local geometries directory for manifest-specified regions."""
+        override = os.getenv("GEOVIBES_GEOMETRIES_DIR")
+        if override:
+            return str(pathlib.Path(override).expanduser())
+
+        project_root = self._project_root()
+        default_candidate = project_root / "geometries"
+        return str(default_candidate)
+
+    def _resolve_local_database_directory(self) -> str:
+        """Determine the directory where manifest-downloaded databases are stored."""
+        override = os.getenv("GEOVIBES_LOCAL_DB_DIR")
+        if override:
+            return str(pathlib.Path(override).expanduser())
+
+        return str(self._project_root() / "local_databases")
+
+    def _load_manifest_entries(self, manifest_path: str) -> List[Dict[str, str]]:
+        """Load manifest entries from CSV."""
+        entries: List[Dict[str, str]] = []
+        try:
+            with open(manifest_path, "r", newline="") as csvfile:
+                reader = csv.DictReader(csvfile)
+                for row in reader:
+                    entries.append(
+                        {
+                            k: (v.strip() if isinstance(v, str) else v)
+                            for k, v in row.items()
+                        }
+                    )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            if self.verbose:
+                print(f"⚠️  Failed to read manifest at {manifest_path}: {exc}")
+        return entries
+
+    def _discover_available_models(
+        self, directory_path: str, manifest_rows: List[Dict[str, str]]
+    ) -> List[Dict[str, str]]:
+        """Discover downloaded models that match manifest entries."""
+        if not directory_path:
+            return []
+
+        dir_path = pathlib.Path(directory_path).expanduser()
+        if not dir_path.exists():
+            if self.verbose:
+                print(f"⚠️  Database directory not found: {directory_path}")
+            return []
+
+        manifest_lookup = {
+            (row.get("model_name") or "").strip(): row
+            for row in manifest_rows
+            if row.get("model_name")
+        }
+
+        discovered = []
+        seen_db_paths = set()
+
+        for model_name, row in manifest_lookup.items():
+            artifacts = self._locate_model_artifacts(dir_path, model_name)
+            if not artifacts:
+                if self.verbose:
+                    print(f"⚠️  Model files not found locally for {model_name}")
+                continue
+
+            if artifacts["db_path"] in seen_db_paths:
+                continue
+
+            region = (row.get("region") or "").strip() or None
+            geometry_path = self._resolve_geometry_path(region)
+            entry = {
+                "model_name": model_name,
+                "region": region,
+                "db_path": artifacts["db_path"],
+                "faiss_path": artifacts["faiss_path"],
+                "display_name": self._format_model_display_name(region, model_name),
+                "geometry_path": geometry_path,
+            }
+            discovered.append(entry)
+            seen_db_paths.add(entry["db_path"])
+
+        return discovered
+
+    def _locate_model_artifacts(
+        self, root_directory: pathlib.Path, model_name: str
+    ) -> Optional[Dict[str, str]]:
+        """Locate metadata database and FAISS index for a model."""
+        candidate_dirs = [root_directory / model_name, root_directory]
+        for candidate in candidate_dirs:
+            if not candidate.exists():
+                continue
+
+            db_path = self._match_single_file(
+                candidate,
+                [
+                    (f"{model_name}_metadata.db", f"{model_name}_metadata.db"),
+                    (f"{model_name}_metadata" + "*.db", f"{model_name}_metadata.db"),
+                    (f"{model_name}.db", f"{model_name}.db"),
+                ],
+            )
+
+            if not db_path:
+                continue
+
+            faiss_path = self._match_single_file(
+                candidate,
+                [
+                    (f"{model_name}_faiss" + "*.index", None),
+                    (f"{model_name}.index", f"{model_name}.index"),
+                ],
+            )
+
+            if db_path and faiss_path:
+                return {"db_path": db_path, "faiss_path": faiss_path}
+
+        return None
+
+    def _match_single_file(
+        self, directory: pathlib.Path, pattern_specs: List[Tuple[str, Optional[str]]]
+    ) -> Optional[str]:
+        """Match a single file in directory using provided patterns."""
+        for pattern, preferred in pattern_specs:
+            matches = sorted(directory.glob(pattern))
+            selected = self._select_preferred_path(matches, preferred)
+            if selected:
+                return str(selected)
+        return None
+
+    @staticmethod
+    def _select_preferred_path(
+        matches: List[pathlib.Path], preferred_name: Optional[str] = None
+    ) -> Optional[pathlib.Path]:
+        """Select a deterministic match preferring exact filenames."""
+        if not matches:
+            return None
+
+        if preferred_name:
+            for match in matches:
+                if match.name == preferred_name:
+                    return match
+
+        matches = sorted(
+            matches,
+            key=lambda path: (
+                GeoVibes._has_numeric_suffix(path.stem),
+                len(path.name),
+                path.name,
+            ),
+        )
+        return matches[0]
+
+    @staticmethod
+    def _has_numeric_suffix(stem: str) -> int:
+        """Return 0 if stem has no numeric suffix, 1 otherwise."""
+        return 1 if re.search(r"_\d+$", stem) else 0
+
+    def _resolve_geometry_path(self, region: Optional[str]) -> Optional[str]:
+        """Resolve local geometry path for a region if available."""
+        if not region or not self.geometries_dir:
+            return None
+
+        geom_dir = pathlib.Path(self.geometries_dir)
+        candidates = [
+            geom_dir / f"{region}.geojson",
+            geom_dir / f"{region}.json",
+        ]
+
+        for candidate in candidates:
+            if candidate.exists():
+                return str(candidate)
+
+        return None
+
+    def _format_model_display_name(self, region: Optional[str], model_name: str) -> str:
+        """Generate human-friendly label for model selection dropdown."""
+        if region:
+            return f"{region} / {model_name}"
+        return model_name
+
     def _setup_ee_basemaps(self) -> None:
         """Set up Earth Engine basemaps (Sentinel-2 RGB, NDVI, NDWI) if available."""
         self.basemap_tiles = BasemapConfig.BASEMAP_TILES.copy()
@@ -456,7 +673,9 @@ class GeoVibes:
         if self.ee_available:
             try:
                 if self.verbose:
-                    print("🛰️ Setting up Earth Engine basemaps (S2 RGB, NDVI, NDWI, HSV)...")
+                    print(
+                        "🛰️ Setting up Earth Engine basemaps (S2 RGB, NDVI, NDWI, HSV)..."
+                    )
 
                 s2_rgb_median = get_s2_rgb_median(
                     self.ee_boundary, self.config.start_date, self.config.end_date
@@ -505,14 +724,15 @@ class GeoVibes:
             scroll_wheel_zoom=True,
             attribution_control=False,  # Disable ALL attribution controls
         )
-        
+
         # Add custom attribution control positioned at bottom left with proper attribution text
         attribution_control = ipyl.AttributionControl(
-            position='bottomleft',
-            prefix='<a href="https://leafletjs.com">Leaflet</a> | ' + BasemapConfig.MAPTILER_ATTRIBUTION
+            position="bottomleft",
+            prefix='<a href="https://leafletjs.com">Leaflet</a> | '
+            + BasemapConfig.MAPTILER_ATTRIBUTION,
         )
         map_widget.add_control(attribution_control)
-        
+
         return map_widget
 
     def _build_side_panel(self):
@@ -618,7 +838,10 @@ class GeoVibes:
         if self.available_databases:
             # Create dropdown with database names (showing just filenames for clarity)
             database_options = [
-                (os.path.basename(db["db_path"]), db["db_path"])
+                (
+                    db.get("display_name", os.path.basename(db["db_path"])),
+                    db["db_path"],
+                )
                 for db in self.available_databases
             ]
             self.database_dropdown = Dropdown(
@@ -648,7 +871,11 @@ class GeoVibes:
         )
 
         # --- Run Button ---
-        self.run_button = Button(description=f"Find Similar", button_style='primary', layout=Layout(width='120px'))
+        self.run_button = Button(
+            description="Find Similar",
+            button_style="primary",
+            layout=Layout(width="120px"),
+        )
 
         # Build accordion - conditionally include database section
         accordion_children = [
@@ -788,7 +1015,6 @@ class GeoVibes:
 
         return f"data:image/png;base64,{img_data}"
 
-
     def _build_tiles_panel(self):
         """Build the results panel with controls."""
         basemap_options = list(BasemapConfig.BASEMAP_TILES.keys())
@@ -797,21 +1023,21 @@ class GeoVibes:
             value=self.tile_basemap,
             description="",
             layout=ipyw.Layout(width="180px"),
-            style={'description_width': 'initial'}
+            style={"description_width": "initial"},
         )
 
         self.next_tiles_btn = Button(
-            description="Next", 
-            layout=ipyw.Layout(width="60px", margin="0 0 0 5px", display='none')
+            description="Next",
+            layout=ipyw.Layout(width="60px", margin="0 0 0 5px", display="none"),
         )
-        
+
         tiles_controls = ipyw.HBox(
             [self.tile_basemap_dropdown, self.next_tiles_btn],
             layout=ipyw.Layout(
                 justify_content="flex-start",  # Align items to the left
                 align_items="center",
                 width="100%",
-                margin="0 0 10px 0"
+                margin="0 0 10px 0",
             ),
         )
 
@@ -845,7 +1071,9 @@ class GeoVibes:
                 padding="5px",
             ),
         )
-        tiles_pane_control = ipyl.WidgetControl(widget=self.tiles_pane, position="topright")
+        tiles_pane_control = ipyl.WidgetControl(
+            widget=self.tiles_pane, position="topright"
+        )
         self.map.add_control(tiles_pane_control)
 
         # Wire events
@@ -854,27 +1082,27 @@ class GeoVibes:
 
     def _on_tiles_click(self, b):
         """Toggle the tiles panel visibility."""
-        if self.tiles_button.button_style == 'success':
-            if self.tiles_pane.layout.display == 'none':
-                self.tiles_pane.layout.display = ''
+        if self.tiles_button.button_style == "success":
+            if self.tiles_pane.layout.display == "none":
+                self.tiles_pane.layout.display = ""
             else:
-                self.tiles_pane.layout.display = 'none'
-    
+                self.tiles_pane.layout.display = "none"
+
     def _on_tile_click(self, button):
         """Handle tile click for labeling."""
         point_id = button.point_id
         row_data = button.row_data
-        
+
         # Fetch embedding if not cached
         if point_id not in self.cached_embeddings:
             self._fetch_embeddings([point_id])
-        
+
         # Remove from existing labels
         if point_id in self.pos_ids:
             self.pos_ids.remove(point_id)
         if point_id in self.neg_ids:
             self.neg_ids.remove(point_id)
-        
+
         # Add to appropriate label list based on current label mode
         if self.select_val == UIConstants.POSITIVE_LABEL:
             self.pos_ids.append(point_id)
@@ -893,40 +1121,42 @@ class GeoVibes:
             new_border_width = "1px"
             if self.verbose:
                 print(f"✅ Erased label for point {point_id}")
-        
+
         # Update the button border immediately
         button.layout.border = f"{new_border_width} solid {new_border_color}"
-        
+
         # Update visualization layers and query vector
         self.update_layers()
         self.update_query_vector()
-        
+
         # Show status
         if self.select_val != UIConstants.ERASE_LABEL:
             self._show_operation_status(f"✅ Labeled tile as {self.current_label}")
         else:
-            self._show_operation_status(f"✅ Erased label from tile")
-    
+            self._show_operation_status("✅ Erased label from tile")
+
     def _on_tile_label_click(self, button):
         """Handle tick/cross button click for labeling tiles."""
         point_id = button.point_id
         row_data = button.row_data
         is_positive = button.is_positive
         partner_button = button.partner_button
-        
+
         # Fetch embedding if not cached
         if point_id not in self.cached_embeddings:
             self._fetch_embeddings([point_id])
-        
+
         # Check if this label is already selected
-        was_selected = (is_positive and point_id in self.pos_ids) or (not is_positive and point_id in self.neg_ids)
-        
+        was_selected = (is_positive and point_id in self.pos_ids) or (
+            not is_positive and point_id in self.neg_ids
+        )
+
         # Remove from all existing labels
         if point_id in self.pos_ids:
             self.pos_ids.remove(point_id)
         if point_id in self.neg_ids:
             self.neg_ids.remove(point_id)
-        
+
         # If it wasn't selected, add the new label
         if not was_selected:
             if is_positive:
@@ -938,7 +1168,7 @@ class GeoVibes:
                 partner_button.layout.opacity = "0.3"
                 if self.verbose:
                     print(f"✅ Labeled point {point_id} as Positive")
-                self._show_operation_status(f"✅ Labeled tile as Positive")
+                self._show_operation_status("✅ Labeled tile as Positive")
             else:
                 self.neg_ids.append(point_id)
                 # Update button appearances
@@ -948,31 +1178,31 @@ class GeoVibes:
                 partner_button.layout.opacity = "0.3"
                 if self.verbose:
                     print(f"✅ Labeled point {point_id} as Negative")
-                self._show_operation_status(f"✅ Labeled tile as Negative")
+                self._show_operation_status("✅ Labeled tile as Negative")
         else:
             # If it was selected, we're removing the label (toggle off)
             button.button_style = ""
             button.layout.opacity = "0.3"
             if self.verbose:
                 print(f"✅ Removed label from point {point_id}")
-            self._show_operation_status(f"✅ Removed label from tile")
-        
+            self._show_operation_status("✅ Removed label from tile")
+
         # Update visualization layers and query vector
         self.update_layers()
         self.update_query_vector()
-    
+
     def _on_tile_map_click(self, button):
         """Handle map button click to pan and zoom to tile location."""
         point_id = button.point_id
         row_data = button.row_data
-        
+
         # Pan and zoom to the tile location
         try:
             geom = shapely.wkt.loads(row_data["geometry_wkt"])
             lat, lon = geom.y, geom.x
             self.map.center = (lat, lon)
             self.map.zoom = 14  # Closer zoom for better detail
-            
+
             # Create a small square polygon around the point
             half_size = 0.0025 / 2  # Half of 0.0025 degrees
             square_coords = [
@@ -980,34 +1210,31 @@ class GeoVibes:
                 (lon + half_size, lat - half_size),
                 (lon + half_size, lat + half_size),
                 (lon - half_size, lat + half_size),
-                (lon - half_size, lat - half_size)  # Close the polygon
+                (lon - half_size, lat - half_size),  # Close the polygon
             ]
-            
+
             # Create the polygon and add it to the map
             from shapely.geometry import Polygon
+
             square_poly = Polygon(square_coords)
-            
+
             # Remove any existing highlight layer
             for layer in self.map.layers:
-                if hasattr(layer, 'name') and layer.name == 'tile_highlight':
+                if hasattr(layer, "name") and layer.name == "tile_highlight":
                     self.map.remove_layer(layer)
-            
+
             # Add the highlight square
             highlight_layer = ipyl.GeoJSON(
                 data={
                     "type": "Feature",
                     "geometry": shapely.geometry.mapping(square_poly),
-                    "properties": {"id": point_id}
+                    "properties": {"id": point_id},
                 },
-                style={
-                    'color': '#ff0000',
-                    'weight': 3,
-                    'fillOpacity': 0
-                },
-                name='tile_highlight'
+                style={"color": "#ff0000", "weight": 3, "fillOpacity": 0},
+                name="tile_highlight",
             )
             self.map.add_layer(highlight_layer)
-            
+
             self._show_operation_status(f"📍 Centered on tile {point_id}")
             if self.verbose:
                 print(f"📍 Panned to tile {point_id} at ({lat:.4f}, {lon:.4f})")
@@ -1015,13 +1242,11 @@ class GeoVibes:
             if self.verbose:
                 print(f"Could not pan to tile location: {e}")
             self._show_operation_status("⚠️ Could not pan to tile location")
-    
-
 
     def _on_tile_basemap_change(self, change):
         """Handle tile basemap change."""
         self.tile_basemap = change["new"]
-        
+
         # Convert all existing tiles to loading placeholders
         current_tile_count = len(self.results_grid.children)
         if current_tile_count > 0:
@@ -1030,17 +1255,17 @@ class GeoVibes:
                 loading_label = ipyw.Label(
                     value="Loading...",
                     layout=ipyw.Layout(
-                        width="100px", 
-                        height="100px", 
+                        width="100px",
+                        height="100px",
                         border="1px solid #ccc",
                         display="flex",
                         align_items="center",
-                        justify_content="center"
-                    )
+                        justify_content="center",
+                    ),
                 )
                 loading_tiles.append(loading_label)
             self.results_grid.children = loading_tiles
-            
+
             # Reload all tiles with new basemap
             self._reload_all_tiles_with_new_basemap()
 
@@ -1048,103 +1273,100 @@ class GeoVibes:
         """Reload all currently displayed tiles with the new basemap."""
         if self.last_search_results_df is None or self.last_search_results_df.empty:
             return
-            
+
         # Calculate how many tiles are currently displayed
         current_tile_count = len(self.results_grid.children)
-        total_pages_displayed = (current_tile_count + self.tiles_per_page - 1) // self.tiles_per_page
-        
+        total_pages_displayed = (
+            current_tile_count + self.tiles_per_page - 1
+        ) // self.tiles_per_page
+
         # Get all the data for currently displayed tiles
         end_index = total_pages_displayed * self.tiles_per_page
         all_displayed_df = self.last_search_results_df.iloc[:end_index]
-        
+
         def create_and_update_tile(idx, row):
             try:
                 geom = shapely.wkt.loads(row["geometry_wkt"])
                 image_bytes = get_map_image(
                     source=self.tile_basemap, lon=geom.x, lat=geom.y
                 )
-                
+
                 # Create image sized to fit panel
                 tile_image = ipyw.Image(
                     value=image_bytes, format="png", width=115, height=115
                 )
-                
+
                 # Get point ID
                 point_id = str(row["id"])
-                
+
                 # Create map/location button (first)
                 map_button = Button(
                     description="",
                     icon="fa-map-marker",  # Font Awesome f3c5
                     layout=Layout(
-                        width="35px",
-                        height="30px",
-                        margin="0px 2px",
-                        padding="2px"
+                        width="35px", height="30px", margin="0px 2px", padding="2px"
                     ),
-                    tooltip="Click to center map on this location"
+                    tooltip="Click to center map on this location",
                 )
-                
+
                 # Create tick (positive) button
                 tick_button = Button(
                     description="",
                     icon="fa-check",  # Font Awesome f00c
                     layout=Layout(
-                        width="35px",
-                        height="30px",
-                        margin="0px 2px",
-                        padding="2px"
+                        width="35px", height="30px", margin="0px 2px", padding="2px"
                     ),
                     button_style="primary" if point_id in self.pos_ids else "",
-                    tooltip="Click to label as positive"
+                    tooltip="Click to label as positive",
                 )
-                tick_button.layout.opacity = "1.0" if point_id in self.pos_ids else "0.3"
-                
+                tick_button.layout.opacity = (
+                    "1.0" if point_id in self.pos_ids else "0.3"
+                )
+
                 # Create cross (negative) button
                 cross_button = Button(
                     description="",
                     icon="fa-times",  # Font Awesome f00d
                     layout=Layout(
-                        width="35px",
-                        height="30px",
-                        margin="0px 2px",
-                        padding="2px"
+                        width="35px", height="30px", margin="0px 2px", padding="2px"
                     ),
                     button_style="warning" if point_id in self.neg_ids else "",
-                    tooltip="Click to label as negative"
+                    tooltip="Click to label as negative",
                 )
-                cross_button.layout.opacity = "1.0" if point_id in self.neg_ids else "0.3"
-                
+                cross_button.layout.opacity = (
+                    "1.0" if point_id in self.neg_ids else "0.3"
+                )
+
                 # Store data for click handlers
                 tick_button.point_id = point_id
                 tick_button.row_data = row
                 tick_button.is_positive = True
                 tick_button.partner_button = cross_button
-                
+
                 cross_button.point_id = point_id
                 cross_button.row_data = row
                 cross_button.is_positive = False
                 cross_button.partner_button = tick_button
-                
+
                 map_button.point_id = point_id
                 map_button.row_data = row
-                
+
                 # Add click handlers
                 tick_button.on_click(self._on_tile_label_click)
                 cross_button.on_click(self._on_tile_label_click)
                 map_button.on_click(self._on_tile_map_click)
-                
+
                 # Create button row with map button first
                 button_row = HBox(
                     [map_button, tick_button, cross_button],
                     layout=Layout(
                         width="115px",  # Match image width for perfect centering
-                        justify_content="center", 
+                        justify_content="center",
                         margin="0 0 5px 0",
-                        align_self="center"
-                    )
+                        align_self="center",
+                    ),
                 )
-                
+
                 # Create tile container with image
                 tile_container = VBox(
                     [button_row, tile_image],
@@ -1152,10 +1374,10 @@ class GeoVibes:
                         width="120px",  # Container sized for smaller images
                         padding="2px",
                         margin="0px",
-                        align_items="center"  # Center all children
-                    )
+                        align_items="center",  # Center all children
+                    ),
                 )
-                
+
                 # Update the specific tile in the grid
                 tiles_list = list(self.results_grid.children)
                 if idx < len(tiles_list):
@@ -1173,8 +1395,8 @@ class GeoVibes:
                         border="1px solid #ff0000",
                         display="flex",
                         align_items="center",
-                        justify_content="center"
-                    )
+                        justify_content="center",
+                    ),
                 )
                 tiles_list = list(self.results_grid.children)
                 if idx < len(tiles_list):
@@ -1188,7 +1410,7 @@ class GeoVibes:
                 if idx < current_tile_count:  # Only reload tiles that were displayed
                     future = executor.submit(create_and_update_tile, idx, row)
                     futures.append(future)
-            
+
             # Wait for all tiles to complete
             for future in futures:
                 future.result()
@@ -1207,22 +1429,69 @@ class GeoVibes:
 
         def create_tile_widget(row):
             geom = shapely.wkt.loads(row["geometry_wkt"])
-            image_bytes = get_map_image(source=self.tile_basemap, lon=geom.x, lat=geom.y)
-            tile_image = ipyw.Image(value=image_bytes, format="png", width=115, height=115)
+            image_bytes = get_map_image(
+                source=self.tile_basemap, lon=geom.x, lat=geom.y
+            )
+            tile_image = ipyw.Image(
+                value=image_bytes, format="png", width=115, height=115
+            )
             point_id = str(row["id"])
-            
-            map_button = Button(icon="fa-map-marker", layout=Layout(width="35px", height="30px", margin="0px 2px", padding="2px"), tooltip="Center map")
-            tick_button = Button(icon="fa-check", layout=Layout(width="35px", height="30px", margin="0px 2px", padding="2px"), button_style="primary" if point_id in self.pos_ids else "", tooltip="Label as positive")
+
+            map_button = Button(
+                icon="fa-map-marker",
+                layout=Layout(
+                    width="35px", height="30px", margin="0px 2px", padding="2px"
+                ),
+                tooltip="Center map",
+            )
+            tick_button = Button(
+                icon="fa-check",
+                layout=Layout(
+                    width="35px", height="30px", margin="0px 2px", padding="2px"
+                ),
+                button_style="primary" if point_id in self.pos_ids else "",
+                tooltip="Label as positive",
+            )
             tick_button.layout.opacity = "1.0" if point_id in self.pos_ids else "0.3"
-            cross_button = Button(icon="fa-times", layout=Layout(width="35px", height="30px", margin="0px 2px", padding="2px"), button_style="danger" if point_id in self.neg_ids else "", tooltip="Label as negative")
+            cross_button = Button(
+                icon="fa-times",
+                layout=Layout(
+                    width="35px", height="30px", margin="0px 2px", padding="2px"
+                ),
+                button_style="danger" if point_id in self.neg_ids else "",
+                tooltip="Label as negative",
+            )
             cross_button.layout.opacity = "1.0" if point_id in self.neg_ids else "0.3"
 
             map_button.on_click(lambda b, g=geom: self._on_center_map_click(g))
-            tick_button.on_click(lambda b, p=point_id, r=row, t=tick_button, c=cross_button: self._on_label_click(p, r, "pos", t, c))
-            cross_button.on_click(lambda b, p=point_id, r=row, t=tick_button, c=cross_button: self._on_label_click(p, r, "neg", t, c))
+            tick_button.on_click(
+                lambda b,
+                p=point_id,
+                r=row,
+                t=tick_button,
+                c=cross_button: self._on_label_click(p, r, "pos", t, c)
+            )
+            cross_button.on_click(
+                lambda b,
+                p=point_id,
+                r=row,
+                t=tick_button,
+                c=cross_button: self._on_label_click(p, r, "neg", t, c)
+            )
 
-            buttons = HBox([map_button, tick_button, cross_button], layout=Layout(justify_content="center"))
-            return VBox([tile_image, buttons], layout=Layout(border="1px solid #ccc", padding="2px", width="120px", height="155px"))
+            buttons = HBox(
+                [map_button, tick_button, cross_button],
+                layout=Layout(justify_content="center"),
+            )
+            return VBox(
+                [tile_image, buttons],
+                layout=Layout(
+                    border="1px solid #ccc",
+                    padding="2px",
+                    width="120px",
+                    height="155px",
+                ),
+            )
 
         if self.tile_page == 0:
             self.results_grid.children = []
@@ -1230,27 +1499,31 @@ class GeoVibes:
             end_index = self.initial_load_size
             self.is_first_page_view = True
         else:
-            start_index = self.initial_load_size + (self.tile_page - 1) * self.tiles_per_page
+            start_index = (
+                self.initial_load_size + (self.tile_page - 1) * self.tiles_per_page
+            )
             end_index = start_index + self.tiles_per_page
             page_df = search_results_df.iloc[start_index:end_index]
-        
+
         if page_df.empty:
-            self.next_tiles_btn.layout.display = 'none'
+            self.next_tiles_btn.layout.display = "none"
             return
 
         with ThreadPoolExecutor(max_workers=8) as executor:
-            new_tiles = list(executor.map(create_tile_widget, [row for _, row in page_df.iterrows()]))
-        
+            new_tiles = list(
+                executor.map(create_tile_widget, [row for _, row in page_df.iterrows()])
+            )
+
         self.results_grid.children = tuple(list(self.results_grid.children) + new_tiles)
 
         if end_index < len(search_results_df):
-            self.next_tiles_btn.layout.display = 'flex'
+            self.next_tiles_btn.layout.display = "flex"
         else:
-            self.next_tiles_btn.layout.display = 'none'
+            self.next_tiles_btn.layout.display = "none"
 
-        self.tiles_button.button_style = 'success'
+        self.tiles_button.button_style = "success"
         self._show_operation_status("✅ Tiles loaded!")
-        
+
     def _update_toggle_button_styles(self):
         """Update toggle button colors based on selection."""
         style = """
@@ -1499,8 +1772,8 @@ class GeoVibes:
     def _on_map_interaction(self, **kwargs):
         """Handle all map interactions."""
         _log_to_file("Entered _on_map_interaction")
-        lat, lon = kwargs.get('coordinates', (0, 0))
-        
+        lat, lon = kwargs.get("coordinates", (0, 0))
+
         # Update status
         self._update_status(lat, lon)
 
@@ -1689,14 +1962,14 @@ class GeoVibes:
             if self.vector_layer in self.map.layers:
                 self.map.remove_layer(self.vector_layer)
             self.vector_layer = None
-        
+
         for layer in self.map.layers:
-            if hasattr(layer, 'name') and layer.name == 'tile_highlight':
+            if hasattr(layer, "name") and layer.name == "tile_highlight":
                 self.map.remove_layer(layer)
 
         self.results_grid.children = []
-        self.tiles_pane.layout.display = 'none'
-        self.tiles_button.button_style = ''
+        self.tiles_pane.layout.display = "none"
+        self.tiles_button.button_style = ""
 
         self._clear_operation_status()
 
@@ -1723,7 +1996,9 @@ class GeoVibes:
             # Show chunk progress for very large batches
             if len(point_ids) > DatabaseConstants.EMBEDDING_CHUNK_SIZE:
                 chunk_num = i // DatabaseConstants.EMBEDDING_CHUNK_SIZE + 1
-                total_chunks = (len(point_ids) - 1) // DatabaseConstants.EMBEDDING_CHUNK_SIZE + 1
+                total_chunks = (
+                    len(point_ids) - 1
+                ) // DatabaseConstants.EMBEDDING_CHUNK_SIZE + 1
                 self._show_operation_status(
                     f"🔄 Processing chunk {chunk_num}/{total_chunks}"
                 )
@@ -1735,27 +2010,53 @@ class GeoVibes:
             # Build parameterized query for this chunk
             prepared_chunk = self._prepare_ids_for_query(chunk)
             placeholders = ",".join(["?" for _ in prepared_chunk])
-            query = f"""
-            SELECT id, tile_id, CAST(embedding AS FLOAT[]) as embedding, geometry 
-            FROM geo_embeddings 
-            WHERE id IN ({placeholders})
+            
+            # Check if tile_id column exists in the table
+            column_check_query = """
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'geo_embeddings' AND column_name = 'tile_id'
             """
+            has_tile_id = len(self.duckdb_connection.execute(column_check_query).fetchall()) > 0
             
-            _log_to_file(f"Fetch embeddings: Built query for chunk with IDs: {prepared_chunk}")
+            if has_tile_id:
+                query = f"""
+                SELECT id, tile_id, CAST(embedding AS FLOAT[]) as embedding, geometry 
+                FROM geo_embeddings 
+                WHERE id IN ({placeholders})
+                """
+            else:
+                query = f"""
+                SELECT id, CAST(embedding AS FLOAT[]) as embedding, geometry 
+                FROM geo_embeddings 
+                WHERE id IN ({placeholders})
+                """
+
+            _log_to_file(
+                f"Fetch embeddings: Built query for chunk with IDs: {prepared_chunk}"
+            )
             if self.verbose:
-                print(f"DEBUG: Executing embedding fetch query for IDs: {prepared_chunk}")
-            
+                print(
+                    f"DEBUG: Executing embedding fetch query for IDs: {prepared_chunk}"
+                )
+
             # Fetch as Arrow then convert to pandas
             _log_to_file("Fetch embeddings: About to execute query.")
-            arrow_table = self.duckdb_connection.execute(query, prepared_chunk).fetch_arrow_table()
-            _log_to_file("Fetch embeddings: Query executed successfully. About to fetch arrow table.")
-            
+            arrow_table = self.duckdb_connection.execute(
+                query, prepared_chunk
+            ).fetch_arrow_table()
+            _log_to_file(
+                "Fetch embeddings: Query executed successfully. About to fetch arrow table."
+            )
+
             if self.verbose:
-                print(f"DEBUG: Successfully executed embedding fetch query. Processing results.")
+                print(
+                    "DEBUG: Successfully executed embedding fetch query. Processing results."
+                )
 
             chunk_df = arrow_table.to_pandas()
             _log_to_file("Fetch embeddings: Converted arrow table to pandas.")
-            
+
             # Cache the embeddings from this chunk
             for _, row in chunk_df.iterrows():
                 embedding = np.array(row["embedding"])
@@ -1784,7 +2085,7 @@ class GeoVibes:
         """Perform similarity search using the loaded FAISS index."""
         if self.verbose:
             print("🧠 Performing search with FAISS index...")
-        
+
         n_neighbors = self.neighbors_slider.value
         all_labeled_ids = self.pos_ids + self.neg_ids
         extra_results = min(len(all_labeled_ids), n_neighbors // 2)
@@ -1793,9 +2094,13 @@ class GeoVibes:
         # Step A: Query FAISS
         # TODO: make nprobe dynamic based on number of labeled points, or allow user input
         params = faiss.SearchParametersIVF(nprobe=4096)
-        query_vector_np = self.query_vector.reshape(1, -1).astype('float32')
-        self._show_operation_status(f"🔍 FAISS Search: Finding {n_neighbors} neighbors...")
-        distances, ids = self.faiss_index.search(query_vector_np, total_requested, params=params)
+        query_vector_np = self.query_vector.reshape(1, -1).astype("float32")
+        self._show_operation_status(
+            f"🔍 FAISS Search: Finding {n_neighbors} neighbors..."
+        )
+        distances, ids = self.faiss_index.search(
+            query_vector_np, total_requested, params=params
+        )
         faiss_ids = ids[0].tolist()
         faiss_distances = distances[0].tolist()
 
@@ -1806,24 +2111,24 @@ class GeoVibes:
             self._process_and_display_search_results(pd.DataFrame(), n_neighbors)
             return
 
-        placeholders = ','.join(['?' for _ in faiss_ids])
+        placeholders = ",".join(["?" for _ in faiss_ids])
         sql = f"""
         SELECT id, ST_AsGeoJSON(geometry) AS geometry_json, ST_AsText(geometry) AS geometry_wkt
         FROM geo_embeddings
         WHERE id IN ({placeholders})
         """
-        
+
         # Preserve order of FAISS results
         id_map = {id_val: i for i, id_val in enumerate(faiss_ids)}
-        
+
         # Fetch as pandas DataFrame
         metadata_df = self.duckdb_connection.execute(sql, faiss_ids).fetchdf()
-        
+
         # Sort results according to FAISS distance and add distance column
-        metadata_df['sort_order'] = metadata_df['id'].map(id_map)
-        metadata_df = metadata_df.sort_values('sort_order').drop(columns=['sort_order'])
-        metadata_df['distance'] = faiss_distances[:len(metadata_df)]
-        
+        metadata_df["sort_order"] = metadata_df["id"].map(id_map)
+        metadata_df = metadata_df.sort_values("sort_order").drop(columns=["sort_order"])
+        metadata_df["distance"] = faiss_distances[: len(metadata_df)]
+
         self._process_and_display_search_results(metadata_df, n_neighbors)
 
     def _process_and_display_search_results(self, search_results_df, n_neighbors):
@@ -1838,48 +2143,59 @@ class GeoVibes:
         # Post-filter to exclude labeled points
         if all_labeled_ids:
             labeled_id_strings = set(str(lid) for lid in all_labeled_ids)
-            mask = ~search_results_df['id'].astype(str).isin(labeled_id_strings)
+            mask = ~search_results_df["id"].astype(str).isin(labeled_id_strings)
             search_results_filtered = search_results_df[mask].head(n_neighbors)
         else:
             search_results_filtered = search_results_df.head(n_neighbors)
-        
+
         filtered_count = len(search_results_filtered)
         self._show_operation_status(f"✅ Found {filtered_count} similar points.")
         if self.verbose:
             print(f"✅ Found {filtered_count} similar points after filtering.")
-        
-        geometries = [shapely.wkt.loads(row['geometry_wkt']) for _, row in search_results_filtered.iterrows()]
-        
-        self.detections_with_embeddings = gpd.GeoDataFrame({
-            'id': search_results_filtered['id'].astype(str).values,
-            'distance': search_results_filtered['distance'].values,
-            'geometry': geometries
-        })
-        
+
+        geometries = [
+            shapely.wkt.loads(row["geometry_wkt"])
+            for _, row in search_results_filtered.iterrows()
+        ]
+
+        self.detections_with_embeddings = gpd.GeoDataFrame(
+            {
+                "id": search_results_filtered["id"].astype(str).values,
+                "distance": search_results_filtered["distance"].values,
+                "geometry": geometries,
+            }
+        )
+
         detections_geojson = {"type": "FeatureCollection", "features": []}
         if not search_results_filtered.empty:
-            min_distance = search_results_filtered['distance'].min()
-            max_distance = search_results_filtered['distance'].max()
-            
+            min_distance = search_results_filtered["distance"].min()
+            max_distance = search_results_filtered["distance"].max()
+
             # Sort by distance in descending order so most similar (green) points render last and appear on top
-            search_results_sorted = search_results_filtered.sort_values('distance', ascending=False)
-            
+            search_results_sorted = search_results_filtered.sort_values(
+                "distance", ascending=False
+            )
+
             for _, row in search_results_sorted.iterrows():
-                color = UIConstants.distance_to_color(row['distance'], min_distance, max_distance)
-                detections_geojson["features"].append({
-                    "type": "Feature",
-                    "geometry": json.loads(row['geometry_json']),
-                    "properties": {
-                        "id": str(row['id']),
-                        "distance": row['distance'],
-                        "color": color,
-                        "fillColor": color
+                color = UIConstants.distance_to_color(
+                    row["distance"], min_distance, max_distance
+                )
+                detections_geojson["features"].append(
+                    {
+                        "type": "Feature",
+                        "geometry": json.loads(row["geometry_json"]),
+                        "properties": {
+                            "id": str(row["id"]),
+                            "distance": row["distance"],
+                            "color": color,
+                            "fillColor": color,
+                        },
                     }
-                })
-        
+                )
+
         self.last_search_results_df = search_results_filtered.copy()
         self.tile_page = 0
-        
+
         self._update_search_layer_with_colors(detections_geojson)
         self._update_results_panel(self.last_search_results_df)
 
@@ -1892,25 +2208,25 @@ class GeoVibes:
         action = kwargs.get("type")
         if action not in ["click"]:
             return
-                 
-        lat, lon = kwargs.get('coordinates')
-        
+
+        lat, lon = kwargs.get("coordinates")
+
         # Query the database for the single nearest point to the click
         _log_to_file("label_point: Querying database for nearest point.")
-        
+
         sql = DatabaseConstants.NEAREST_POINT_QUERY
         params = [lon, lat]
         result = self.duckdb_connection.execute(sql, params).fetchone()
-        
+
         if result is None:
             self._show_operation_status("⚠️ No points found near click.")
             _log_to_file("label_point: No point found. Returning.")
             return
-        
+
         point_id = str(result[0])
         embedding = np.array(result[3])
-        self.cached_embeddings[point_id] = embedding # Cache the embedding
-        
+        self.cached_embeddings[point_id] = embedding  # Cache the embedding
+
         if self.verbose:
             print(f"DEBUG: Found point ID: {point_id}.")
 
@@ -2490,48 +2806,6 @@ class GeoVibes:
             else:
                 btn.button_style = ""  # Default style
 
-    def _construct_boundary_path(self, database_path: str) -> str:
-        """Construct boundary path from database path.
-
-        Args:
-            database_path: Path to database (e.g., gs://geovibes/databases/google/bali.db)
-
-        Returns:
-            Constructed boundary path (e.g., gs://geovibes/geometries/bali.geojson)
-        """
-        import os
-
-        # Extract the database name without extension
-        db_filename = os.path.basename(
-            database_path
-        )  # e.g., "bali.db" or "bali_google.db"
-        db_name_with_ext = os.path.splitext(db_filename)[
-            0
-        ]  # e.g., "bali" or "bali_google"
-
-        # For boundary files, we want just the region name (first part before underscore if any)
-        # e.g., "bali_google" -> "bali", "java_google" -> "java"
-        if "_" in db_name_with_ext:
-            db_name = db_name_with_ext.split("_")[0]
-        else:
-            db_name = db_name_with_ext
-
-        # Replace the databases part with geometries
-        if database_path.startswith("gs://"):
-            # Handle GCS paths
-            parts = database_path.split("/")
-            # Find the bucket and construct new path
-            bucket = parts[2]  # e.g., "geovibes"
-            boundary_path = f"gs://{bucket}/geometries/{db_name}.geojson"
-        else:
-            # Handle local paths
-            db_dir = os.path.dirname(database_path)
-            # Go up one level and enter geometries folder
-            parent_dir = os.path.dirname(db_dir)
-            boundary_path = os.path.join(parent_dir, "geometries", f"{db_name}.geojson")
-
-        return boundary_path
-
     def _update_ee_boundary(self):
         """Update Earth Engine boundary based on current effective boundary path."""
         if not self.ee_available:
@@ -2595,11 +2869,15 @@ class GeoVibes:
         Returns:
             Tuple of (center_y, center_x) coordinates
         """
-        # Determine boundary path
-        boundary_path = self.config.boundary_path
-        if not boundary_path and self.current_database_path:
-            # Auto-construct boundary path from database path
-            boundary_path = self._construct_boundary_path(self.current_database_path)
+        # Determine boundary path from manifest-provided geometry if available
+        boundary_path = self.current_geometry_path
+
+        if (
+            not boundary_path
+            and self.current_database_info
+            and self.current_database_info.get("geometry_path")
+        ):
+            boundary_path = self.current_database_info.get("geometry_path")
 
         if boundary_path:
             try:
@@ -2611,6 +2889,7 @@ class GeoVibes:
                 )
                 # Store the effective boundary path for later use
                 self.effective_boundary_path = boundary_path
+                self.current_geometry_path = boundary_path
                 if self.verbose:
                     print(f"📍 Using boundary file: {boundary_path}")
                 return center_y, center_x
@@ -2675,7 +2954,12 @@ class GeoVibes:
             return  # No change
 
         if self.verbose:
-            print(f"🔄 Switching to database: {os.path.basename(new_database_path)}")
+            label = os.path.basename(new_database_path)
+            if new_database_path in self.database_info_by_path:
+                label = self.database_info_by_path[new_database_path].get(
+                    "display_name", label
+                )
+            print(f"🔄 Switching to database: {label}")
 
         # Show loading message immediately
         self._show_operation_status(
@@ -2685,7 +2969,23 @@ class GeoVibes:
         try:
             # Step 1: Quick UI updates - pan map and switch boundary first
             old_database_path = self.current_database_path
+            old_database_info = self.current_database_info
+
             self.current_database_path = new_database_path
+            self.current_database_info = self.database_info_by_path.get(
+                new_database_path
+            )
+            if self.current_database_info:
+                self.current_faiss_path = self.current_database_info["faiss_path"]
+                self.current_geometry_path = self.current_database_info.get(
+                    "geometry_path"
+                )
+                display_label = self.current_database_info.get(
+                    "display_name", os.path.basename(new_database_path)
+                )
+            else:
+                self.current_geometry_path = None
+                display_label = os.path.basename(new_database_path)
 
             # Update boundary path and recenter map immediately (fast operation)
             lat, lon = (
@@ -2718,11 +3018,11 @@ class GeoVibes:
                 new_database_path, read_only=True
             )
             self._owns_connection = True
-            
+
             # Configure memory limits and disable progress bar
             for query in DatabaseConstants.get_memory_setup_queries():
                 self.duckdb_connection.execute(query)
-            
+
             # Extra insurance: explicitly disable progress bar again
             try:
                 self.duckdb_connection.execute("SET enable_progress_bar=false")
@@ -2730,23 +3030,25 @@ class GeoVibes:
                 self.duckdb_connection.execute("SET enable_object_cache=false")
             except:
                 pass  # Ignore if these settings don't exist
-            
+
             # Setup extensions
             if new_database_path:
-                extension_queries = DatabaseConstants.get_extension_setup_queries(new_database_path)
+                extension_queries = DatabaseConstants.get_extension_setup_queries(
+                    new_database_path
+                )
                 for query in extension_queries:
                     self.duckdb_connection.execute(query)
 
             # Load new FAISS index
-            new_faiss_path = [
-                db["faiss_path"]
-                for db in self.available_databases
-                if db["db_path"] == new_database_path
-            ][0]
-            self.current_faiss_path = new_faiss_path
+            if not self.current_faiss_path:
+                raise RuntimeError(
+                    f"No FAISS index recorded for {os.path.basename(new_database_path)}"
+                )
+
+            new_faiss_path = self.current_faiss_path
             self._show_operation_status("🔄 Loading search index...")
             self.faiss_index = faiss.read_index(self.current_faiss_path)
-            
+
             # Detect embedding dimension
             self._show_operation_status("🔄 Analyzing database structure...")
             try:
@@ -2766,13 +3068,9 @@ class GeoVibes:
                 self._warm_up_gcs_database()
 
             # Success!
-            self._show_operation_status(
-                f"✅ Successfully loaded: {os.path.basename(new_database_path)}"
-            )
+            self._show_operation_status(f"✅ Successfully loaded: {display_label}")
             if self.verbose:
-                print(
-                    f"✅ Successfully switched to database: {os.path.basename(new_database_path)}"
-                )
+                print(f"✅ Successfully switched to database: {display_label}")
 
         except Exception as e:
             if self.verbose:
@@ -2780,6 +3078,13 @@ class GeoVibes:
 
             # Revert to previous database
             self.current_database_path = old_database_path
+            self.current_database_info = old_database_info
+            self.current_geometry_path = (
+                old_database_info.get("geometry_path") if old_database_info else None
+            )
+            self.current_faiss_path = (
+                old_database_info.get("faiss_path") if old_database_info else None
+            )
             if self.database_dropdown:
                 self.database_dropdown.value = old_database_path
 
@@ -2818,8 +3123,8 @@ class GeoVibes:
 
         # Clear results panel and reset tiles state
         self.results_grid.children = []
-        self.tiles_pane.layout.display = 'none'
-        self.tiles_button.button_style = ''
+        self.tiles_pane.layout.display = "none"
+        self.tiles_button.button_style = ""
         self.last_search_results_df = None
         self.tile_page = 0
 
@@ -2834,39 +3139,45 @@ class GeoVibes:
                 if self.verbose:
                     print("🔌 DuckDB connection closed.")
 
-    def _on_label_click(self, point_id, row_data, label_type, tick_button, cross_button):
+    def _on_label_click(
+        self, point_id, row_data, label_type, tick_button, cross_button
+    ):
         """Handle tick/cross button click for labeling tiles."""
         if point_id not in self.cached_embeddings:
             self._fetch_embeddings([point_id])
 
         is_positive = label_type == "pos"
-        was_selected = (is_positive and point_id in self.pos_ids) or (not is_positive and point_id in self.neg_ids)
-        
-        if point_id in self.pos_ids: self.pos_ids.remove(point_id)
-        if point_id in self.neg_ids: self.neg_ids.remove(point_id)
-        
+        was_selected = (is_positive and point_id in self.pos_ids) or (
+            not is_positive and point_id in self.neg_ids
+        )
+
+        if point_id in self.pos_ids:
+            self.pos_ids.remove(point_id)
+        if point_id in self.neg_ids:
+            self.neg_ids.remove(point_id)
+
         if not was_selected:
             if is_positive:
                 self.pos_ids.append(point_id)
-                tick_button.button_style = "primary"
+                tick_button.button_style = "success"
                 tick_button.layout.opacity = "1.0"
                 cross_button.button_style = ""
                 cross_button.layout.opacity = "0.3"
-                self._show_operation_status(f"✅ Labeled tile as Positive")
+                self._show_operation_status("✅ Labeled tile as Positive")
             else:
                 self.neg_ids.append(point_id)
                 cross_button.button_style = "danger"
                 cross_button.layout.opacity = "1.0"
                 tick_button.button_style = ""
                 tick_button.layout.opacity = "0.3"
-                self._show_operation_status(f"✅ Labeled tile as Negative")
+                self._show_operation_status("✅ Labeled tile as Negative")
         else:
             tick_button.button_style = ""
             cross_button.button_style = ""
             tick_button.layout.opacity = "0.3"
             cross_button.layout.opacity = "0.3"
-            self._show_operation_status(f"✅ Removed label from tile")
-        
+            self._show_operation_status("✅ Removed label from tile")
+
         self.update_layers()
         self.update_query_vector()
 
@@ -2876,24 +3187,31 @@ class GeoVibes:
             lat, lon = geom.y, geom.x
             self.map.center = (lat, lon)
             self.map.zoom = 14
-            
+
             half_size = 0.0025 / 2
             square_coords = [
-                (lon - half_size, lat - half_size), (lon + half_size, lat - half_size),
-                (lon + half_size, lat + half_size), (lon - half_size, lat + half_size),
-                (lon - half_size, lat - half_size)
+                (lon - half_size, lat - half_size),
+                (lon + half_size, lat - half_size),
+                (lon + half_size, lat + half_size),
+                (lon - half_size, lat + half_size),
+                (lon - half_size, lat - half_size),
             ]
-            
+
             from shapely.geometry import Polygon
+
             square_poly = Polygon(square_coords)
-            
+
             for layer in self.map.layers:
-                if hasattr(layer, 'name') and layer.name == 'tile_highlight':
+                if hasattr(layer, "name") and layer.name == "tile_highlight":
                     self.map.remove_layer(layer)
-            
+
             highlight_layer = ipyl.GeoJSON(
-                data={"type": "Feature", "geometry": shapely.geometry.mapping(square_poly)},
-                name='tile_highlight', style={'color': 'yellow', 'fillOpacity': 0.1, 'weight': 3}
+                data={
+                    "type": "Feature",
+                    "geometry": shapely.geometry.mapping(square_poly),
+                },
+                name="tile_highlight",
+                style={"color": "yellow", "fillOpacity": 0.1, "weight": 3},
             )
             self.map.add_layer(highlight_layer)
         except Exception as e:

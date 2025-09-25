@@ -3,10 +3,14 @@ Constants for the GeoVibes application.
 """
 
 import os
+from pathlib import Path
+
 import numpy as np
 from dotenv import load_dotenv
 
-load_dotenv()
+# Ensure .env is loaded when Voila runs from a temp directory
+project_root = Path(__file__).resolve().parents[2]
+load_dotenv(project_root / ".env")
 
 
 class UIConstants:
@@ -400,4 +404,3 @@ class LayerStyles:
                 "fillOpacity": 0.5
             }
         } 
-
