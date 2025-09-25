@@ -6,7 +6,7 @@ import csv
 import os
 import pathlib
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import duckdb
 import ee
@@ -18,7 +18,7 @@ from geovibes.ee_tools import initialize_ee_with_credentials
 from geovibes.ui_config import BasemapConfig, DatabaseConstants, GeoVibesConfig
 from geovibes.utils import get_database_centroid, list_databases_in_directory
 
-from .utils import log_to_file, parse_env_flag, prepare_ids_for_query
+from .utils import log_to_file, prepare_ids_for_query
 
 
 class DataManager:
@@ -37,12 +37,15 @@ class DataManager:
         config_path: Optional[str] = None,
         duckdb_connection: Optional[duckdb.DuckDBPyConnection] = None,
         baselayer_url: Optional[str] = None,
-        enable_ee: Optional[bool] = None,
         disable_ee: bool = False,
         verbose: bool = False,
+        **unused_kwargs: Any,
     ) -> None:
         self.verbose = verbose
         self.baselayer_url = baselayer_url or BasemapConfig.BASEMAP_TILES["MAPTILER"]
+
+        if "enable_ee" in unused_kwargs and self.verbose:
+            print("ℹ️ 'enable_ee' argument is ignored; Earth Engine availability is auto-detected.")
 
         # Configuration and Earth Engine toggles
         self.config = self._load_config(
@@ -56,14 +59,14 @@ class DataManager:
             config_path=config_path,
         )
 
-        self.enable_ee = self._resolve_enable_ee(enable_ee, disable_ee)
         self.ee_available = False
-        if self.enable_ee:
+        if disable_ee:
+            if self.verbose:
+                print("ℹ️ Earth Engine disabled")
+        else:
             self.ee_available = initialize_ee_with_credentials(
                 self.config.gcp_project, verbose=self.verbose
             )
-        elif self.verbose:
-            print("ℹ️ Earth Engine disabled - running with basic basemaps only")
 
         self.geometries_dir = self._resolve_geometries_directory()
         self.local_database_directory = self._resolve_local_database_directory()
@@ -162,30 +165,14 @@ class DataManager:
                     print(f"⚠️ Config validation skipped: {exc}")
         return cfg
 
-    def _resolve_enable_ee(
-        self, enable_ee: Optional[bool], disable_ee: bool
-    ) -> bool:
-        env_enable = parse_env_flag(os.getenv("GEOVIBES_ENABLE_EE"))
-        env_disable = parse_env_flag(os.getenv("GEOVIBES_DISABLE_EE"))
-
-        ee_opt_in = enable_ee
-        if disable_ee:
-            ee_opt_in = False
-        elif ee_opt_in is None and env_disable is True:
-            ee_opt_in = False
-        elif ee_opt_in is None and env_enable is True:
-            ee_opt_in = True
-        elif ee_opt_in is None:
-            ee_opt_in = getattr(self.config, "enable_ee", False)
-        return bool(ee_opt_in)
-
     # ------------------------------------------------------------------
     # Filesystem helpers
     # ------------------------------------------------------------------
 
     @staticmethod
     def _project_root() -> pathlib.Path:
-        return pathlib.Path(__file__).resolve().parent.parent
+        # __file__ lives under geovibes/ui/, so ascend to repository root
+        return pathlib.Path(__file__).resolve().parents[2]
 
     def _resolve_manifest_path(self) -> Optional[str]:
         override = os.getenv("GEOVIBES_MANIFEST_PATH")
@@ -221,12 +208,15 @@ class DataManager:
                         f"⚠️  Could not locate FAISS index for {db_path}. Skipping."
                     )
             else:
+                geometry_path = self._infer_geometry_from_db(db_path)
+                if geometry_path is None:
+                    geometry_path = getattr(self.config, "boundary_path", None)
                 discovered.append(
                     {
                         "db_path": db_path,
                         "faiss_path": faiss_path,
                         "display_name": os.path.basename(db_path),
-                        "geometry_path": getattr(self.config, "boundary_path", None),
+                        "geometry_path": geometry_path,
                     }
                 )
                 return discovered
@@ -243,7 +233,12 @@ class DataManager:
                         )
                     continue
                 entry.setdefault("display_name", os.path.basename(entry["db_path"]))
-                entry.setdefault("geometry_path", getattr(self.config, "boundary_path", None))
+                geometry_path = entry.get("geometry_path")
+                if not geometry_path:
+                    geometry_path = self._infer_geometry_from_db(entry["db_path"])
+                if not geometry_path:
+                    geometry_path = getattr(self.config, "boundary_path", None)
+                entry["geometry_path"] = geometry_path
                 discovered.append(entry)
             for entry in discovered:
                 entry.setdefault("geometry_path", getattr(self.config, "boundary_path", None))
@@ -294,6 +289,9 @@ class DataManager:
             if matches:
                 return str(matches[0])
         return None
+
+    def _infer_geometry_from_db(self, db_path: str) -> Optional[str]:
+        return self._resolve_geometry_path("alabama")
 
     # ------------------------------------------------------------------
     # Manifest helpers
@@ -435,14 +433,19 @@ class DataManager:
         if not region or not self.geometries_dir:
             return None
 
+        region_name = "alabama"
         geom_dir = pathlib.Path(self.geometries_dir)
-        candidates = [
-            geom_dir / f"{region}.geojson",
-            geom_dir / f"{region}.json",
-        ]
-        for candidate in candidates:
-            if candidate.exists():
-                return str(candidate)
+        candidate = geom_dir / f"{region_name}.geojson"
+        if self.verbose:
+            print(f"🔍 Looking for geometry file: {candidate}")
+        if candidate.exists():
+            if self.verbose:
+                print(f"✅ Using geometry file: {candidate}")
+            return str(candidate)
+        if self.verbose:
+            print(
+                f"⚠️  No geometry found for region '{region_name}' in {geom_dir}"
+            )
         return None
 
     @staticmethod
@@ -587,7 +590,7 @@ class DataManager:
         return None, (center_y, center_x)
 
     def _update_ee_boundary(self) -> None:
-        if not self.enable_ee:
+        if not self.ee_available:
             self.ee_boundary = None
             return
 

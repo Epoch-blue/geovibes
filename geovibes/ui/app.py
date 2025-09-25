@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import warnings
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import ipywidgets as ipyw
 import numpy as np
@@ -84,13 +84,16 @@ class GeoVibes:
         config: Optional[Dict] = None,
         config_path: Optional[str] = None,
         baselayer_url: Optional[str] = None,
-        enable_ee: Optional[bool] = None,
         disable_ee: bool = False,
         verbose: bool = False,
+        **unused_kwargs: Any,
     ) -> None:
         self.verbose = verbose
         if self.verbose:
             print("Initializing GeoVibes...")
+
+        if "enable_ee" in unused_kwargs and self.verbose:
+            print("ℹ️ 'enable_ee' is ignored; Earth Engine availability is auto-detected.")
 
         # Core services
         self.data = DataManager(
@@ -104,7 +107,6 @@ class GeoVibes:
             config_path=config_path,
             duckdb_connection=duckdb_connection,
             baselayer_url=baselayer_url,
-            enable_ee=enable_ee,
             disable_ee=disable_ee,
             verbose=verbose,
         )

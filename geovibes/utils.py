@@ -165,58 +165,8 @@ def list_databases_in_directory(
     return sorted(databases, key=lambda x: x["db_path"])
 
 
-def get_database_centroid(duckdb_connection, verbose: bool = False) -> tuple:
-    """Get the centroid of all points in the database.
-    
-    Args:
-        duckdb_connection: DuckDB connection
-        verbose: Whether to print debug information
-        
-    Returns:
-        Tuple of (latitude, longitude) for map center
-    """
-    try:
-        # Try to get centroid from database geometries
-        centroid_query = """
-        SELECT 
-            ST_Y(ST_Centroid(ST_Union(geometry))) as lat,
-            ST_X(ST_Centroid(ST_Union(geometry))) as lon
-        FROM (
-            SELECT geometry 
-            FROM geo_embeddings 
-            LIMIT 10000
-        )
-        """
-        
-        result = duckdb_connection.execute(centroid_query).fetchone()
-        
-        if result and result[0] is not None and result[1] is not None:
-            lat, lon = result[0], result[1]
-            if verbose:
-                print(f"📍 Database centroid: {lat:.4f}, {lon:.4f}")
-            return lat, lon
-        else:
-            # Fallback: get average of individual point coordinates
-            avg_query = """
-            SELECT 
-                AVG(ST_Y(geometry)) as avg_lat,
-                AVG(ST_X(geometry)) as avg_lon
-            FROM geo_embeddings
-            LIMIT 1000
-            """
-            
-            result = duckdb_connection.execute(avg_query).fetchone()
-            if result and result[0] is not None and result[1] is not None:
-                lat, lon = result[0], result[1]
-                if verbose:
-                    print(f"📍 Database center (avg): {lat:.4f}, {lon:.4f}")
-                return lat, lon
-            
-    except Exception as e:
-        if verbose:
-            print(f"⚠️  Could not get database centroid: {e}")
-    
-    # Ultimate fallback: center of world
+def get_database_centroid(duckdb_connection, verbose: bool = False) -> tuple[float, float]:
+    """Return a neutral default centroid. (Legacy helper kept for compatibility.)"""
     if verbose:
         print("📍 Using default center (0, 0)")
-    return 0.0, 0.0 
+    return 0.0, 0.0

@@ -79,26 +79,40 @@ class MapManager:
                 boundary = self.data.ee_boundary
                 start = self.data.config.start_date
                 end = self.data.config.end_date
+                total_maps = 4
+                loaded_count = 0
 
                 s2_rgb = get_s2_rgb_median(boundary, start, end)
                 basemap_tiles["S2_RGB"] = get_ee_image_url(
                     s2_rgb, BasemapConfig.S2_RGB_VIS_PARAMS
                 )
+                loaded_count += 1
+                if self.verbose:
+                    print(f"⏱️  Loaded {loaded_count}/{total_maps} maps")
 
                 ndvi = get_s2_ndvi_median(boundary, start, end)
                 basemap_tiles["S2_NDVI"] = get_ee_image_url(
                     ndvi, BasemapConfig.NDVI_VIS_PARAMS
                 )
+                loaded_count += 1
+                if self.verbose:
+                    print(f"⏱️  Loaded {loaded_count}/{total_maps} maps")
 
                 ndwi = get_s2_ndwi_median(boundary, start, end)
                 basemap_tiles["S2_NDWI"] = get_ee_image_url(
                     ndwi, BasemapConfig.NDWI_VIS_PARAMS
                 )
+                loaded_count += 1
+                if self.verbose:
+                    print(f"⏱️  Loaded {loaded_count}/{total_maps} maps")
 
                 hsv = get_s2_hsv_median(boundary, start, end)
                 basemap_tiles["S2_HSV"] = get_ee_image_url(
                     hsv, BasemapConfig.S2_HSV_VIS_PARAMS
                 )
+                loaded_count += 1
+                if self.verbose:
+                    print(f"⏱️  Loaded {loaded_count}/{total_maps} maps")
 
                 if self.verbose:
                     print("✅ Earth Engine basemaps added successfully!")
