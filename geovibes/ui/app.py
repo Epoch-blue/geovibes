@@ -382,8 +382,7 @@ class GeoVibes:
 
     def _on_basemap_select(self, basemap_name: str) -> None:
         self.map_manager.update_basemap(basemap_name)
-        self.state.tile_basemap = basemap_name
-        self.tile_panel.reload_tiles_for_new_basemap()
+        self.tile_panel.handle_map_basemap_change(basemap_name)
         self._update_basemap_button_styles()
 
     def _on_toggle_collapse(self, _button) -> None:

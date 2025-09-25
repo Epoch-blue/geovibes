@@ -13,6 +13,8 @@ from ipywidgets import Button, GridBox, HBox, Image, Label, Layout, VBox
 from geovibes.ui_config import BasemapConfig, UIConstants
 from geovibes.xyz import get_map_image
 
+TILE_SOURCES = ("HUTCH_TILE", "MAPTILER", "GOOGLE_HYBRID")
+
 
 class TilePanel:
     """Manages the tile-based results pane."""
@@ -32,12 +34,17 @@ class TilePanel:
         self.on_center = on_center
         self.verbose = verbose
 
-        basemap_options = list(BasemapConfig.BASEMAP_TILES.keys())
-        if self.state.tile_basemap not in basemap_options:
-            self.state.tile_basemap = basemap_options[0]
+        self.allowed_sources = [
+            name for name in TILE_SOURCES if name in BasemapConfig.BASEMAP_TILES
+        ]
+        if not self.allowed_sources:
+            self.allowed_sources = list(BasemapConfig.BASEMAP_TILES.keys())
+
+        if self.state.tile_basemap not in self.allowed_sources:
+            self.state.tile_basemap = self.allowed_sources[0]
 
         self.tile_basemap_dropdown = ipyw.Dropdown(
-            options=basemap_options,
+            options=self.allowed_sources,
             value=self.state.tile_basemap,
             description="",
             layout=Layout(width="180px"),
@@ -120,12 +127,25 @@ class TilePanel:
     # ------------------------------------------------------------------
 
     def _on_tile_basemap_change(self, change) -> None:
-        self.state.tile_basemap = change["new"]
+        new_value = change["new"]
+        if new_value not in self.allowed_sources:
+            return
+        self.state.tile_basemap = new_value
         self.reload_tiles_for_new_basemap()
 
     def _on_next_tiles_click(self, _button) -> None:
         self.state.tile_page += 1
         self._render_current_page(append=True)
+
+    def handle_map_basemap_change(self, basemap_name: str) -> None:
+        if basemap_name in self.allowed_sources:
+            if self.tile_basemap_dropdown.value != basemap_name:
+                self.tile_basemap_dropdown.value = basemap_name
+            else:
+                self.state.tile_basemap = basemap_name
+                self.reload_tiles_for_new_basemap()
+        elif self.tile_basemap_dropdown.value not in self.allowed_sources:
+            self.tile_basemap_dropdown.value = self.allowed_sources[0]
 
     def _render_current_page(self, append: bool, limit: Optional[int] = None) -> None:
         df = self.state.last_search_results_df
