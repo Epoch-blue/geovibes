@@ -5,7 +5,7 @@ import math
 import requests
 import tenacity
 
-from .ui_config import BasemapConfig
+from geovibes.ui_config import BasemapConfig
 
 
 def deg2num(lat_deg: float, lon_deg: float, zoom: int):
