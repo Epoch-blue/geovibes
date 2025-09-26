@@ -11,7 +11,7 @@ import shapely.wkt
 from ipywidgets import Button, GridBox, HBox, Image, Label, Layout, VBox
 
 from geovibes.ui_config import BasemapConfig, UIConstants
-from geovibes.xyz import get_map_image
+from .xyz import get_map_image
 
 TILE_SOURCES = ("HUTCH_TILE", "MAPTILER", "GOOGLE_HYBRID")
 
