@@ -83,7 +83,7 @@ Issues = "https://github.com/demeterlabs/geovibes/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["geovibes*"]
+include = ["geovibes"]
 
 [tool.setuptools.package-data]
 geovibes = ["*.yaml", "*.json", "ui_config/*"]
