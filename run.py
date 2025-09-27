@@ -155,16 +155,32 @@ def sanitize_config(config: dict) -> dict:
 
 def create_notebook_content(config, verbose=False, disable_ee=False):
     """Create a temporary notebook that initializes GeoVibes with the given config."""
-    project_root = str(Path(__file__).resolve().parent)
-    src_dir = Path(project_root, "src")
+    module_root = Path(__file__).resolve().parent
+    src_dir = module_root / "src"
 
-    init_source = [
-        "import sys\n",
-        f"sys.path.insert(0, {repr(project_root)})\n",
-    ]
-
+    import_paths: list[str] = [str(module_root)]
     if src_dir.exists():
-        init_source.append(f"sys.path.insert(0, {repr(str(src_dir))})\n")
+        import_paths.append(str(src_dir))
+
+    try:
+        import site
+
+        import_paths.extend(site.getsitepackages())
+    except Exception:
+        import sysconfig
+
+        paths = sysconfig.get_paths()
+        for key in ("purelib", "platlib"):
+            path = paths.get(key)
+            if path:
+                import_paths.append(path)
+
+    seen: set[str] = set()
+    init_source = ["import sys\n"]
+    for path in import_paths:
+        if path not in seen:
+            init_source.append(f"sys.path.insert(0, {repr(path)})\n")
+            seen.add(path)
 
     init_source.extend(
         [
