@@ -121,10 +121,9 @@ uv pip install -e .
 earthengine authenticate
 ```
 
-Follow the authentication flow in your browser. This is only required if you want the NDVI/NDWI basemap options. Once authenticated you can opt in by either:
+Follow the authentication flow in your browser. This is only required if you want the NDVI/NDWI basemap options. GeoVibes keeps Earth Engine disabled unless you opt in via:
 
 - Adding `enable_ee: true` to your `config.yaml`
-- Passing `enable_ee=True` when you construct `GeoVibes`
 - Exporting `GEOVIBES_ENABLE_EE=1` in your environment
 
 ### 4. Google Cloud Storage Database Access (Optional - for GCS databases)

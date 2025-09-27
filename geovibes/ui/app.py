@@ -89,7 +89,7 @@ class GeoVibes:
             print("Initializing GeoVibes...")
 
         if "enable_ee" in unused_kwargs and self.verbose:
-            print("ℹ️ 'enable_ee' is ignored; Earth Engine availability is auto-detected.")
+            print("ℹ️ Pass enable_ee via config or GEOVIBES_ENABLE_EE environment variable.")
 
         # Core services
         self.data = DataManager(

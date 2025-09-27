@@ -50,7 +50,7 @@ class DataManager:
         self.ee_boundary = None
 
         if "enable_ee" in unused_kwargs and self.verbose:
-            print("ℹ️ 'enable_ee' argument is ignored; Earth Engine availability is auto-detected.")
+            print("ℹ️ Pass enable_ee via config or GEOVIBES_ENABLE_EE environment variable.")
 
         # Configuration and Earth Engine toggles
         self.config = self._load_config(
@@ -61,11 +61,13 @@ class DataManager:
         )
 
         self.ee_available = False
-        if disable_ee:
-            if self.verbose:
-                print("ℹ️ Earth Engine disabled")
-        else:
+        env_enable = os.getenv("GEOVIBES_ENABLE_EE")
+        env_opt_in = bool(env_enable and env_enable.strip().lower() in {"1", "true", "yes", "on"})
+        ee_opt_in = (self.config.enable_ee or env_opt_in) and not disable_ee
+        if ee_opt_in:
             self.ee_available = initialize_ee_with_credentials(verbose=self.verbose)
+        elif self.verbose and not disable_ee:
+            print("ℹ️ Earth Engine basemaps disabled (enable via config or GEOVIBES_ENABLE_EE)")
 
         self.geometries_dir = self._resolve_geometries_directory()
         self.local_database_directory = self._resolve_local_database_directory()
