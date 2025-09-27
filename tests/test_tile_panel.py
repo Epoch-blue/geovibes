@@ -8,9 +8,10 @@ from geovibes.ui.tiles import TilePanel
 
 
 class DummyMapManager:
-    def __init__(self):
+    def __init__(self, tile_spec=None):
         self.controls = []
         self.operations = []
+        self.data = SimpleNamespace(tile_spec=tile_spec)
 
     def add_widget_control(self, widget, position="topright"):
         control = SimpleNamespace(widget=widget, position=position)
@@ -152,3 +153,43 @@ def test_next_tiles_shows_loading_placeholders(monkeypatch):
 
     assert observed["placeholder_seen"] is True
     assert map_manager.operations[-2:] == ["⏳ Loading tiles...", "✅ Tiles updated"]
+
+
+def test_tile_panel_passes_tile_spec_to_get_map_image(monkeypatch):
+    state = AppState()
+    tile_spec = {
+        "tile_size_px": 25,
+        "tile_overlap_px": 0,
+        "meters_per_pixel": 10,
+    }
+    map_manager = DummyMapManager(tile_spec=tile_spec)
+
+    panel = TilePanel(
+        state=state,
+        map_manager=map_manager,
+        on_label=lambda *args, **kwargs: None,
+        on_center=lambda row: None,
+    )
+
+    captured = {}
+
+    def fake_get_map_image(source, lon, lat, zoom=None, tile_spec=None):
+        captured["tile_spec"] = tile_spec
+        captured["zoom"] = zoom
+        return b"bytes"
+
+    monkeypatch.setattr("geovibes.ui.tiles.get_map_image", fake_get_map_image)
+
+    df = pd.DataFrame(
+        [
+            {
+                "id": "1",
+                "geometry_wkt": "POINT(0 0)",
+            }
+        ]
+    )
+
+    panel.update_results(df)
+
+    assert captured["tile_spec"] == tile_spec
+    assert captured["zoom"] is None

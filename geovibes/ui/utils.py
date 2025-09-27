@@ -6,7 +6,8 @@ import glob
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Optional
+import re
 
 LOG_FILE = "geovibes_crash.log"
 
@@ -50,6 +51,30 @@ def list_databases_in_directory(
     return sorted(databases, key=lambda x: x["db_path"])
 
 
+_TILE_SPEC_PATTERN = re.compile(
+    r"(?P<size>\d+?)_(?P<overlap>\d+?)_(?P<resolution>\d+(?:\.\d+)?)$"
+)
+
+
+def infer_tile_spec_from_name(name: str) -> Optional[Dict[str, float]]:
+    base = Path(name).stem if "." in name else name
+    if base.endswith("_metadata"):
+        base = base[: -len("_metadata")]
+    match = _TILE_SPEC_PATTERN.search(base)
+    if not match:
+        return None
+    size = int(match.group("size"))
+    overlap = int(match.group("overlap"))
+    resolution = float(match.group("resolution"))
+    if size <= 0 or resolution <= 0:
+        return None
+    return {
+        "tile_size_px": size,
+        "tile_overlap_px": overlap,
+        "meters_per_pixel": resolution,
+    }
+
+
 def get_database_centroid(duckdb_connection, verbose: bool = False) -> tuple[float, float]:
     if verbose:
         print("📍 Using default center (0, 0)")
@@ -61,5 +86,6 @@ __all__ = [
     "log_to_file",
     "LOG_FILE",
     "list_databases_in_directory",
+    "infer_tile_spec_from_name",
     "get_database_centroid",
 ]

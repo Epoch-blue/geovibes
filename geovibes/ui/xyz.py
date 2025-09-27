@@ -1,11 +1,14 @@
 """Map tile fetching utilities."""
 
 import math
+from typing import Optional, Dict, Any
 
 import requests
 import tenacity
 
 from geovibes.ui_config import BasemapConfig
+
+EARTH_RADIUS_M = 6_378_137
 
 
 def deg2num(lat_deg: float, lon_deg: float, zoom: int):
@@ -31,7 +34,34 @@ def deg2num(lat_deg: float, lon_deg: float, zoom: int):
     wait=tenacity.wait_fixed(2),
     retry=tenacity.retry_if_exception_type(requests.exceptions.RequestException),
 )
-def get_map_image(source: str, lon: float, lat: float, zoom: int = 17) -> bytes:
+def compute_zoom_for_tile(lat_deg: float, coverage_m: float) -> Optional[int]:
+    if coverage_m <= 0:
+        return None
+    lat_rad = math.radians(lat_deg)
+    cos_lat = math.cos(lat_rad)
+    if cos_lat <= 0:
+        return None
+    numerator = cos_lat * 2 * math.pi * EARTH_RADIUS_M
+    if numerator <= 0:
+        return None
+    zoom = math.log2(numerator / coverage_m)
+    if not math.isfinite(zoom):
+        return None
+    return max(0, min(22, int(round(zoom))))
+
+
+@tenacity.retry(
+    stop=tenacity.stop_after_attempt(3),
+    wait=tenacity.wait_fixed(2),
+    retry=tenacity.retry_if_exception_type(requests.exceptions.RequestException),
+)
+def get_map_image(
+    source: str,
+    lon: float,
+    lat: float,
+    zoom: Optional[int] = None,
+    tile_spec: Optional[Dict[str, Any]] = None,
+) -> bytes:
     """Fetch a map tile image for a given coordinate and source.
 
     Args:
@@ -58,6 +88,18 @@ def get_map_image(source: str, lon: float, lat: float, zoom: int = 17) -> bytes:
         raise ValueError(
             f"Invalid XYZ tile source: {source}. Valid sources are: {list(valid_sources.keys())}"
         )
+
+    if zoom is None and tile_spec:
+        size_px = tile_spec.get("tile_size_px")
+        resolution = tile_spec.get("meters_per_pixel")
+        if size_px and resolution:
+            coverage = size_px * resolution
+            inferred_zoom = compute_zoom_for_tile(lat, coverage)
+            if inferred_zoom is not None:
+                zoom = inferred_zoom
+
+    if zoom is None:
+        zoom = 17
 
     url_template = valid_sources[source]
     xtile, ytile = deg2num(lat, lon, zoom)

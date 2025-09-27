@@ -106,6 +106,7 @@ class TilePanel:
         self.next_tiles_btn.layout.display = "none"
         self.state.last_search_results_df = None
         self.state.tile_page = 0
+        self._update_operation(None)
 
     def update_results(self, search_results_df) -> None:
         self.state.last_search_results_df = search_results_df
@@ -176,6 +177,7 @@ class TilePanel:
         page_df = df.iloc[start_index:end_index]
         if page_df.empty:
             self.next_tiles_btn.layout.display = "none"
+            self._update_operation(None)
             return
 
         placeholder_widgets = [self._make_placeholder_tile() for _ in range(len(page_df))]
@@ -218,8 +220,12 @@ class TilePanel:
     def _create_tile_widget(self, row, append: bool):
         geom = shapely.wkt.loads(row["geometry_wkt"])
         try:
+            tile_spec = getattr(getattr(self.map_manager, "data", None), "tile_spec", None)
             image_bytes = get_map_image(
-                source=self.state.tile_basemap, lon=geom.x, lat=geom.y
+                source=self.state.tile_basemap,
+                lon=geom.x,
+                lat=geom.y,
+                tile_spec=tile_spec,
             )
             tile_image = Image(value=image_bytes, format="png", width=115, height=115)
         except Exception:

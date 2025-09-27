@@ -1,5 +1,6 @@
 from geovibes.ui.utils import (
     get_database_centroid,
+    infer_tile_spec_from_name,
     list_databases_in_directory,
     log_to_file,
     prepare_ids_for_query,
@@ -42,3 +43,18 @@ def test_list_databases_in_directory_filters_indices(tmp_path):
 def test_get_database_centroid_defaults_to_origin():
     lat, lon = get_database_centroid(None)
     assert (lat, lon) == (0.0, 0.0)
+
+
+def test_infer_tile_spec_from_name_parses_suffix():
+    spec = infer_tile_spec_from_name(
+        "alabama_google_satellite_embeddings_v1_2024_2025_25_0_10_metadata.db"
+    )
+    assert spec == {
+        "tile_size_px": 25,
+        "tile_overlap_px": 0,
+        "meters_per_pixel": 10.0,
+    }
+
+
+def test_infer_tile_spec_from_name_handles_missing():
+    assert infer_tile_spec_from_name("no_tile_info.db") is None

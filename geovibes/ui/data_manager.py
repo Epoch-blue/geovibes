@@ -5,7 +5,6 @@ from __future__ import annotations
 import csv
 import os
 import pathlib
-import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import duckdb
@@ -19,6 +18,7 @@ from geovibes.ui_config import BasemapConfig, DatabaseConstants, GeoVibesConfig
 
 from .utils import (
     get_database_centroid,
+    infer_tile_spec_from_name,
     list_databases_in_directory,
     log_to_file,
     prepare_ids_for_query,
@@ -76,6 +76,8 @@ class DataManager:
         self.manifest_entries: List[Dict[str, str]] = []
 
         self.available_databases = self._discover_databases()
+        for entry in self.available_databases:
+            entry.setdefault("tile_spec", infer_tile_spec_from_name(entry["db_path"]))
         if not self.available_databases:
             raise FileNotFoundError(
                 "No downloaded models found. Provide duckdb_path/duckdb_directory or run prep_data.py."
@@ -95,6 +97,9 @@ class DataManager:
         self.current_database_path = self.current_database_info["db_path"]
         self.current_faiss_path = self.current_database_info.get("faiss_path")
         self.current_geometry_path = self.current_database_info.get("geometry_path")
+        self.tile_spec = self.current_database_info.get("tile_spec")
+        if not self.tile_spec:
+            self.tile_spec = infer_tile_spec_from_name(self.current_database_path)
         self.effective_boundary_path = None
 
         # Manage DuckDB connection
@@ -725,9 +730,14 @@ class DataManager:
         if self.current_database_info:
             self.current_faiss_path = self.current_database_info["faiss_path"]
             self.current_geometry_path = self.current_database_info.get("geometry_path")
+            self.tile_spec = self.current_database_info.get("tile_spec")
         else:
             self.current_faiss_path = None
             self.current_geometry_path = None
+            self.tile_spec = None
+
+        if not self.tile_spec:
+            self.tile_spec = infer_tile_spec_from_name(database_path)
 
         if getattr(self, "_owns_connection", False):
             if getattr(self, "duckdb_connection", None):
