@@ -2,6 +2,7 @@ import json
 from types import SimpleNamespace
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import pytest
 import shapely.geometry
@@ -84,6 +85,31 @@ def _sample_results_df():
     )
 
 
+class DummyDataManager:
+    def __init__(self, results):
+        self.results = list(results)
+        self.index = 0
+        self.duckdb_connection = SimpleNamespace(
+            execute=lambda *args, **kwargs: SimpleNamespace(df=lambda: pd.DataFrame())
+        )
+
+    def nearest_point(self, lon, lat):  # pragma: no cover - trivial accessor
+        if self.index >= len(self.results):
+            raise AssertionError("No more nearest_point results configured")
+        result = self.results[self.index]
+        self.index += 1
+        return result
+
+    def fetch_embeddings(self, point_ids):  # pragma: no cover - unused helper
+        data = pd.DataFrame(
+            {
+                "id": [str(pid) for pid in point_ids],
+                "embedding": [[0.0, 0.0] for _ in point_ids],
+            }
+        )
+        yield data
+
+
 def test_process_search_results_creates_geodataframe(geo_vibes_stub):
     gv = geo_vibes_stub
     results_df = _sample_results_df()
@@ -136,3 +162,61 @@ def test_polygon_mode_disables_point_labeling(geo_vibes_stub):
     gv._on_selection_mode_change({"new": "point"})
     gv._on_map_interaction(type="click", coordinates=(37.0, -1.0), modifiers={})
     assert called["value"] is True
+
+
+def test_iterative_label_workflow_positive_then_negative(geo_vibes_stub):
+    gv = geo_vibes_stub
+    gv.data = DummyDataManager(
+        [
+            ("1", "POINT (-1 37)", 0.5, [0.1, 0.2, 0.3]),
+            ("2", "POINT (-1.1 37.1)", 0.7, [0.4, 0.5, 0.6]),
+        ]
+    )
+
+    layer_calls = []
+    gv._update_layers = lambda: layer_calls.append(
+        (list(gv.state.pos_ids), list(gv.state.neg_ids))
+    )
+    query_calls = []
+    gv._update_query_vector = lambda: query_calls.append(tuple(gv.state.pos_ids))
+
+    gv.label_point(lon=-1.0, lat=37.0)
+
+    assert gv.state.pos_ids == ["1"]
+    assert gv.state.neg_ids == []
+    np.testing.assert_array_equal(gv.state.cached_embeddings["1"], np.array([0.1, 0.2, 0.3]))
+    assert layer_calls[-1] == (["1"], [])
+    assert query_calls[-1] == ("1",)
+
+    gv._on_label_change({"new": "Negative"})
+    assert gv.state.current_label == "Negative"
+
+    gv.label_point(lon=-1.2, lat=37.2)
+
+    assert gv.state.pos_ids == ["1"]
+    assert gv.state.neg_ids == ["2"]
+    assert layer_calls[-1] == (["1"], ["2"])
+    assert query_calls[-1] == ("1",)
+
+
+def test_relabel_point_from_positive_to_negative(geo_vibes_stub):
+    gv = geo_vibes_stub
+    gv.data = DummyDataManager(
+        [
+            ("7", "POINT (-1 37)", 0.5, [0.0, 1.0, 2.0]),
+            ("7", "POINT (-1 37)", 0.4, [0.0, 1.0, 2.0]),
+        ]
+    )
+
+    gv._update_layers = lambda: None
+    gv._update_query_vector = lambda: None
+
+    gv.label_point(lon=-1.0, lat=37.0)
+    assert gv.state.pos_ids == ["7"]
+    assert gv.state.neg_ids == []
+
+    gv._on_label_change({"new": "Negative"})
+    gv.label_point(lon=-1.0, lat=37.0)
+
+    assert gv.state.pos_ids == []
+    assert gv.state.neg_ids == ["7"]
