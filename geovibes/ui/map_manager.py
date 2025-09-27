@@ -271,7 +271,7 @@ class MapManager:
         polygon: shapely.geometry.base.BaseGeometry,
         *,
         color: str = "yellow",
-        fill_opacity: float = 0.1,
+        fill_opacity: float = 0.0,
     ):
         if self.highlight_layer and self.highlight_layer in self.map.layers:
             self.map.remove_layer(self.highlight_layer)
