@@ -219,6 +219,16 @@ class TilePanel:
 
     def _create_tile_widget(self, row, append: bool):
         geom = shapely.wkt.loads(row["geometry_wkt"])
+        base_image_layout = {
+            "width": "115px",
+            "height": "115px",
+            "overflow": "hidden",
+        }
+        image_layout = Layout(
+            width="115px",
+            height="115px",
+            overflow="hidden",
+        )
         try:
             tile_spec = getattr(getattr(self.map_manager, "data", None), "tile_spec", None)
             image_bytes = get_map_image(
@@ -227,13 +237,20 @@ class TilePanel:
                 lat=geom.y,
                 tile_spec=tile_spec,
             )
-            tile_image = Image(value=image_bytes, format="png", width=115, height=115)
+            tile_image = Image(
+                value=image_bytes,
+                format="png",
+                width=115,
+                height=115,
+                layout=image_layout,
+            )
         except Exception:
             tile_image = Label(
                 value="Image unavailable",
                 layout=Layout(
-                    width="115px",
-                    height="115px",
+                    width=base_image_layout["width"],
+                    height=base_image_layout["height"],
+                    overflow=base_image_layout["overflow"],
                     border="1px solid #ccc",
                     display="flex",
                     align_items="center",
@@ -245,19 +262,19 @@ class TilePanel:
 
         map_button = Button(
             icon="fa-map-marker",
-            layout=Layout(width="35px", height="30px", margin="0px 2px", padding="2px"),
+            layout=Layout(width="35px", height="28px", margin="0px 2px", padding="2px"),
             tooltip="Center map",
         )
         map_button.on_click(lambda _b, r=row: self.on_center(r))
 
         tick_button = Button(
             icon="fa-check",
-            layout=Layout(width="35px", height="30px", margin="0px 2px", padding="2px"),
+            layout=Layout(width="35px", height="28px", margin="0px 2px", padding="2px"),
             tooltip="Label as positive",
         )
         cross_button = Button(
             icon="fa-times",
-            layout=Layout(width="35px", height="30px", margin="0px 2px", padding="2px"),
+            layout=Layout(width="35px", height="28px", margin="0px 2px", padding="2px"),
             tooltip="Label as negative",
         )
 
@@ -276,7 +293,12 @@ class TilePanel:
 
         button_row = HBox(
             [map_button, tick_button, cross_button],
-            layout=Layout(justify_content="center"),
+            layout=Layout(
+                justify_content="center",
+                width="120px",
+                height="32px",
+                overflow="hidden",
+            ),
         )
 
         return VBox(
@@ -286,6 +308,7 @@ class TilePanel:
                 padding="2px",
                 width="120px",
                 height="155px",
+                overflow="hidden",
             ),
         )
 
@@ -299,9 +322,10 @@ class TilePanel:
                 display="flex",
                 align_items="center",
                 justify_content="center",
+                overflow="hidden",
             ),
         )
-        spacer = HBox(layout=Layout(height="30px"))
+        spacer = HBox(layout=Layout(height="32px", width="120px", overflow="hidden"))
         return VBox(
             [spacer, message],
             layout=Layout(
@@ -309,6 +333,7 @@ class TilePanel:
                 padding="2px",
                 width="120px",
                 height="155px",
+                overflow="hidden",
             ),
         )
 
