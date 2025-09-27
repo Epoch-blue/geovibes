@@ -69,6 +69,9 @@ class TilePanel:
                 width="100%",
                 grid_template_columns="1fr 1fr",
                 grid_gap="3px",
+                overflow_y="auto",
+                flex="1 1 auto",
+                height="100%",
             ),
         )
 
@@ -79,7 +82,7 @@ class TilePanel:
                 width="265px",
                 padding="5px",
                 height=UIConstants.DEFAULT_HEIGHT,
-                overflow_y="auto",
+                overflow="hidden",
             ),
         )
 
