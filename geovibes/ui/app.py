@@ -228,11 +228,6 @@ class GeoVibes:
             description="🌍 Google Maps ↗",
             layout=Layout(width="100%"),
         )
-        self.run_button = Button(
-            description="Find Similar",
-            button_style="primary",
-            layout=Layout(width="120px"),
-        )
 
         # Database dropdown
         database_section_widgets = []
@@ -282,7 +277,6 @@ class GeoVibes:
                         self.add_vector_btn,
                         self.vector_file_upload,
                         self.google_maps_btn,
-                        self.run_button,
                     ],
                     layout=Layout(padding="5px"),
                 ),
@@ -328,7 +322,6 @@ class GeoVibes:
             "google_maps_btn": self.google_maps_btn,
             "collapse_btn": self.collapse_btn,
             "tiles_button": self.tiles_button,
-            "run_button": self.run_button,
             "database_dropdown": self.database_dropdown,
         }
         return panel, ui_widgets
@@ -339,7 +332,6 @@ class GeoVibes:
 
     def _wire_events(self) -> None:
         self.search_btn.on_click(self.search_click)
-        self.run_button.on_click(self.search_click)
         self.reset_btn.on_click(self.reset_all)
         self.tiles_button.on_click(lambda _b: self.tile_panel.toggle())
         self.label_toggle.observe(self._on_label_change, names="value")
