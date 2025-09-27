@@ -40,3 +40,23 @@ def test_reset_restores_defaults():
     assert state.tile_basemap == "MAPTILER"
     assert state.selection_mode == "point"
     assert state.current_label == "Positive"
+
+
+def test_set_label_mode_updates_select_value():
+    state = AppState()
+    state.set_label_mode("Negative")
+    assert state.current_label == "Negative"
+    assert state.select_val == UIConstants.NEGATIVE_LABEL
+
+    state.set_label_mode("Erase")
+    assert state.select_val == UIConstants.ERASE_LABEL
+
+
+def test_toggle_label_switches_between_lists():
+    state = AppState()
+    state.toggle_label("1", UIConstants.POSITIVE_LABEL)
+    assert state.pos_ids == ["1"]
+
+    state.toggle_label("1", UIConstants.NEGATIVE_LABEL)
+    assert state.pos_ids == []
+    assert state.neg_ids == ["1"]
