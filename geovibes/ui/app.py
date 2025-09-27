@@ -752,7 +752,15 @@ class GeoVibes:
     def _handle_save_dataset(self) -> None:
         result = self.dataset_manager.save_dataset()
         if result:
-            self._show_operation_status("✅ Dataset saved")
+            geojson_path = result.get("geojson")
+            csv_path = result.get("csv")
+            if geojson_path and csv_path:
+                message = f"✅ Dataset saved: {geojson_path} (labels: {csv_path})"
+            elif geojson_path:
+                message = f"✅ Dataset saved: {geojson_path}"
+            else:
+                message = "✅ Dataset saved"
+            self._show_operation_status(message)
         else:
             self._show_operation_status("⚠️ Nothing to save")
 
