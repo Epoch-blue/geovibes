@@ -37,30 +37,15 @@ uv run download_embeddings.py
 
 The script lets you select regions to download, stores geometries in `geometries/`, and extracts the model artifacts into `local_databases/`. You can rerun it at any time; previously downloaded files are skipped.
 
-### Web Application (Recommended)
-
-GeoVibes runs as a standalone web application with an interactive mapping interface:
-
-```bash
-# Run with configuration file (recommended)
-uv run run.py --config config.yaml
-
-# Or rely on manifest defaults
-uv run run.py
-
-# Run with custom port and disable auto-browser opening
-uv run run.py --start-date 2024-06-01 --end-date 2024-12-31 --port 8080 --no-browser
-```
-
-The application will automatically:
-
-1. Start a web server using [Voila](https://github.com/voila-dashboards/voila)
-2. Open your default browser to the GeoVibes interface
-3. Provide interactive mapping with similarity search capabilities
-
 ### Notebook (`vibe_checker.ipynb`)
 
-If you prefer Jupyter, open `vibe_checker.ipynb` in JupyterLab/Notebook and choose the `Python (geovibes)` kernel registered during installation. The notebook loads the same UI components as the web app and expects the assets downloaded by `download_embeddings.py` in `local_databases/` and `geometries/`.
+Launch Jupyter Lab (or Notebook) and open `vibe_checker.ipynb`:
+
+```bash
+uv run jupyter lab
+```
+
+When the notebook opens, select the `Python (geovibes)` kernel registered during installation. The notebook loads the complete GeoVibes UI and expects the assets downloaded by `download_embeddings.py` in `local_databases/` and `geometries/`.
 
 ### Features
 
@@ -112,22 +97,6 @@ GCS_ACCESS_KEY_ID=your_access_key_here
 GCS_SECRET_ACCESS_KEY=your_secret_key_here
 ```
 
-### Command Line Options
-
-All configuration options can be provided via command line:
-
-```bash
-python run.py \
-  --start-date 2024-01-01 \
-  --end-date 2025-01-01 \
-  --gcp-project your-gcp-project-id \
-  --port 8080 \
-  --no-browser \
-  --verbose
-```
-
-Run `python run.py --help` for all available options.
-
 ## Architecture
 
 The GeoVibes system is designed for efficient large-scale geospatial similarity search. The core of the system is a hybrid architecture combining a FAISS index for fast vector search with a DuckDB database for storing metadata and geometries.
@@ -157,7 +126,6 @@ earthengine authenticate
 Follow the authentication flow in your browser. This is only required if you want the NDVI/NDWI basemap options. Once authenticated you can opt in by either:
 
 - Adding `enable_ee: true` to your `config.yaml`
-- Running Voila with `python run.py --enable-ee`
 - Passing `enable_ee=True` when you construct `GeoVibes`
 - Exporting `GEOVIBES_ENABLE_EE=1` in your environment
 

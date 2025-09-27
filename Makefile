@@ -3,7 +3,7 @@
 # Use the conda environment python
 PYTHON := $(shell which python || echo python3)
 
-.PHONY: setup run webapp
+.PHONY: setup run
 
 # Setup the conda environment
 setup:
@@ -18,13 +18,3 @@ setup:
 run:
 	@echo "Launching GeoVibes..."
 	@$(PYTHON) -m geovibes.nicegui_app 
-
-# Run the GeoVibes web application
-webapp:
-	@echo "Launching GeoVibes web application..."
-	@$(PYTHON) run.py --config config.yaml
-
-# Run the GeoVibes web application with custom config
-webapp-config:
-	@echo "Usage: make webapp-config CONFIG=path/to/config.yaml"
-	@$(PYTHON) run.py --config $(CONFIG)
