@@ -31,9 +31,6 @@ class DataManager:
     def __init__(
         self,
         *,
-        duckdb_path: Optional[str] = None,
-        duckdb_directory: Optional[str] = None,
-        boundary_path: Optional[str] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         gcp_project: Optional[str] = None,
@@ -53,9 +50,6 @@ class DataManager:
 
         # Configuration and Earth Engine toggles
         self.config = self._load_config(
-            duckdb_path=duckdb_path,
-            duckdb_directory=duckdb_directory,
-            boundary_path=boundary_path,
             start_date=start_date,
             end_date=end_date,
             gcp_project=gcp_project,
@@ -138,9 +132,6 @@ class DataManager:
     def _load_config(
         self,
         *,
-        duckdb_path: Optional[str],
-        duckdb_directory: Optional[str],
-        boundary_path: Optional[str],
         start_date: Optional[str],
         end_date: Optional[str],
         gcp_project: Optional[str],
@@ -153,9 +144,6 @@ class DataManager:
             cfg = GeoVibesConfig.from_dict(config)
         else:
             cfg = GeoVibesConfig(
-                duckdb_path=duckdb_path,
-                duckdb_directory=duckdb_directory,
-                boundary_path=boundary_path,
                 start_date=start_date or "2024-01-01",
                 end_date=end_date or "2025-01-01",
                 gcp_project=gcp_project,

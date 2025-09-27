@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 import ipywidgets as ipyw
 import numpy as np
 import pandas as pd
+import geopandas as gpd
 import shapely.geometry
 import shapely.wkt
 import webbrowser
@@ -641,13 +642,13 @@ class GeoVibes:
         self._show_operation_status(f"✅ Found {len(filtered)} similar points.")
 
         geometries = [shapely.wkt.loads(row["geometry_wkt"]) for _, row in filtered.iterrows()]
-        self.state.detections_with_embeddings = pd.DataFrame(
-            {
-                "id": filtered["id"].astype(str).values,
-                "distance": filtered["distance"].values,
-            }
+        detections_df = filtered[["id", "distance"]].copy()
+        detections_df["id"] = detections_df["id"].astype(str)
+        self.state.detections_with_embeddings = gpd.GeoDataFrame(
+            detections_df,
+            geometry=geometries,
+            crs="EPSG:4326",
         )
-        self.state.detections_with_embeddings["geometry"] = geometries
 
         detections_geojson = {"type": "FeatureCollection", "features": []}
         min_distance = filtered["distance"].min()
@@ -777,6 +778,7 @@ class GeoVibes:
         self.map_manager.clear_vector_layer()
         self.map_manager.clear_highlight()
         self.tile_panel.clear()
+        self.tile_panel.hide()
         self.tiles_button.button_style = ""
         self._clear_operation_status()
         self._update_status()
