@@ -26,7 +26,7 @@ class UIConstants:
     
     # Map settings
     DEFAULT_ZOOM = 7
-    DEFAULT_HEIGHT = '875px'
+    DEFAULT_HEIGHT = '780px'
     PANEL_WIDTH = '200px'
     
     # Search settings
