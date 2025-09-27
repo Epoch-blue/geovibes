@@ -152,6 +152,7 @@ class TilePanel:
         if df is None or df.empty:
             self.results_grid.children = []
             self.next_tiles_btn.layout.display = "none"
+            self._update_operation(None)
             return
 
         if append:
@@ -177,20 +178,37 @@ class TilePanel:
             self.next_tiles_btn.layout.display = "none"
             return
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-            tiles = list(
-                executor.map(
-                    partial(self._create_tile_widget, append=append),
-                    [row for _, row in page_df.iterrows()],
-                )
-            )
-
+        placeholder_widgets = [self._make_placeholder_tile() for _ in range(len(page_df))]
         current_children = list(self.results_grid.children)
         if append:
-            current_children.extend(tiles)
+            placeholder_start = len(current_children)
+            current_children.extend(placeholder_widgets)
         else:
-            current_children = tiles
+            placeholder_start = 0
+            current_children = placeholder_widgets
         self.results_grid.children = tuple(current_children)
+
+        placeholder_indices = [placeholder_start + idx for idx in range(len(placeholder_widgets))]
+
+        self._update_operation("⏳ Loading tiles...")
+
+        try:
+            futures = []
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+                for offset, (_, row) in enumerate(page_df.iterrows()):
+                    target_index = placeholder_indices[offset]
+                    futures.append(
+                        (target_index, executor.submit(self._create_tile_widget, row, append))
+                    )
+
+                for target_index, future in futures:
+                    tile_widget = future.result()
+                    current_children = list(self.results_grid.children)
+                    if target_index < len(current_children):
+                        current_children[target_index] = tile_widget
+                        self.results_grid.children = tuple(current_children)
+        finally:
+            self._update_operation("✅ Tiles updated")
 
         if end_index < len(df):
             self.next_tiles_btn.layout.display = "flex"
@@ -264,6 +282,37 @@ class TilePanel:
                 height="155px",
             ),
         )
+
+    def _make_placeholder_tile(self) -> VBox:
+        message = Label(
+            value="Loading...",
+            layout=Layout(
+                width="115px",
+                height="115px",
+                border="1px solid #ccc",
+                display="flex",
+                align_items="center",
+                justify_content="center",
+            ),
+        )
+        spacer = HBox(layout=Layout(height="30px"))
+        return VBox(
+            [spacer, message],
+            layout=Layout(
+                border="1px solid #ccc",
+                padding="2px",
+                width="120px",
+                height="155px",
+            ),
+        )
+
+    def _update_operation(self, message: Optional[str]) -> None:
+        if message:
+            if hasattr(self.map_manager, "set_operation"):
+                self.map_manager.set_operation(message)
+        else:
+            if hasattr(self.map_manager, "clear_operation"):
+                self.map_manager.clear_operation()
 
     def _handle_label_click(
         self,
