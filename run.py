@@ -265,13 +265,10 @@ def run_with_voila(config, args):
         temp_notebook,
         "--port",
         str(args.port),
-        "--ip",
-        args.host,
         "--no-browser",
-    ]
-    voila_cmd.extend([
+        f"--Voila.server_host={args.host}",
         "--VoilaConfiguration.show_tracebacks=True",
-    ])
+    ]
 
     process = subprocess.Popen(voila_cmd)
 
