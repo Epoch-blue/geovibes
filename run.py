@@ -14,15 +14,17 @@ The script will start a web server and open the GeoVibes interface in your defau
 """
 
 import argparse
+import atexit
+import json
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import webbrowser
 from pathlib import Path
+
 import yaml
-import tempfile
-import atexit
-import subprocess
-import json
 
 
 def parse_arguments():
@@ -208,9 +210,9 @@ def create_notebook_content(config, verbose=False, disable_ee=False):
         ],
         "metadata": {
             "kernelspec": {
-                "display_name": "Python 3",
+                "display_name": "GeoVibes (Voila)",
                 "language": "python",
-                "name": "python3",
+                "name": "geovibes-voila",
             },
             "language_info": {
                 "codemirror_mode": {"name": "ipython", "version": 3},
@@ -219,7 +221,7 @@ def create_notebook_content(config, verbose=False, disable_ee=False):
                 "name": "python",
                 "nbconvert_exporter": "python",
                 "pygments_lexer": "ipython3",
-                "version": "3.8.0",
+                "version": sys.version.split(" ")[0],
             },
         },
         "nbformat": 4,
@@ -242,14 +244,21 @@ def run_with_voila(config, args):
     # Create temporary file
     temp_dir = tempfile.mkdtemp()
     temp_notebook = os.path.join(temp_dir, "geovibes_app.ipynb")
+    kernels_dir = Path(temp_dir) / "kernels"
+    kernel_name = "geovibes-voila"
+    kernel_dir = kernels_dir / kernel_name
+    kernel_dir.mkdir(parents=True, exist_ok=True)
+    kernel_spec = {
+        "argv": [sys.executable, "-m", "ipykernel_launcher", "-f", "{connection_file}"],
+        "display_name": "GeoVibes (Voila)",
+        "language": "python",
+    }
+    with open(kernel_dir / "kernel.json", "w") as kernel_file:
+        json.dump(kernel_spec, kernel_file, indent=2)
 
     # Cleanup function
     def cleanup():
-        try:
-            os.remove(temp_notebook)
-            os.rmdir(temp_dir)
-        except:
-            pass
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
     atexit.register(cleanup)
 
@@ -286,7 +295,15 @@ def run_with_voila(config, args):
         "--VoilaConfiguration.show_tracebacks=True",
     ]
 
-    process = subprocess.Popen(voila_cmd)
+    voila_env = os.environ.copy()
+    existing_jupyter_path = voila_env.get("JUPYTER_PATH")
+    kernels_path = str(kernels_dir)
+    if existing_jupyter_path:
+        voila_env["JUPYTER_PATH"] = os.pathsep.join([kernels_path, existing_jupyter_path])
+    else:
+        voila_env["JUPYTER_PATH"] = kernels_path
+
+    process = subprocess.Popen(voila_cmd, env=voila_env)
 
     try:
         process.wait()
