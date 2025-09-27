@@ -40,7 +40,7 @@ dependencies = [
     "earthengine-api",
     "faiss-cpu",
     "fiona",
-    "flake8", 
+    "flake8",
     "gcsfs",
     "geemap",
     "geopandas",
@@ -68,7 +68,7 @@ dependencies = [
     "shapely",
     "tenacity",
     "tqdm",
-    "voila"
+    "voila",
 ]
 
 
