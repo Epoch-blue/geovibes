@@ -73,9 +73,11 @@ class MapManager:
         if self.data.ee_available:
             try:
                 if self.verbose:
-                    print("🛰️ Loading Earth Engine basemaps...")
+                    print(
+                        "🛰️ Setting up Earth Engine basemaps (S2 RGB, NDVI, NDWI, HSV)..."
+                    )
 
-                boundary = None
+                boundary = self.data.ee_boundary
                 start = self.data.config.start_date
                 end = self.data.config.end_date
 

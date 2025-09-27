@@ -48,6 +48,7 @@ class DataManager:
         self.baselayer_url = baselayer_url or BasemapConfig.BASEMAP_TILES["MAPTILER"]
         self.duckdb_path = duckdb_path
         self.duckdb_directory = duckdb_directory
+        self.ee_boundary = None
 
         if "enable_ee" in unused_kwargs and self.verbose:
             print("ℹ️ 'enable_ee' argument is ignored; Earth Engine availability is auto-detected.")
@@ -126,6 +127,7 @@ class DataManager:
         self.effective_boundary_path, (self.center_y, self.center_x) = (
             self._setup_boundary_and_center()
         )
+        self._update_ee_boundary()
 
     # ------------------------------------------------------------------
     # Configuration helpers

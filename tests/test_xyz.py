@@ -1,5 +1,3 @@
-import math
-
 import pytest
 
 from geovibes.ui import xyz

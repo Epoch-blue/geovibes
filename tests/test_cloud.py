@@ -1,8 +1,3 @@
-import os
-from types import SimpleNamespace
-
-import pytest
-
 from geovibes.database import cloud
 
 
