@@ -118,3 +118,21 @@ def test_handle_draw_uses_geodataframe_geometry(geo_vibes_stub):
 
     assert "123" in gv.state.pos_ids
     assert gv.map_manager.draw_control.cleared is True
+
+
+def test_polygon_mode_disables_point_labeling(geo_vibes_stub):
+    gv = geo_vibes_stub
+    called = {"value": False}
+
+    def fake_label_point(*args, **kwargs):  # pragma: no cover - simple flag setter
+        called["value"] = True
+
+    gv.label_point = fake_label_point
+
+    gv._on_selection_mode_change({"new": "polygon"})
+    gv._on_map_interaction(type="click", coordinates=(37.0, -1.0), modifiers={})
+    assert called["value"] is False
+
+    gv._on_selection_mode_change({"new": "point"})
+    gv._on_map_interaction(type="click", coordinates=(37.0, -1.0), modifiers={})
+    assert called["value"] is True

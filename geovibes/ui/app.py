@@ -379,6 +379,7 @@ class GeoVibes:
     def _on_selection_mode_change(self, change) -> None:
         self.state.selection_mode = change["new"]
         self.state.lasso_mode = change["new"] == "polygon"
+        self.state.execute_label_point = change["new"] != "polygon"
         self._update_status()
 
     def _on_basemap_select(self, basemap_name: str) -> None:
