@@ -36,6 +36,7 @@ class DataManager:
         duckdb_path: Optional[str] = None,
         duckdb_directory: Optional[str] = None,
         config: Optional[Dict] = None,
+        enable_ee: Optional[bool] = None,
         config_path: Optional[str] = None,
         duckdb_connection: Optional[duckdb.DuckDBPyConnection] = None,
         baselayer_url: Optional[str] = None,
@@ -58,6 +59,7 @@ class DataManager:
             end_date=end_date,
             config=config,
             config_path=config_path,
+            enable_ee_override=enable_ee,
         )
 
         self.ee_available = False
@@ -143,6 +145,7 @@ class DataManager:
         end_date: Optional[str],
         config: Optional[Dict],
         config_path: Optional[str],
+        enable_ee_override: Optional[bool],
     ) -> GeoVibesConfig:
         if config_path is not None:
             cfg = GeoVibesConfig.from_file(config_path)
@@ -153,6 +156,9 @@ class DataManager:
                 start_date=start_date or "2024-01-01",
                 end_date=end_date or "2025-01-01",
             )
+
+        if enable_ee_override is not None:
+            cfg.enable_ee = bool(enable_ee_override)
 
         if hasattr(cfg, "validate"):
             try:

@@ -57,6 +57,7 @@ class GeoVibes:
         start_date: str = "2024-01-01",
         end_date: str = "2025-01-01",
         verbose: bool = False,
+        enable_ee: Optional[bool] = None,
         **kwargs,
     ):
         return cls(
@@ -66,6 +67,7 @@ class GeoVibes:
             start_date=start_date,
             end_date=end_date,
             verbose=verbose,
+            enable_ee=enable_ee,
             **kwargs,
         )
 
@@ -82,6 +84,7 @@ class GeoVibes:
         baselayer_url: Optional[str] = None,
         disable_ee: bool = False,
         verbose: bool = False,
+        enable_ee: Optional[bool] = None,
         **unused_kwargs: Any,
     ) -> None:
         self.verbose = verbose
@@ -104,6 +107,7 @@ class GeoVibes:
             baselayer_url=baselayer_url,
             disable_ee=disable_ee,
             verbose=verbose,
+            enable_ee=enable_ee,
         )
         self.state = AppState()
         self.status_bus = StatusBus()

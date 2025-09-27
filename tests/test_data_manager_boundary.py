@@ -45,6 +45,30 @@ def test_update_ee_boundary_uses_current_geometry(monkeypatch):
     assert len(recorded) == 2
 
 
+def test_load_config_enable_ee_override_true():
+    dm = DataManager.__new__(DataManager)
+    cfg = dm._load_config(
+        start_date=None,
+        end_date=None,
+        config=None,
+        config_path=None,
+        enable_ee_override=True,
+    )
+    assert cfg.enable_ee is True
+
+
+def test_load_config_enable_ee_override_false():
+    dm = DataManager.__new__(DataManager)
+    cfg = dm._load_config(
+        start_date=None,
+        end_date=None,
+        config={"enable_ee": True},
+        config_path=None,
+        enable_ee_override=False,
+    )
+    assert cfg.enable_ee is False
+
+
 def test_update_ee_boundary_skips_when_disabled(monkeypatch):
     dm = DataManager.__new__(DataManager)
     dm.ee_available = False
