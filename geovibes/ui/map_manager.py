@@ -125,8 +125,8 @@ class MapManager:
         legend_html = (
             "<div style='background: white; padding: 5px; border-radius: 5px; opacity: 0.8; font-size: 12px;'>"
             "<div><strong>Labels:</strong> "
-            f"<span style='color: {UIConstants.POS_COLOR}; font-weight: bold;'>🔵 Positive</span> | "
-            f"<span style='color: {UIConstants.NEG_COLOR}; font-weight: bold;'>🟠 Negative</span>"
+            f"<span style='color: {UIConstants.NEG_COLOR}; font-weight: bold;'>🟠 Negative</span> | "
+            f"<span style='color: {UIConstants.POS_COLOR}; font-weight: bold;'>🔵 Positive</span>"
             "</div>"
             f"{similarity_html}"
             "</div>"
