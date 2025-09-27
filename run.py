@@ -155,27 +155,30 @@ def sanitize_config(config: dict) -> dict:
 
 def create_notebook_content(config, verbose=False, disable_ee=False):
     """Create a temporary notebook that initializes GeoVibes with the given config."""
+    project_root = str(Path(__file__).resolve().parent)
+    src_dir = Path(project_root, "src")
+
     init_source = [
-        "# Auto-generated GeoVibes initialization\n",
         "import sys\n",
-        "import os\n",
-        "\n",
-        "# Add src directory to path\n",
-        "sys.path.insert(0, os.path.join(os.getcwd(), 'src'))\n",
-        "\n",
-        "from geovibes.ui import GeoVibes\n",
-        "\n",
-        "# Initialize GeoVibes with configuration\n",
-        f"config = {repr(config)}\n",
-        f"verbose = {verbose}\n",
-        f"disable_ee = {disable_ee}\n",
-        "\n",
-        "vibes = GeoVibes(\n",
-        "    config=config,\n",
-        "    verbose=verbose,\n",
-        "    disable_ee=disable_ee\n",
-        ")\n",
+        f"sys.path.insert(0, {repr(project_root)})\n",
     ]
+
+    if src_dir.exists():
+        init_source.append(f"sys.path.insert(0, {repr(str(src_dir))})\n")
+
+    init_source.extend(
+        [
+            "from geovibes.ui import GeoVibes\n",
+            f"config = {repr(config)}\n",
+            f"verbose = {verbose}\n",
+            f"disable_ee = {disable_ee}\n",
+            "vibes = GeoVibes(\n",
+            "    config=config,\n",
+            "    verbose=verbose,\n",
+            "    disable_ee=disable_ee\n",
+            ")\n",
+        ]
+    )
 
     notebook_content = {
         "cells": [
