@@ -58,16 +58,32 @@ When the notebook opens, select the `Python (geovibes)` kernel registered during
 #### Interactive Search Examples
 
 **Label a point and search**  
-Start your search by picking a point for which you would like to find similar ones in your area, then click Search
-![Label a point and search for similar points](images/label_positive_point.gif)
+Start your search by picking a point for which you would like to find similar ones in your area, then click Search. This will open a tile panel showing your search results but also show them on the map.
+
+![Label a point and search for similar points](images/label_and_search.gif)
 
 **Polygon Labeling**  
 Search is iterative: positives get added to your query vector and negatives get subtracted. Use polygon labeling mode for bulk positive/negative selection.
-![Polygon labeling and search for similar points](images/polygon_label.gif)
+![Polygon labeling and search for similar points](images/polygon_labels.gif)
+
+**Tile Panel Labeling**
+You can use the tile panel to pan the map to a given tile, as well as label them.
+
+![Tile panning and labeling](images/label_search_tile_panel.gif)
+
+**Change basemap**
+You can cycle through different basemaps as you are searching. This will cycle through in on both the leaflet map and the individual tiles in the tile panel. NB: we currently do not support pulling the S2 basemaps into the tiles, these are only available as tiles on the leaflet map served via Google Earth Engine.
+![Cycling through basemaps](images/label_search_basemap_change.gif)
 
 **Load Previous Datasets**  
 Save your search results as GeoJSON and reload them to continue searching.
-![Load a previous dataset](images/load_saved_changes.gif)
+
+![Load a previous dataset](images/load_dataset.gif)
+
+**Use Google Street View**
+You can also use google maps/street view to help you label.
+
+![Google Street View](images/gsv.gif)
 
 ## Configuration
 
@@ -126,84 +142,6 @@ Follow the authentication flow in your browser. This is only required if you wan
 - Adding `enable_ee: true` to your `config.yaml`
 - Passing `enable_ee=True` when you construct `GeoVibes`
 - Exporting `GEOVIBES_ENABLE_EE=1` in your environment
-
-### 4. Google Cloud Storage Database Access (Optional - for GCS databases)
-
-GeoVibes can connect to DuckDB databases stored on Google Cloud Storage. If your database is hosted on GCS (e.g., `gs://your-bucket/database.db`), you'll need to set up authentication.
-
-#### Option 1: HMAC Keys (Recommended)
-
-1. **Create HMAC Keys in GCP Console:**
-    - Go to [Cloud Storage Settings](https://console.cloud.google.com/storage/settings)
-    - Click "Interoperability" tab
-    - Click "Create a key" under "Access keys for your user account"
-    - Save the Access Key and Secret
-
-2. **Set Environment Variables:**
-
-    ```bash
-    export GCS_ACCESS_KEY_ID="your_access_key_here"
-    export GCS_SECRET_ACCESS_KEY="your_secret_key_here"
-    ```
-
-3. **Or create a `.env` file:**
-    ```env
-    GCS_ACCESS_KEY_ID=your_access_key_here
-    GCS_SECRET_ACCESS_KEY=your_secret_key_here
-    MAPTILER_API_KEY=your_maptiler_api_key_here
-    ```
-
-#### Option 2: Default Google Cloud Authentication
-
-If you're running on Google Cloud or have `gcloud` configured:
-
-```bash
-gcloud auth application-default login
-```
-
-#### Security Notes
-
-- **Never commit credentials to version control**
-- Add `.env` to your `.gitignore` file
-- Use environment variables in production
-- Consider using Google Cloud IAM roles for more secure access
-
-## Generate Embeddings
-
-GeoVibes provides code to export embeddings from AlphaEarth via Google Earth Engine. This is a 3-step workflow:
-
-### Step 1: Create tiling assets in GEE
-
-Generate spatial grid tiles for your region and upload them as GEE assets:
-
-```bash
-python src/google/tiling_to_gee_asset.py \
-  --input_file geometries/mgrs_tiles.parquet \
-  --roi_file aoi.geojson \
-  --gcs_bucket your-bucket \
-  --gee_asset_path projects/your-project/assets/tiles \
-  --tilesize 25 \
-  --overlap 0 \
-  --resolution 10.0
-```
-
-This creates a grid of spatial tiles, uploads them to Google Cloud Storage, and imports them as GEE table assets.
-
-### Step 2: Generate embeddings from satellite imagery
-
-Extract embeddings for each tile using Google's satellite embedding model:
-
-```bash
-python src/google/embeddings.py \
-  --roi_file aoi.geojson \
-  --mgrs_reference_file geometries/mgrs_tiles.parquet \
-  --year 2024 \
-  --gcs_bucket your-bucket \
-  --gcs_prefix embeddings/google_satellite_v1 \
-  --gee_asset_path projects/your-project/assets/tiles
-```
-
-This processes each tile through Google's satellite embedding model and exports results to GCS.
 
 ### Step 3: Build Searchable Database
 
