@@ -78,7 +78,7 @@ class TilePanel:
                 display="none",
                 width="265px",
                 padding="5px",
-                max_height="600px",
+                height=UIConstants.DEFAULT_HEIGHT,
                 overflow_y="auto",
             ),
         )
