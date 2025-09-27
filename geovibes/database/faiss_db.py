@@ -354,6 +354,18 @@ def create_faiss_index(db_path: str, index_path: str, embedding_dim: int, dtype:
         logging.info("FAISS index successfully built and saved.")
 
 
+def _prefix_name_with_roi(name: str, roi_file: Optional[str]) -> str:
+    if not roi_file:
+        return name
+    roi_stem = pathlib.Path(roi_file).stem
+    if not roi_stem:
+        return name
+    prefix = f"{roi_stem}_"
+    if name.lower().startswith(prefix.lower()):
+        return name
+    return f"{roi_stem}_{name}"
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build a FAISS index from geospatial embeddings stored in Parquet files.")
 
@@ -364,8 +376,18 @@ def main():
 
     parser.add_argument("--mgrs-reference-file", dest="mgrs_reference_file", help="MGRS reference file containing MGRS tile geometries (required with --roi-file)")
     parser.add_argument("--embedding-dir", dest="embedding_dir", help="Directory containing embedding parquet files (required with --roi-file)")
-    parser.add_argument("--name", type=str, required=True, help="A descriptive name for the output files (e.g., 'bali_2024').")
-    parser.add_argument("--output_dir", default=".", help="Directory to save the DuckDB and FAISS index files.")
+    parser.add_argument(
+        "--name",
+        type=str,
+        required=True,
+        help="A descriptive name for the output files (e.g., 'bali_2024').",
+    )
+    default_output_dir = pathlib.Path("local_databases")
+    parser.add_argument(
+        "--output_dir",
+        default=str(default_output_dir),
+        help="Directory to save the DuckDB and FAISS index files.",
+    )
     parser.add_argument("--embedding_col", type=str, default="embedding", help="Name of the embedding column in the Parquet files.")
     parser.add_argument("--dtype", type=str, default="FLOAT", choices=["FLOAT", "INT8"], help="Data type of the embeddings (FLOAT or INT8).")
     parser.add_argument("--nlist", type=int, default=4096, help="Number of clusters (IVF cells) for the FAISS index.")
@@ -390,10 +412,15 @@ def main():
             local_output_dir,
         )
         cleanup_output_dir = True
+        tarball_required = True
     else:
         local_output_dir = pathlib.Path(output_destination)
         local_output_dir.mkdir(parents=True, exist_ok=True)
         cleanup_output_dir = False
+        tarball_required = False
+
+    if getattr(args, "roi_file", None):
+        args.name = _prefix_name_with_roi(args.name, args.roi_file)
 
     # Construct descriptive filenames
     faiss_params_str = f"faiss_{args.nlist}_{args.m}_{args.nbits}"
@@ -449,6 +476,8 @@ def main():
                     roi_wkb = bytes(row[0]) if not isinstance(row[0], (bytes, bytearray)) else row[0]
         except Exception as e:
             logging.error(f"Failed to derive ROI WKB from file {args.roi_file}: {e}")
+        args.name = _prefix_name_with_roi(args.name, args.roi_file)
+
         embedding_files = find_embedding_files_for_mgrs_ids(mgrs_ids, args.embedding_dir)
         if not embedding_files:
             logging.error("No embedding files found for intersecting MGRS tiles")
@@ -532,25 +561,25 @@ def main():
         logging.info(f"Cleaned up temporary directory: {temp_dir}")
 
     # Create compressed tarball and upload to output directory
-    try:
-        tar_name = f"{args.name}.tar.gz"
-        if output_protocol:
-            tar_local_dir = tempfile.mkdtemp(prefix="faiss_tar_")
-        else:
-            tar_local_dir = str(local_output_dir)
-        tar_local_path = os.path.join(tar_local_dir, tar_name)
-
-        cmd = f"tar -c {shlex.quote(db_path)} {shlex.quote(index_path)} | pigz > {shlex.quote(tar_local_path)}"
+    if tarball_required:
         try:
-            subprocess.run(["bash", "-lc", cmd], check=True)
-            logging.info(f"Created tarball with pigz: {tar_local_path}")
-        except Exception as e:
-            logging.warning(f"pigz tarball creation failed ({e}); falling back to gzip.")
-            fallback_cmd = f"tar -czf {shlex.quote(tar_local_path)} {shlex.quote(db_path)} {shlex.quote(index_path)}"
-            subprocess.run(["bash", "-lc", fallback_cmd], check=True)
-            logging.info(f"Created tarball with gzip fallback: {tar_local_path}")
+            tar_name = f"{args.name}.tar.gz"
+            if output_protocol:
+                tar_local_dir = tempfile.mkdtemp(prefix="faiss_tar_")
+            else:
+                tar_local_dir = str(local_output_dir)
+            tar_local_path = os.path.join(tar_local_dir, tar_name)
 
-        if output_protocol:
+            cmd = f"tar -c {shlex.quote(db_path)} {shlex.quote(index_path)} | pigz > {shlex.quote(tar_local_path)}"
+            try:
+                subprocess.run(["bash", "-lc", cmd], check=True)
+                logging.info(f"Created tarball with pigz: {tar_local_path}")
+            except Exception as e:
+                logging.warning(f"pigz tarball creation failed ({e}); falling back to gzip.")
+                fallback_cmd = f"tar -czf {shlex.quote(tar_local_path)} {shlex.quote(db_path)} {shlex.quote(index_path)}"
+                subprocess.run(["bash", "-lc", fallback_cmd], check=True)
+                logging.info(f"Created tarball with gzip fallback: {tar_local_path}")
+
             dest_path = output_destination.rstrip("/") + "/" + tar_name
             fs_kwargs: dict[str, object] = {}
             if output_protocol == "s3":
@@ -561,10 +590,10 @@ def main():
             fs.put(tar_local_path, dest_path)
             logging.info(f"Uploaded tarball to {dest_path}")
             shutil.rmtree(tar_local_dir, ignore_errors=True)
-        else:
-            logging.info(f"Tarball available at {tar_local_path}")
-    except Exception as e:
-        logging.error(f"Failed to create/upload tarball: {e}")
+        except Exception as e:
+            logging.error(f"Failed to create/upload tarball: {e}")
+    else:
+        logging.info("Tarball creation skipped for local output directory; files available directly.")
 
     if cleanup_output_dir:
         shutil.rmtree(local_output_dir, ignore_errors=True)
