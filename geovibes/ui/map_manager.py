@@ -266,7 +266,13 @@ class MapManager:
             self.map.remove_layer(self.vector_layer)
         self.vector_layer = None
 
-    def highlight_polygon(self, polygon: shapely.geometry.base.BaseGeometry, *, color: str = "yellow"):
+    def highlight_polygon(
+        self,
+        polygon: shapely.geometry.base.BaseGeometry,
+        *,
+        color: str = "yellow",
+        fill_opacity: float = 0.1,
+    ):
         if self.highlight_layer and self.highlight_layer in self.map.layers:
             self.map.remove_layer(self.highlight_layer)
         self.highlight_layer = ipyl.GeoJSON(
@@ -275,7 +281,7 @@ class MapManager:
                 "geometry": shapely.geometry.mapping(polygon),
             },
             name="tile_highlight",
-            style={"color": color, "fillOpacity": 0.1, "weight": 3},
+            style={"color": color, "fillOpacity": fill_opacity, "weight": 3},
         )
         self.map.add_layer(self.highlight_layer)
 

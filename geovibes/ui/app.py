@@ -737,16 +737,35 @@ class GeoVibes:
         geom = shapely.wkt.loads(row["geometry_wkt"])
         lat, lon = geom.y, geom.x
         self.map_manager.center_on(lat, lon, zoom=14)
-        half_size = 0.0025 / 2
-        square_coords = [
-            (lon - half_size, lat - half_size),
-            (lon + half_size, lat - half_size),
-            (lon + half_size, lat + half_size),
-            (lon - half_size, lat + half_size),
-            (lon - half_size, lat - half_size),
-        ]
+
+        tile_spec = getattr(self.data, "tile_spec", None)
+        meters_per_pixel = None
+        tile_size_px = None
+        if tile_spec:
+            meters_per_pixel = tile_spec.get("meters_per_pixel")
+            tile_size_px = tile_spec.get("tile_size_px")
+
+        if meters_per_pixel and tile_size_px:
+            half_side = (meters_per_pixel * tile_size_px) / 2
+            square_coords = [
+                (lon - half_side / 111320, lat - half_side / 111320),
+                (lon + half_side / 111320, lat - half_side / 111320),
+                (lon + half_side / 111320, lat + half_side / 111320),
+                (lon - half_side / 111320, lat + half_side / 111320),
+                (lon - half_side / 111320, lat - half_side / 111320),
+            ]
+        else:
+            half_size = 0.0025 / 2
+            square_coords = [
+                (lon - half_size, lat - half_size),
+                (lon + half_size, lat - half_size),
+                (lon + half_size, lat + half_size),
+                (lon - half_size, lat + half_size),
+                (lon - half_size, lat - half_size),
+            ]
+
         polygon = shapely.geometry.Polygon(square_coords)
-        self.map_manager.highlight_polygon(polygon, color="red")
+        self.map_manager.highlight_polygon(polygon, color="red", fill_opacity=0.0)
         self._show_operation_status("📍 Centered on tile")
 
     def _handle_save_dataset(self) -> None:
