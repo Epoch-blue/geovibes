@@ -138,14 +138,13 @@ class UIConstants:
         low_color = cls._color_from_fraction(0.0)
         high_color = cls._color_from_fraction(1.0)
         return (
-            "<div style='margin-top: 6px;'>"
+            "<div style='display:flex; align-items:center; gap:8px; margin-top:6px;'>"
             "<strong>Similarity:</strong>"
-            "<div style='display:flex; align-items:center; gap:6px; margin-top:4px;'>"
             f"<span style='color:{low_color}; font-weight:bold;'>Least similar</span>"
             f"<img src='data:image/png;base64,{colorbar}' alt='similarity colorbar' "
             "style='height:12px; flex:1 1 auto;'/>"
             f"<span style='color:{high_color}; font-weight:bold;'>Most similar</span>"
-            "</div></div>"
+            "</div>"
         )
 
 
