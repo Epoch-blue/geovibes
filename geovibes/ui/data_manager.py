@@ -292,7 +292,30 @@ class DataManager:
         return None
 
     def _infer_geometry_from_db(self, db_path: str) -> Optional[str]:
-        return self._resolve_geometry_path("alabama")
+        if not db_path:
+            return None
+
+        base_name = pathlib.Path(db_path).stem
+        if base_name.endswith("_metadata"):
+            base_name = base_name[: -len("_metadata")]
+
+        candidates = [base_name]
+        parts = base_name.split("_")
+        if parts:
+            candidates.append(parts[0])
+            if len(parts) > 1:
+                candidates.append("_".join(parts[:2]))
+
+        seen: set[str] = set()
+        for candidate in candidates:
+            key = candidate.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            geometry_path = self._resolve_geometry_path(candidate)
+            if geometry_path:
+                return geometry_path
+        return None
 
     # ------------------------------------------------------------------
     # Manifest helpers
@@ -434,18 +457,40 @@ class DataManager:
         if not region or not self.geometries_dir:
             return None
 
-        region_name = "alabama"
         geom_dir = pathlib.Path(self.geometries_dir)
-        candidate = geom_dir / f"{region_name}.geojson"
-        if self.verbose:
-            print(f"🔍 Looking for geometry file: {candidate}")
-        if candidate.exists():
-            if self.verbose:
-                print(f"✅ Using geometry file: {candidate}")
-            return str(candidate)
+        if not geom_dir.exists():
+            return None
+
+        normalized = region.strip().lower().replace(" ", "_")
+        variants = [
+            normalized,
+            normalized.replace("-", "_"),
+            normalized.replace("_", "-"),
+        ]
+
+        for name in dict.fromkeys(variants):
+            candidate = geom_dir / f"{name}.geojson"
+            if candidate.exists():
+                if self.verbose:
+                    print(f"✅ Using geometry file: {candidate}")
+                return str(candidate)
+
+        normalized_full = normalized
+        for geojson_path in geom_dir.glob("*.geojson"):
+            stem = geojson_path.stem.lower()
+            stem_variants = {stem, stem.replace("-", "_"), stem.replace("_", "-")}
+            if any(
+                normalized_full.startswith(variant)
+                or variant in normalized_full
+                for variant in stem_variants
+            ):
+                if self.verbose:
+                    print(f"✅ Using geometry file: {geojson_path}")
+                return str(geojson_path)
+
         if self.verbose:
             print(
-                f"⚠️  No geometry found for region '{region_name}' in {geom_dir}"
+                f"⚠️  No geometry found for region '{region}' in {geom_dir}"
             )
         return None
 
