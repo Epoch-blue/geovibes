@@ -26,6 +26,11 @@ from geovibes.database.cloud import (
 )
 
 
+def ensure_duckdb_extension(con: duckdb.DuckDBPyConnection, name: str) -> None:
+    """Install and load the requested DuckDB extension."""
+    con.execute(f"INSTALL {name};")
+    con.execute(f"LOAD {name};")
+
 
 def setup_logging():
     """Configure basic logging settings."""
@@ -41,6 +46,41 @@ def setup_logging():
 class IngestParquetError(Exception):
     """Exception raised for errors in the ingestion of Parquet files."""
     pass
+
+
+def infer_embedding_dim_from_file(parquet_file: str, embedding_col: str) -> int:
+    with duckdb.connect() as con_inf:
+        ensure_duckdb_extension(con_inf, "httpfs")
+        row = con_inf.execute(
+            f"""
+            SELECT {embedding_col}
+            FROM read_parquet(?, union_by_name=true)
+            WHERE {embedding_col} IS NOT NULL
+            LIMIT 1
+            """,
+            (parquet_file,),
+        ).fetchone()
+
+    if not row or row[0] is None:
+        raise IngestParquetError(
+            f"Could not infer embedding dimension; column '{embedding_col}' has no non-null rows in {parquet_file}"
+        )
+
+    embedding_value = row[0]
+    if isinstance(embedding_value, np.ndarray):
+        dim = int(embedding_value.shape[-1])
+    elif isinstance(embedding_value, (list, tuple)):
+        dim = len(embedding_value)
+    else:
+        embedding_array = np.asarray(embedding_value)
+        if embedding_array.ndim == 0:
+            raise IngestParquetError(
+                f"Encountered scalar value in embedding column '{embedding_col}' for {parquet_file}"
+            )
+        dim = int(embedding_array.shape[-1])
+
+    logging.info(f"Inferred embedding_dim={dim} from first row of {parquet_file}")
+    return dim
 
 
 def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, dtype: str, embedding_col: str, mgrs_ids: Optional[list[str]] = None, roi_geometry_wkb: Optional[bytes] = None):
@@ -64,6 +104,7 @@ def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, dtype: str,
     logging.info("--- Verifying source schema from first Parquet file ---")
     try:
         with duckdb.connect() as con_check:
+            ensure_duckdb_extension(con_check, "httpfs")
             df_schema = con_check.execute(f"DESCRIBE SELECT * FROM read_parquet(?);", (parquet_files[0],)).fetchdf()
             available_columns = set(df_schema['column_name'])
             
@@ -82,6 +123,7 @@ def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, dtype: str,
     # Inspect the schema of the first file to determine available columns
     try:
         with duckdb.connect() as con_check:
+            ensure_duckdb_extension(con_check, "httpfs")
             df_schema = con_check.execute(f"DESCRIBE SELECT * FROM read_parquet(?);", (parquet_files[0],)).fetchdf()
             available_columns = set(df_schema['column_name'])
     except Exception as e:
@@ -102,10 +144,12 @@ def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, dtype: str,
         logging.info(f"No 'tile_id' or 'id' column found, will generate ids.")
 
     with duckdb.connect(database=db_path) as con:
+        ensure_duckdb_extension(con, "httpfs")
+
         # Load spatial extension, which is required for creating a spatial index
         if has_geometry:
             logging.info("Installing and loading spatial extension for DuckDB.")
-            con.execute("INSTALL spatial; LOAD spatial;")
+            ensure_duckdb_extension(con, "spatial")
 
         logging.info("Creating table 'geo_embeddings' in DuckDB.")
         
@@ -334,17 +378,30 @@ def main():
     args = parser.parse_args()
     
     setup_logging()
-    
-    output_dir = pathlib.Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
+
+    output_destination = args.output_dir
+    output_protocol = get_cloud_protocol(output_destination) if output_destination else None
+    if output_protocol:
+        local_output_dir = pathlib.Path(tempfile.mkdtemp(prefix="faiss_output_"))
+        logging.info(
+            "Output directory %s is a cloud path (protocol=%s); using temporary workspace %s for artifacts.",
+            output_destination,
+            output_protocol,
+            local_output_dir,
+        )
+        cleanup_output_dir = True
+    else:
+        local_output_dir = pathlib.Path(output_destination)
+        local_output_dir.mkdir(parents=True, exist_ok=True)
+        cleanup_output_dir = False
+
     # Construct descriptive filenames
     faiss_params_str = f"faiss_{args.nlist}_{args.m}_{args.nbits}"
     db_filename = f"{args.name}_metadata.db"
     index_filename = f"{args.name}_{faiss_params_str}.index"
 
-    db_path = str(output_dir / db_filename)
-    index_path = str(output_dir / index_filename)
+    db_path = str((local_output_dir / db_filename).resolve())
+    index_path = str((local_output_dir / index_filename).resolve())
     
     # Validate mutual exclusivity and ROI-based arguments
     if getattr(args, "roi_file", None) and args.parquet_files:
@@ -370,6 +427,7 @@ def main():
             mgrs_tiles_file=args.mgrs_reference_file,
         )
         mgrs_ids = [str(t) for t in mgrs_tile_ids]
+        logging.info(f"Found {len(mgrs_ids)} MGRS tiles intersecting with ROI")
         if not mgrs_ids:
             logging.error("No MGRS tiles found intersecting with ROI")
             return
@@ -476,8 +534,10 @@ def main():
     # Create compressed tarball and upload to output directory
     try:
         tar_name = f"{args.name}.tar.gz"
-        is_s3_output = str(output_dir).startswith("s3://")
-        tar_local_dir = tempfile.mkdtemp(prefix="faiss_tar_") if is_s3_output else str(output_dir)
+        if output_protocol:
+            tar_local_dir = tempfile.mkdtemp(prefix="faiss_tar_")
+        else:
+            tar_local_dir = str(local_output_dir)
         tar_local_path = os.path.join(tar_local_dir, tar_name)
 
         cmd = f"tar -c {shlex.quote(db_path)} {shlex.quote(index_path)} | pigz > {shlex.quote(tar_local_path)}"
@@ -485,21 +545,30 @@ def main():
             subprocess.run(["bash", "-lc", cmd], check=True)
             logging.info(f"Created tarball with pigz: {tar_local_path}")
         except Exception as e:
+            logging.warning(f"pigz tarball creation failed ({e}); falling back to gzip.")
             fallback_cmd = f"tar -czf {shlex.quote(tar_local_path)} {shlex.quote(db_path)} {shlex.quote(index_path)}"
             subprocess.run(["bash", "-lc", fallback_cmd], check=True)
             logging.info(f"Created tarball with gzip fallback: {tar_local_path}")
 
-        if is_s3_output:
-            endpoint = os.environ.get("S3_ENDPOINT_URL", "https://data.source.coop")
-            fs = fsspec.filesystem("s3", client_kwargs={"endpoint_url": endpoint})
-            s3_dest = str(output_dir).rstrip("/") + "/" + tar_name
-            fs.put(tar_local_path, s3_dest)
-            logging.info(f"Uploaded tarball to {s3_dest}")
+        if output_protocol:
+            dest_path = output_destination.rstrip("/") + "/" + tar_name
+            fs_kwargs: dict[str, object] = {}
+            if output_protocol == "s3":
+                endpoint = os.environ.get("S3_ENDPOINT_URL", "https://s3.us-west-2.amazonaws.com")
+                fs_kwargs["client_kwargs"] = {"endpoint_url": endpoint}
+                fs_kwargs["anon"] = False
+            fs = fsspec.filesystem(output_protocol, **fs_kwargs)
+            fs.put(tar_local_path, dest_path)
+            logging.info(f"Uploaded tarball to {dest_path}")
             shutil.rmtree(tar_local_dir, ignore_errors=True)
         else:
             logging.info(f"Tarball available at {tar_local_path}")
     except Exception as e:
         logging.error(f"Failed to create/upload tarball: {e}")
+
+    if cleanup_output_dir:
+        shutil.rmtree(local_output_dir, ignore_errors=True)
+        logging.info(f"Removed temporary local output directory: {local_output_dir}")
 
 if __name__ == "__main__":
     main() 

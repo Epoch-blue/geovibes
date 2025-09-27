@@ -24,11 +24,18 @@ def list_cloud_parquet_files(cloud_path: str) -> list[str]:
     if not cloud_path.endswith('/'):
         cloud_path += '/'
     if protocol == "s3":
-        endpoint = os.environ.get("S3_ENDPOINT_URL", "https://data.source.coop")
-        fs = fsspec.filesystem("s3", client_kwargs={"endpoint_url": endpoint})
+        endpoint = os.environ.get("S3_ENDPOINT_URL", "https://s3.us-west-2.amazonaws.com")
+        use_anon = os.environ.get("GEOVIBES_S3_USE_ANON", "true").lower() != "false"
+        fs = fsspec.filesystem(
+            "s3",
+            anon=use_anon,
+            client_kwargs={"endpoint_url": endpoint},
+        )
+        matches = fs.glob(cloud_path + "*.parquet")
+        return [f"{protocol}://{p}" for p in matches]
     else:
         fs = fsspec.filesystem(protocol)
-    return [f"{protocol}://{p}" for p in fs.glob(cloud_path + "*.parquet")]
+        return [f"{protocol}://{p}" for p in fs.glob(cloud_path + "*.parquet")]
 
 
 
@@ -43,11 +50,17 @@ def _download_single_cloud_file(cloud_path: str, temp_dir: str) -> Optional[str]
         return local_filename
     try:
         if protocol == "s3":
-            endpoint = os.environ.get("S3_ENDPOINT_URL", "https://data.source.coop")
-            fs = fsspec.filesystem("s3", client_kwargs={"endpoint_url": endpoint})
+            endpoint = os.environ.get("S3_ENDPOINT_URL", "https://s3.us-west-2.amazonaws.com")
+            use_anon = os.environ.get("GEOVIBES_S3_USE_ANON", "true").lower() != "false"
+            fs = fsspec.filesystem(
+                "s3",
+                anon=use_anon,
+                client_kwargs={"endpoint_url": endpoint},
+            )
+            fs.get(cloud_path, local_filename)
         else:
             fs = fsspec.filesystem(protocol)
-        fs.get(cloud_path, local_filename)
+            fs.get(cloud_path, local_filename)
     except Exception as e:
         logging.error(f"Failed to download {cloud_path}: {e}")
         return None
