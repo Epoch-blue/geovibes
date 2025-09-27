@@ -34,6 +34,8 @@ class DataManager:
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         gcp_project: Optional[str] = None,
+        duckdb_path: Optional[str] = None,
+        duckdb_directory: Optional[str] = None,
         config: Optional[Dict] = None,
         config_path: Optional[str] = None,
         duckdb_connection: Optional[duckdb.DuckDBPyConnection] = None,
@@ -44,6 +46,8 @@ class DataManager:
     ) -> None:
         self.verbose = verbose
         self.baselayer_url = baselayer_url or BasemapConfig.BASEMAP_TILES["MAPTILER"]
+        self.duckdb_path = duckdb_path
+        self.duckdb_directory = duckdb_directory
 
         if "enable_ee" in unused_kwargs and self.verbose:
             print("ℹ️ 'enable_ee' argument is ignored; Earth Engine availability is auto-detected.")
@@ -183,6 +187,8 @@ class DataManager:
         return str(self._project_root() / "geometries")
 
     def _resolve_local_database_directory(self) -> str:
+        if self.duckdb_directory:
+            return str(pathlib.Path(self.duckdb_directory).expanduser())
         override = os.getenv("GEOVIBES_LOCAL_DB_DIR")
         if override:
             return str(pathlib.Path(override).expanduser())
@@ -191,8 +197,8 @@ class DataManager:
     def _discover_databases(self) -> List[Dict[str, str]]:
         discovered: List[Dict[str, str]] = []
 
-        if getattr(self.config, "duckdb_path", None):
-            db_path = self.config.duckdb_path
+        db_path = self.duckdb_path or getattr(self.config, "duckdb_path", None)
+        if db_path:
             faiss_path = self._infer_faiss_from_db(db_path)
             if not faiss_path:
                 if self.verbose:
@@ -213,9 +219,12 @@ class DataManager:
                 )
                 return discovered
 
-        if getattr(self.config, "duckdb_directory", None):
+        duckdb_directory = self.duckdb_directory or getattr(
+            self.config, "duckdb_directory", None
+        )
+        if duckdb_directory:
             directory_entries = list_databases_in_directory(
-                self.config.duckdb_directory, verbose=self.verbose
+                duckdb_directory, verbose=self.verbose
             )
             for entry in directory_entries:
                 if not entry.get("faiss_path"):
