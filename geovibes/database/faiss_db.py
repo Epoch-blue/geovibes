@@ -366,6 +366,13 @@ def _prefix_name_with_roi(name: str, roi_file: Optional[str]) -> str:
     return f"{roi_stem}_{name}"
 
 
+def _append_tile_suffix(name: str, tile_pixels: int, tile_overlap: int, tile_resolution: int) -> str:
+    suffix = f"{tile_pixels}_{tile_overlap}_{tile_resolution}"
+    if name.lower().endswith(f"_{suffix}".lower()):
+        return name
+    return f"{name}_{suffix}"
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build a FAISS index from geospatial embeddings stored in Parquet files.")
 
@@ -393,6 +400,9 @@ def main():
     parser.add_argument("--nlist", type=int, default=4096, help="Number of clusters (IVF cells) for the FAISS index.")
     parser.add_argument("--m", type=int, default=64, help="Number of sub-quantizers for FAISS Product Quantization (used for FLOAT dtype).")
     parser.add_argument("--nbits", type=int, default=8, help="Number of bits per sub-quantizer code (used for FLOAT dtype).")
+    parser.add_argument("--tile-pixels", type=int, default=32, help="Tile size in pixels to include in output naming.")
+    parser.add_argument("--tile-resolution", type=int, default=10, help="Tile resolution (meters per pixel) to include in output naming.")
+    parser.add_argument("--tile-overlap", type=int, default=16, help="Tile overlap in pixels to include in output naming.")
     parser.add_argument("--batch_size", type=int, default=500_000, help="Batch size for populating the FAISS index.")
     parser.add_argument("--dry-run", action="store_true", help="Run the script on a small subset of files to test the pipeline.")
     parser.add_argument("--dry-run-size", type=int, default=5, help="Number of files to use in a dry run.")
@@ -421,6 +431,8 @@ def main():
 
     if getattr(args, "roi_file", None):
         args.name = _prefix_name_with_roi(args.name, args.roi_file)
+
+    args.name = _append_tile_suffix(args.name, args.tile_pixels, args.tile_overlap, args.tile_resolution)
 
     # Construct descriptive filenames
     faiss_params_str = f"faiss_{args.nlist}_{args.m}_{args.nbits}"
@@ -476,7 +488,6 @@ def main():
                     roi_wkb = bytes(row[0]) if not isinstance(row[0], (bytes, bytearray)) else row[0]
         except Exception as e:
             logging.error(f"Failed to derive ROI WKB from file {args.roi_file}: {e}")
-        args.name = _prefix_name_with_roi(args.name, args.roi_file)
 
         embedding_files = find_embedding_files_for_mgrs_ids(mgrs_ids, args.embedding_dir)
         if not embedding_files:

@@ -1,10 +1,15 @@
 import logging
 import os
 import pathlib
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
 import fsspec
-from joblib import Parallel, delayed
+from tqdm import tqdm
+
+# Backward compatibility placeholders for older interfaces/tests that monkeypatch
+Parallel = None  # type: ignore
+delayed = None  # type: ignore
 
 
 def get_cloud_protocol(path: str) -> Optional[str]:
@@ -70,11 +75,33 @@ def _download_single_cloud_file(cloud_path: str, temp_dir: str) -> Optional[str]
 
 def download_cloud_files(cloud_paths: list[str], temp_dir: str) -> list[str]:
     """Download parquet files from cloud to a temporary directory in parallel."""
-    local_paths = Parallel(n_jobs=-1, prefer="threads", verbose=10)(
-        delayed(_download_single_cloud_file)(cloud_path, temp_dir)
-        for cloud_path in cloud_paths
-    )
-    return [path for path in local_paths if path is not None]
+    if not cloud_paths:
+        return []
+
+    max_workers = min(8, len(cloud_paths))
+    local_paths: list[str] = []
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_download_single_cloud_file, path, temp_dir): path
+            for path in cloud_paths
+        }
+
+        for future in tqdm(
+            as_completed(futures),
+            total=len(futures),
+            desc="Downloading cloud files",
+            unit="file",
+        ):
+            path = futures[future]
+            try:
+                result = future.result()
+                if result:
+                    local_paths.append(result)
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logging.error(f"Failed to download {path}: {exc}")
+
+    return local_paths
 
 
 
