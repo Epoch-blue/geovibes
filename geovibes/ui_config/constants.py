@@ -59,7 +59,7 @@ class UIConstants:
     NEGATIVE_LABEL = 0
     ERASE_LABEL = -100
     
-    SEARCH_COLORMAP = os.getenv("GEOVIBES_SEARCH_COLORMAP", "viridis")
+    SEARCH_COLORMAP = os.getenv("GEOVIBES_SEARCH_COLORMAP", "managua")
     _COLORMAP_CACHE: dict[str, dict[str, object]] = {}
 
     @classmethod
