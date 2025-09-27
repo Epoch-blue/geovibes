@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pandas as pd
 from ipywidgets import Button, Label, VBox
 
+from geovibes.ui.app import GeoVibes
 from geovibes.ui.state import AppState
 from geovibes.ui.tiles import TilePanel
 
@@ -193,3 +194,42 @@ def test_tile_panel_passes_tile_spec_to_get_map_image(monkeypatch):
 
     assert captured["tile_spec"] == tile_spec
     assert captured["zoom"] is None
+
+
+def test_handle_tile_center_uses_tile_spec(monkeypatch):
+    tile_spec = {"tile_size_px": 25, "meters_per_pixel": 10}
+
+    class DummyMapManager:
+        def __init__(self):
+            self.data = SimpleNamespace(tile_spec=tile_spec)
+            self.center_calls = []
+            self.highlight_calls = []
+
+        def center_on(self, lat, lon, zoom=None):
+            self.center_calls.append((lat, lon, zoom))
+
+        def highlight_polygon(self, polygon, *, color="red", fill_opacity=0.0):
+            self.highlight_calls.append((polygon, color, fill_opacity))
+
+    app = GeoVibes.__new__(GeoVibes)
+    app.data = SimpleNamespace(tile_spec=tile_spec)
+    app.map_manager = DummyMapManager()
+    app.state = AppState()
+    app._show_operation_status = lambda *args, **kwargs: None
+
+    row = {"geometry_wkt": "POINT(0 0)"}
+
+    app._handle_tile_center(row)
+
+    assert app.map_manager.center_calls
+
+    polygon, color, fill_opacity = app.map_manager.highlight_calls[-1]
+    assert color == "red"
+    assert fill_opacity == 0.0
+
+    half_side_deg = (tile_spec["tile_size_px"] * tile_spec["meters_per_pixel"]) / (2 * 111_320)
+    minx, miny, maxx, maxy = polygon.bounds
+    assert abs(minx + half_side_deg) < 1e-6
+    assert abs(maxx - half_side_deg) < 1e-6
+    assert abs(miny + half_side_deg) < 1e-6
+    assert abs(maxy - half_side_deg) < 1e-6
