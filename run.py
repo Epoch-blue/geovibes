@@ -317,8 +317,26 @@ def run_with_voila(config, args):
         cleanup()
 
 
+def ensure_uv_runtime():
+    """Re-exec the script with `uv run` if not already active."""
+    if os.environ.get("UV_RUN_RECURSION_DEPTH"):
+        return
+
+    uv_executable = shutil.which("uv")
+    if not uv_executable:
+        return
+
+    script_path = Path(__file__).resolve()
+    if not script_path.exists():
+        return
+
+    args = ["uv", "run", str(script_path), *sys.argv[1:]]
+    os.execvp("uv", args)
+
+
 def main():
     """Main entry point for the GeoVibes web application."""
+    ensure_uv_runtime()
     args = parse_arguments()
 
     if args.enable_ee and args.disable_ee:
