@@ -6,7 +6,6 @@ import json
 import warnings
 from typing import Any, Dict, Optional
 
-import ipywidgets as ipyw
 import numpy as np
 import pandas as pd
 import geopandas as gpd
@@ -21,7 +20,6 @@ from ipywidgets import (
     Dropdown,
     FileUpload,
     HBox,
-    HTML,
     IntSlider,
     Label,
     Layout,
@@ -29,7 +27,7 @@ from ipywidgets import (
     VBox,
 )
 
-from geovibes.ui_config import BasemapConfig, DatabaseConstants, LayerStyles, UIConstants
+from geovibes.ui_config import BasemapConfig, UIConstants
 from geovibes.ui.data_manager import DataManager
 from geovibes.ui.datasets import DatasetManager
 from geovibes.ui.map_manager import MapManager

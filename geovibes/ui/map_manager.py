@@ -138,8 +138,6 @@ class MapManager:
         )
 
     def _add_map_layers(self) -> None:
-        empty_geojson = gpd.GeoDataFrame(columns=["geometry"]).to_json()
-        empty_collection = ipyl.GeoJSON(data=json.loads(empty_geojson))
         self.pos_layer = ipyl.GeoJSON(
             data=json.loads(gpd.GeoDataFrame(columns=["geometry"]).to_json()),
             point_style=LayerStyles.get_point_style(UIConstants.POS_COLOR),

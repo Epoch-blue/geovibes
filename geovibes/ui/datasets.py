@@ -6,7 +6,7 @@ import io
 import json
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, Iterable, Optional
+from typing import Dict, Optional
 
 import geopandas as gpd
 import numpy as np
