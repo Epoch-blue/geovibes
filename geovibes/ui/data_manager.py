@@ -95,7 +95,6 @@ class DataManager:
         self.current_faiss_path = self.current_database_info.get("faiss_path")
         self.current_geometry_path = self.current_database_info.get("geometry_path")
         self.effective_boundary_path = None
-        self.ee_boundary = None
 
         # Manage DuckDB connection
         if duckdb_connection is None:
@@ -127,7 +126,6 @@ class DataManager:
         self.effective_boundary_path, (self.center_y, self.center_x) = (
             self._setup_boundary_and_center()
         )
-        self._update_ee_boundary()
 
     # ------------------------------------------------------------------
     # Configuration helpers
@@ -637,7 +635,6 @@ class DataManager:
 
     def _update_ee_boundary(self) -> None:
         if not self.ee_available:
-            self.ee_boundary = None
             return
 
         if self.effective_boundary_path:

@@ -73,21 +73,19 @@ class MapManager:
         if self.data.ee_available:
             try:
                 if self.verbose:
-                    print(
-                        "🛰️ Setting up Earth Engine basemaps (S2 RGB, NDVI, NDWI, HSV)..."
-                    )
+                    print("🛰️ Loading Earth Engine basemaps...")
 
-                boundary = self.data.ee_boundary
+                boundary = None
                 start = self.data.config.start_date
                 end = self.data.config.end_date
-                
+
                 basemap_tasks = [
                     ("S2_RGB", lambda: get_s2_rgb_median(boundary, start, end), BasemapConfig.S2_RGB_VIS_PARAMS),
                     ("S2_NDVI", lambda: get_s2_ndvi_median(boundary, start, end), BasemapConfig.NDVI_VIS_PARAMS),
                     ("S2_NDWI", lambda: get_s2_ndwi_median(boundary, start, end), BasemapConfig.NDWI_VIS_PARAMS),
                     ("S2_HSV", lambda: get_s2_hsv_median(boundary, start, end), BasemapConfig.S2_HSV_VIS_PARAMS),
                 ]
-                
+
                 for name, image_func, vis_params in tqdm(basemap_tasks, desc="Loading Earth Engine basemaps"):
                     image = image_func()
                     basemap_tiles[name] = get_ee_image_url(image, vis_params)
