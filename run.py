@@ -153,10 +153,8 @@ def sanitize_config(config: dict) -> dict:
     return sanitized
 
 
-def create_notebook_content(config, verbose=False):
+def create_notebook_content(config, verbose=False, disable_ee=False):
     """Create a temporary notebook that initializes GeoVibes with the given config."""
-    enable_ee = config.get("enable_ee")
-
     init_source = [
         "# Auto-generated GeoVibes initialization\n",
         "import sys\n",
@@ -170,22 +168,14 @@ def create_notebook_content(config, verbose=False):
         "# Initialize GeoVibes with configuration\n",
         f"config = {repr(config)}\n",
         f"verbose = {verbose}\n",
+        f"disable_ee = {disable_ee}\n",
         "\n",
         "vibes = GeoVibes(\n",
-        "    start_date=config.get('start_date', '2024-01-01'),\n",
-        "    end_date=config.get('end_date', '2025-01-01'),\n",
-        "    gcp_project=config.get('gcp_project'),\n",
+        "    config=config,\n",
+        "    verbose=verbose,\n",
+        "    disable_ee=disable_ee\n",
+        ")\n",
     ]
-
-    if enable_ee is not None:
-        init_source.append(f"    enable_ee={enable_ee},\n")
-
-    init_source.extend(
-        [
-            "    verbose=verbose\n",
-            ")",
-        ]
-    )
 
     notebook_content = {
         "cells": [
@@ -224,7 +214,11 @@ def run_with_voila(config, args):
     """Run the application using Voila."""
 
     # Create temporary notebook
-    notebook_content = create_notebook_content(config, args.verbose)
+    notebook_content = create_notebook_content(
+        config,
+        args.verbose,
+        args.disable_ee,
+    )
 
     # Create temporary file
     temp_dir = tempfile.mkdtemp()
@@ -272,15 +266,11 @@ def run_with_voila(config, args):
         args.host,
         "--no-browser",
     ]
+    voila_cmd.extend([
+        "--VoilaConfiguration.show_tracebacks=True",
+    ])
 
-    # Run Voila as subprocess with error suppression
-    with open(os.devnull, "w") as devnull:
-        # Redirect stderr to capture and filter errors
-        process = subprocess.Popen(
-            voila_cmd,
-            stderr=subprocess.PIPE if not args.verbose else None,
-            universal_newlines=True,
-        )
+    process = subprocess.Popen(voila_cmd)
 
     try:
         process.wait()
