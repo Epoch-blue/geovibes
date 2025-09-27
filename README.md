@@ -80,8 +80,6 @@ Create a `config.yaml` file to configure GeoVibes. Paths to DuckDB databases and
 start_date: "2024-01-01"
 end_date: "2025-01-01"
 
-# Optional: Google Cloud Platform project ID (for Earth Engine basemaps)
-gcp_project: "your-gcp-project-id"
 ```
 
 ### Environment Variables

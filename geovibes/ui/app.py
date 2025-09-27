@@ -56,7 +56,6 @@ class GeoVibes:
         boundary_path: Optional[str] = None,
         start_date: str = "2024-01-01",
         end_date: str = "2025-01-01",
-        gcp_project: Optional[str] = None,
         verbose: bool = False,
         **kwargs,
     ):
@@ -66,7 +65,6 @@ class GeoVibes:
             boundary_path=boundary_path,
             start_date=start_date,
             end_date=end_date,
-            gcp_project=gcp_project,
             verbose=verbose,
             **kwargs,
         )
@@ -78,7 +76,6 @@ class GeoVibes:
         boundary_path: Optional[str] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
-        gcp_project: Optional[str] = None,
         duckdb_connection=None,
         config: Optional[Dict] = None,
         config_path: Optional[str] = None,
@@ -101,7 +98,6 @@ class GeoVibes:
             boundary_path=boundary_path,
             start_date=start_date,
             end_date=end_date,
-            gcp_project=gcp_project,
             config=config,
             config_path=config_path,
             duckdb_connection=duckdb_connection,

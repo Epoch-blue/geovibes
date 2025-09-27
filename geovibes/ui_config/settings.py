@@ -3,7 +3,6 @@
 import os
 import yaml
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -12,7 +11,6 @@ class GeoVibesConfig:
 
     start_date: str = "2024-01-01"
     end_date: str = "2025-01-01"
-    gcp_project: Optional[str] = None
     enable_ee: bool = False
 
     @classmethod
@@ -37,7 +35,6 @@ class GeoVibesConfig:
         return cls(
             start_date=config_dict.get("start_date", "2024-01-01"),
             end_date=config_dict.get("end_date", "2025-01-01"),
-            gcp_project=config_dict.get("gcp_project"),
             enable_ee=_parse_bool(config_dict.get("enable_ee", False)),
         )
 
@@ -60,8 +57,6 @@ class GeoVibesConfig:
             "start_date": self.start_date,
             "end_date": self.end_date,
         }
-        if self.gcp_project:
-            config_dict["gcp_project"] = self.gcp_project
         if self.enable_ee:
             config_dict["enable_ee"] = self.enable_ee
         return config_dict

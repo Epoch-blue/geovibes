@@ -33,7 +33,6 @@ class DataManager:
         *,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
-        gcp_project: Optional[str] = None,
         duckdb_path: Optional[str] = None,
         duckdb_directory: Optional[str] = None,
         config: Optional[Dict] = None,
@@ -57,7 +56,6 @@ class DataManager:
         self.config = self._load_config(
             start_date=start_date,
             end_date=end_date,
-            gcp_project=gcp_project,
             config=config,
             config_path=config_path,
         )
@@ -67,9 +65,7 @@ class DataManager:
             if self.verbose:
                 print("ℹ️ Earth Engine disabled")
         else:
-            self.ee_available = initialize_ee_with_credentials(
-                self.config.gcp_project, verbose=self.verbose
-            )
+            self.ee_available = initialize_ee_with_credentials(verbose=self.verbose)
 
         self.geometries_dir = self._resolve_geometries_directory()
         self.local_database_directory = self._resolve_local_database_directory()
@@ -143,7 +139,6 @@ class DataManager:
         *,
         start_date: Optional[str],
         end_date: Optional[str],
-        gcp_project: Optional[str],
         config: Optional[Dict],
         config_path: Optional[str],
     ) -> GeoVibesConfig:
@@ -155,7 +150,6 @@ class DataManager:
             cfg = GeoVibesConfig(
                 start_date=start_date or "2024-01-01",
                 end_date=end_date or "2025-01-01",
-                gcp_project=gcp_project,
             )
 
         if hasattr(cfg, "validate"):

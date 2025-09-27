@@ -3,23 +3,15 @@ from dotenv import load_dotenv
 import ee
 
 
-def initialize_ee_with_credentials(
-    project: Optional[str] = None, verbose: bool = False
-) -> bool:
+def initialize_ee_with_credentials(verbose: bool = False) -> bool:
     """Initialize Earth Engine with user credentials.
-
-    Args:
-        project: Google Cloud project ID. If None, uses EE default.
 
     Returns:
         True if initialization succeeded, False otherwise.
     """
     load_dotenv()
     try:
-        if project:
-            ee.Initialize(project=project)
-        else:
-            ee.Initialize()
+        ee.Initialize()
         if verbose:
             print("✅ Earth Engine initialized with user credentials")
         return True
