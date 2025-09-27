@@ -1,3 +1,5 @@
+from geovibes.ui_config.constants import UIConstants
+from matplotlib import colormaps as mpl_colormaps
 from geovibes.ui.utils import (
     get_database_centroid,
     infer_tile_spec_from_name,
@@ -58,3 +60,31 @@ def test_infer_tile_spec_from_name_parses_suffix():
 
 def test_infer_tile_spec_from_name_handles_missing():
     assert infer_tile_spec_from_name("no_tile_info.db") is None
+
+
+def test_distance_to_color_viridis_gradient():
+    low = UIConstants.distance_to_color(1.0, 0.0, 1.0)
+    high = UIConstants.distance_to_color(0.0, 0.0, 1.0)
+
+    cmap = mpl_colormaps.get_cmap(UIConstants.SEARCH_COLORMAP)
+    expected_high = cmap(1.0)
+    expected_low = cmap(0.0)
+    expected_high_hex = "#{:02x}{:02x}{:02x}".format(
+        int(expected_high[0] * 255),
+        int(expected_high[1] * 255),
+        int(expected_high[2] * 255),
+    )
+    expected_low_hex = "#{:02x}{:02x}{:02x}".format(
+        int(expected_low[0] * 255),
+        int(expected_low[1] * 255),
+        int(expected_low[2] * 255),
+    )
+
+    assert high == expected_high_hex
+    assert low == expected_low_hex
+
+
+def test_similarity_colorbar_data_uri():
+    data_uri = UIConstants.similarity_colorbar_data_uri()
+    assert isinstance(data_uri, str)
+    assert len(data_uri) > 0

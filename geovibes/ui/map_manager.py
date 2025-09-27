@@ -121,21 +121,17 @@ class MapManager:
 
     @staticmethod
     def _build_legend() -> HTML:
-        return HTML(
-            value=f"""
-            <div style='background: white; padding: 5px; border-radius: 5px; opacity: 0.8; font-size: 12px;'>
-                <div><strong>Labels:</strong> 
-                    <span style='color: {UIConstants.POS_COLOR}; font-weight: bold;'>🔵 Positive</span> | 
-                    <span style='color: {UIConstants.NEG_COLOR}; font-weight: bold;'>🟠 Negative</span>
-                </div>
-                <div style='margin-top: 3px;'><strong>Search Results:</strong> 
-                    <span style='color: #00ff00; font-weight: bold;'>🟢 Most Similar</span> → 
-                    <span style='color: #ffff00; font-weight: bold;'>🟡 Medium</span> → 
-                    <span style='color: #ff4444; font-weight: bold;'>🔴 Least Similar</span>
-                </div>
-            </div>
-            """
+        similarity_html = UIConstants.similarity_legend_html()
+        legend_html = (
+            "<div style='background: white; padding: 5px; border-radius: 5px; opacity: 0.8; font-size: 12px;'>"
+            "<div><strong>Labels:</strong> "
+            f"<span style='color: {UIConstants.POS_COLOR}; font-weight: bold;'>🔵 Positive</span> | "
+            f"<span style='color: {UIConstants.NEG_COLOR}; font-weight: bold;'>🟠 Negative</span>"
+            "</div>"
+            f"{similarity_html}"
+            "</div>"
         )
+        return HTML(value=legend_html)
 
     def _add_map_layers(self) -> None:
         self.pos_layer = ipyl.GeoJSON(

@@ -2,11 +2,17 @@
 Constants for the GeoVibes application.
 """
 
+import base64
 import os
+from io import BytesIO
 from pathlib import Path
+from typing import Dict
 
 import numpy as np
 from dotenv import load_dotenv
+from matplotlib import colormaps as mpl_colormaps
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
 
 # Ensure .env is loaded when Voila runs from a temp directory
 project_root = Path(__file__).resolve().parents[2]
@@ -53,17 +59,56 @@ class UIConstants:
     NEGATIVE_LABEL = 0
     ERASE_LABEL = -100
     
-    # Distance-based color mapping
-    DISTANCE_COLORS = {
-        'HIGH_SIMILARITY': '#00ff00',    # Green (low distance, high similarity)
-        'MEDIUM_SIMILARITY': '#ffff00',  # Yellow (medium distance)
-        'LOW_SIMILARITY': '#ff4444',     # Red (high distance, low similarity)
-        'DEFAULT': '#ffe014'             # Default yellow
-    }
-    
+    SEARCH_COLORMAP = os.getenv("GEOVIBES_SEARCH_COLORMAP", "viridis")
+    _COLORMAP_CACHE: dict[str, dict[str, object]] = {}
+
+    @classmethod
+    def _get_colormap_bundle(cls) -> dict[str, object]:
+        requested = os.getenv("GEOVIBES_SEARCH_COLORMAP", cls.SEARCH_COLORMAP) or cls.SEARCH_COLORMAP
+        if requested not in cls._COLORMAP_CACHE:
+            try:
+                cmap = mpl_colormaps.get_cmap(requested)
+                cmap_name = requested
+            except ValueError:
+                cmap = mpl_colormaps.get_cmap("viridis")
+                cmap_name = "viridis"
+
+            gradient = np.linspace(0, 1, 256)
+            gradient = np.vstack([gradient, gradient])
+            fig = Figure(figsize=(2.4, 0.3))
+            canvas = FigureCanvasAgg(fig)
+            ax = fig.subplots()
+            ax.imshow(gradient, aspect="auto", cmap=cmap)
+            ax.set_axis_off()
+            buf = BytesIO()
+            fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
+            buf.seek(0)
+            colorbar_data = base64.b64encode(buf.read()).decode("ascii")
+            cls._COLORMAP_CACHE[requested] = {
+                "cmap": cmap,
+                "colorbar": colorbar_data,
+                "resolved_name": cmap_name,
+            }
+            cls.SEARCH_COLORMAP = cmap_name
+        else:
+            cls.SEARCH_COLORMAP = cls._COLORMAP_CACHE[requested]["resolved_name"]  # type: ignore[index]
+
+        return cls._COLORMAP_CACHE[requested]
+
+    @classmethod
+    def _color_from_fraction(cls, fraction: float) -> str:
+        bundle = cls._get_colormap_bundle()
+        cmap = bundle["cmap"]  # type: ignore[index]
+        r, g, b, _ = cmap(np.clip(fraction, 0.0, 1.0))
+        return f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
+
     @staticmethod
     def distance_to_color(distance: float, min_dist: float, max_dist: float) -> str:
-        """Convert distance value to hex color using a green-yellow-red gradient.
+        return UIConstants._distance_to_color(distance, min_dist, max_dist)
+
+    @classmethod
+    def _distance_to_color(cls, distance: float, min_dist: float, max_dist: float) -> str:
+        """Convert distance value to hex color using the configured matplotlib colormap.
         
         Args:
             distance: Distance value to convert.
@@ -71,28 +116,37 @@ class UIConstants:
             max_dist: Maximum distance in the dataset.
             
         Returns:
-            Hex color string representing similarity (green=high, red=low).
+            Hex color string representing similarity (yellow=high similarity, dark blue=low).
         """
         if max_dist == min_dist:
-            return UIConstants.DISTANCE_COLORS['MEDIUM_SIMILARITY']
+            return cls._color_from_fraction(0.5)
         
         # Normalize distance to 0-1 range
         normalized = (distance - min_dist) / (max_dist - min_dist)
         normalized = np.clip(normalized, 0, 1)
-        
-        # Create gradient: green (0) -> yellow (0.5) -> red (1)
-        if normalized <= 0.5:
-            # Green to yellow
-            r = int(255 * (normalized * 2))
-            g = 255
-            b = 0
-        else:
-            # Yellow to red  
-            r = 255
-            g = int(255 * (1 - (normalized - 0.5) * 2))
-            b = 0
-        
-        return f'#{r:02x}{g:02x}{b:02x}'
+        color_fraction = 1.0 - normalized
+        return cls._color_from_fraction(color_fraction)
+
+    @classmethod
+    def similarity_colorbar_data_uri(cls) -> str:
+        bundle = cls._get_colormap_bundle()
+        return bundle["colorbar"]  # type: ignore[index]
+
+    @classmethod
+    def similarity_legend_html(cls) -> str:
+        colorbar = cls.similarity_colorbar_data_uri()
+        low_color = cls._color_from_fraction(0.0)
+        high_color = cls._color_from_fraction(1.0)
+        return (
+            "<div style='margin-top: 6px;'>"
+            "<strong>Similarity:</strong>"
+            "<div style='display:flex; align-items:center; gap:6px; margin-top:4px;'>"
+            f"<span style='color:{low_color}; font-weight:bold;'>Least similar</span>"
+            f"<img src='data:image/png;base64,{colorbar}' alt='similarity colorbar' "
+            "style='height:12px; flex:1 1 auto;'/>"
+            f"<span style='color:{high_color}; font-weight:bold;'>Most similar</span>"
+            "</div></div>"
+        )
 
 
 class BasemapConfig:
