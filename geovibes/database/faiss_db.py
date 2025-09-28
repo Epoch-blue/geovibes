@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import logging
 import pathlib
 import time
@@ -520,9 +521,21 @@ def main():
                     all_parquet_files.extend(glob.glob(path))
 
     temp_dir = None
+    temp_dir_created = False
     if cloud_files:
-        temp_dir = tempfile.mkdtemp(prefix="faiss_db_")
-        logging.info(f"Downloading {len(cloud_files)} files from cloud to temporary directory...")
+        cache_root = pathlib.Path(tempfile.gettempdir()) / "faiss_db_cache"
+        cache_root.mkdir(parents=True, exist_ok=True)
+        cloud_digest = hashlib.sha256("\n".join(sorted(cloud_files)).encode()).hexdigest()
+        cache_path = cache_root / cloud_digest
+        existing_cache = cache_path.exists()
+        cache_path.mkdir(parents=True, exist_ok=True)
+        temp_dir = str(cache_path)
+        temp_dir_created = not existing_cache
+        if existing_cache:
+            logging.info(f"Reusing cached downloads in {temp_dir}")
+        else:
+            logging.info(f"Created download cache at {temp_dir}")
+        logging.info(f"Downloading {len(cloud_files)} files from cloud...")
         local_cloud_files = download_cloud_files(cloud_files, temp_dir)
         all_parquet_files.extend(local_cloud_files)
 
@@ -531,7 +544,7 @@ def main():
 
     if not all_parquet_files:
         logging.error("No parquet files found!")
-        if temp_dir:
+        if temp_dir and temp_dir_created:
             shutil.rmtree(temp_dir)
         return
 
@@ -544,7 +557,7 @@ def main():
 
     if not files_to_process:
         logging.error("No files left to process after applying dry-run filter.")
-        if temp_dir:
+        if temp_dir and temp_dir_created:
             shutil.rmtree(temp_dir)
         return
     
@@ -567,9 +580,11 @@ def main():
     logging.info(f"Total process completed in {time.time() - start_total_time:.2f} seconds.")
     logging.info(f"Artifacts created:\n- DuckDB: {db_path}\n- FAISS Index: {index_path}")
 
-    if temp_dir:
+    if temp_dir and temp_dir_created:
         shutil.rmtree(temp_dir)
         logging.info(f"Cleaned up temporary directory: {temp_dir}")
+    elif temp_dir:
+        logging.info(f"Preserving download cache directory: {temp_dir}")
 
     # Create compressed tarball and upload to output directory
     if tarball_required:
