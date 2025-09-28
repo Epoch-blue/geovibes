@@ -547,7 +547,8 @@ class DataManager:
             self.duckdb_connection.execute(query)
         try:
             self.duckdb_connection.execute("SET enable_progress_bar=false")
-            self.duckdb_connection.execute("SET enable_profiling=false")
+            self.duckdb_connection.execute("SET enable_profiling='none'")
+            self.duckdb_connection.execute("PRAGMA disable_profiling")
             self.duckdb_connection.execute("SET enable_object_cache=false")
             if self.verbose:
                 print("✅ Progress bar and profiling disabled")

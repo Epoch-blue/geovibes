@@ -215,7 +215,7 @@ class DatabaseConstants:
             f"SET temp_directory='{cls.TEMP_DIRECTORY}'",
             # Disable progress bar to prevent Jupyter crashes with UTINYINT[] arrays
             "SET enable_progress_bar=false",
-            "SET enable_profiling=no_output"
+            "SET enable_profiling='none'"
         ]
     
     @classmethod
