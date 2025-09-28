@@ -121,18 +121,13 @@ This combination of a dedicated vector index and a spatial database allows GeoVi
 ### DuckDB ↔ FAISS Search Flow
 
 ```mermaid
-sequenceDiagram
-    participant UI as GeoVibes UI
-    participant DuckDB
-    participant FAISS
-
-    UI->>DuckDB: ST_DWithin/ST_Point query
-    DuckDB-->>UI: embedding for clicked location
-    UI->>FAISS: search(query_vector, N)
-    FAISS-->>UI: nearest ids and distances
-    UI->>DuckDB: SELECT id, geometry, embedding WHERE id IN ids
-    DuckDB-->>UI: neighbor embeddings and geometries
-    UI->>UI: render detections on map and tiles
+flowchart TD
+    Click["User click (lat, lon)"] --> Q1["DuckDB query\nST_DWithin/ST_Point" ]
+    Q1 --> V1["Embedding vector"]
+    V1 --> Q2["FAISS search\nsearch(vector, N)"]
+    Q2 --> R1["Nearest ids + distances"]
+    R1 --> Q3["DuckDB lookup\nSELECT id, geometry, embedding\nWHERE id IN ids"]
+    Q3 --> Render["Render neighbors on map and tiles"]
 ```
 
 Given a latitude and longitude, GeoVibes first issues a spatial query against the `geo_embeddings` table in DuckDB. The geometry column is intersected with a point constructed from the click location, returning the embedding vector tied to that exact tile. That vector becomes the FAISS query vector: the UI submits it to the FAISS index and retrieves the nearest `N` neighbors along with their internal identifiers (for example `id` or `source_id`). With that neighbor list in hand, the UI executes a second DuckDB query that fetches the corresponding embeddings and geometries, enabling the map and tile panel to display each matched location while keeping the vectors in memory for continued iterative search.
