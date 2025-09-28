@@ -147,6 +147,9 @@ def _assemble_centered_image(
     center_x = (base_col + frac_x) * tile_width
     center_y = (base_row + frac_y) * tile_height
     meters_per_pixel = _meters_per_pixel(lat_deg, zoom)
+    if meters_per_pixel and tile_width:
+        scale = TILE_SIZE_PX / float(tile_width)
+        meters_per_pixel *= scale
     target_px = TILE_SIZE_PX
     if meters_per_pixel and coverage_m > 0:
         pixels_float = coverage_m / meters_per_pixel
