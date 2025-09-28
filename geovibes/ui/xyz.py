@@ -1,10 +1,12 @@
 """Map tile fetching utilities."""
 
 import math
+from io import BytesIO
 from typing import Optional, Dict, Any
 
 import requests
 import tenacity
+from PIL import Image
 
 from geovibes.ui_config import BasemapConfig
 
@@ -47,7 +49,8 @@ def compute_zoom_for_tile(lat_deg: float, coverage_m: float) -> Optional[int]:
     zoom = math.log2(numerator / coverage_m)
     if not math.isfinite(zoom):
         return None
-    return max(0, min(22, int(round(zoom))))
+    zoom_int = int(math.floor(zoom))
+    return max(0, min(22, zoom_int))
 
 
 @tenacity.retry(
@@ -55,6 +58,12 @@ def compute_zoom_for_tile(lat_deg: float, coverage_m: float) -> Optional[int]:
     wait=tenacity.wait_fixed(2),
     retry=tenacity.retry_if_exception_type(requests.exceptions.RequestException),
 )
+def _tile_coverage_m(lat_deg: float, zoom: int) -> float:
+    lat_rad = math.radians(lat_deg)
+    cos_lat = max(math.cos(lat_rad), 1e-6)
+    return cos_lat * 2 * math.pi * EARTH_RADIUS_M / (2.0 ** zoom)
+
+
 def get_map_image(
     source: str,
     lon: float,
@@ -89,17 +98,26 @@ def get_map_image(
             f"Invalid XYZ tile source: {source}. Valid sources are: {list(valid_sources.keys())}"
         )
 
-    if zoom is None and tile_spec:
+    coverage_target = None
+    if tile_spec:
         size_px = tile_spec.get("tile_size_px")
         resolution = tile_spec.get("meters_per_pixel")
-        if size_px and resolution:
-            coverage = size_px * resolution
-            inferred_zoom = compute_zoom_for_tile(lat, coverage)
-            if inferred_zoom is not None:
-                zoom = inferred_zoom
+        if size_px and resolution and size_px > 0 and resolution > 0:
+            coverage_target = size_px * resolution
+
+    if zoom is None and coverage_target:
+        inferred_zoom = compute_zoom_for_tile(lat, coverage_target)
+        if inferred_zoom is not None:
+            zoom = inferred_zoom
 
     if zoom is None:
         zoom = 17
+    else:
+        zoom = max(0, min(22, zoom))
+
+    if coverage_target:
+        while zoom > 0 and _tile_coverage_m(lat, zoom) < coverage_target:
+            zoom -= 1
 
     url_template = valid_sources[source]
     xtile, ytile = deg2num(lat, lon, zoom)
@@ -107,4 +125,31 @@ def get_map_image(
 
     response = requests.get(url)
     response.raise_for_status()
-    return response.content
+    image_bytes = response.content
+
+    if not coverage_target:
+        return image_bytes
+
+    current_coverage = _tile_coverage_m(lat, zoom)
+    if current_coverage <= 0:
+        return image_bytes
+
+    crop_ratio = coverage_target / current_coverage
+    if crop_ratio >= 1 or crop_ratio <= 0:
+        return image_bytes
+
+    try:
+        with Image.open(BytesIO(image_bytes)) as img:
+            width, height = img.size
+            crop_size = max(1, min(width, height, int(round(width * crop_ratio))))
+            left = (width - crop_size) / 2
+            top = (height - crop_size) / 2
+            box = (left, top, left + crop_size, top + crop_size)
+            cropped = img.crop(box).resize((width, height), Image.BILINEAR)
+            buffer = BytesIO()
+            cropped.save(buffer, format="PNG")
+            return buffer.getvalue()
+    except Exception:
+        return image_bytes
+
+    return image_bytes
