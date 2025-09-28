@@ -535,8 +535,22 @@ def main():
             logging.info(f"Reusing cached downloads in {temp_dir}")
         else:
             logging.info(f"Created download cache at {temp_dir}")
-        logging.info(f"Downloading {len(cloud_files)} files from cloud...")
-        local_cloud_files = download_cloud_files(cloud_files, temp_dir)
+        local_cloud_files: list[str] = []
+        missing_cloud_files: list[str] = []
+        for remote_path in cloud_files:
+            local_candidate = os.path.join(temp_dir, os.path.basename(remote_path))
+            if os.path.exists(local_candidate) and os.path.getsize(local_candidate) > 0:
+                local_cloud_files.append(local_candidate)
+            else:
+                missing_cloud_files.append(remote_path)
+
+        if missing_cloud_files:
+            logging.info(f"Downloading {len(missing_cloud_files)} files from cloud...")
+            downloaded = download_cloud_files(missing_cloud_files, temp_dir)
+            local_cloud_files.extend(downloaded)
+        else:
+            logging.info("All cloud files already cached; skipping downloads.")
+
         all_parquet_files.extend(local_cloud_files)
 
     # Deduplicate and validate
