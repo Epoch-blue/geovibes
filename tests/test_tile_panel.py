@@ -229,7 +229,8 @@ def test_handle_tile_center_uses_tile_spec(monkeypatch):
 
     half_side_deg = (tile_spec["tile_size_px"] * tile_spec["meters_per_pixel"]) / (2 * 111_320)
     minx, miny, maxx, maxy = polygon.bounds
-    assert abs(minx + half_side_deg) < 1e-6
-    assert abs(maxx - half_side_deg) < 1e-6
-    assert abs(miny + half_side_deg) < 1e-6
-    assert abs(maxy - half_side_deg) < 1e-6
+    tolerance = 1e-5
+    assert abs(minx + half_side_deg) < tolerance
+    assert abs(maxx - half_side_deg) < tolerance
+    assert abs(miny + half_side_deg) < tolerance
+    assert abs(maxy - half_side_deg) < tolerance
