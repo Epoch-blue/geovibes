@@ -10,9 +10,11 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 import shapely.geometry
+import shapely.ops
 import shapely.wkt
 import webbrowser
 import faiss
+import pyproj
 from IPython.display import display
 from ipywidgets import (
     Accordion,
@@ -769,23 +771,8 @@ class GeoVibes:
         lat, lon = geom.y, geom.x
         self.map_manager.center_on(lat, lon, zoom=14)
 
-        tile_spec = getattr(self.data, "tile_spec", None)
-        meters_per_pixel = None
-        tile_size_px = None
-        if tile_spec:
-            meters_per_pixel = tile_spec.get("meters_per_pixel")
-            tile_size_px = tile_spec.get("tile_size_px")
-
-        if meters_per_pixel and tile_size_px:
-            half_side = (meters_per_pixel * tile_size_px) / 2
-            square_coords = [
-                (lon - half_side / 111320, lat - half_side / 111320),
-                (lon + half_side / 111320, lat - half_side / 111320),
-                (lon + half_side / 111320, lat + half_side / 111320),
-                (lon - half_side / 111320, lat + half_side / 111320),
-                (lon - half_side / 111320, lat - half_side / 111320),
-            ]
-        else:
+        polygon = self._tile_polygon_from_spec(lat, lon)
+        if polygon is None:
             half_size = 0.0025 / 2
             square_coords = [
                 (lon - half_size, lat - half_size),
@@ -794,11 +781,44 @@ class GeoVibes:
                 (lon - half_size, lat + half_size),
                 (lon - half_size, lat - half_size),
             ]
+            polygon = shapely.geometry.Polygon(square_coords)
 
-        polygon = shapely.geometry.Polygon(square_coords)
         self.map_manager.highlight_polygon(polygon, color="red", fill_opacity=0.0)
         self._show_operation_status("📍 Centered on tile")
 
+
+    def _tile_polygon_from_spec(self, lat: float, lon: float):
+        tile_spec = getattr(self.data, "tile_spec", None)
+        if not tile_spec:
+            return None
+
+        meters_per_pixel = tile_spec.get("meters_per_pixel")
+        tile_size_px = tile_spec.get("tile_size_px")
+        if not meters_per_pixel or not tile_size_px:
+            return None
+
+        half_side = (meters_per_pixel * tile_size_px) / 2.0
+        if half_side <= 0:
+            return None
+
+        zone = int((lon + 180) // 6) + 1
+        zone = max(1, min(zone, 60))
+        epsg = 32600 + zone if lat >= 0 else 32700 + zone
+
+        try:
+            utm_crs = pyproj.CRS.from_epsg(epsg)
+            forward = pyproj.Transformer.from_crs("EPSG:4326", utm_crs, always_xy=True)
+            inverse = pyproj.Transformer.from_crs(utm_crs, "EPSG:4326", always_xy=True)
+            x, y = forward.transform(lon, lat)
+            square = shapely.geometry.box(
+                x - half_side,
+                y - half_side,
+                x + half_side,
+                y + half_side,
+            )
+            return shapely.ops.transform(inverse.transform, square)
+        except Exception:
+            return None
     def _handle_save_dataset(self) -> None:
         result = self.dataset_manager.save_dataset()
         if result:
