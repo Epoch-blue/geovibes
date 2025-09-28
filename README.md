@@ -53,7 +53,6 @@ When the notebook opens, select the `Python (geovibes)` kernel registered during
 - **Flexible labeling**: Point-click and polygon selection for positive/negative examples
 - **Iterative search**: Query vector updates with each labeling iteration using `2×positive_avg - negative_avg`
 - **Save/load**: Persist labeled datasets as GeoJSON for continued refinement
-- **Memory efficient**: Cached embeddings and chunked database queries for large regions
 
 #### Interactive Search Examples
 
@@ -73,6 +72,7 @@ You can use the tile panel to pan the map to a given tile, as well as label them
 
 **Change basemap**
 You can cycle through different basemaps as you are searching. This will cycle through in on both the leaflet map and the individual tiles in the tile panel. NB: we currently do not support pulling the S2 basemaps into the tiles, these are only available as tiles on the leaflet map served via Google Earth Engine.
+
 ![Cycling through basemaps](images/label_search_basemap_change.gif)
 
 **Load Previous Datasets**  
@@ -105,10 +105,6 @@ Create a `.env` file in the repository root for sensitive configuration:
 ```env
 # Required for MapTiler satellite basemaps
 MAPTILER_API_KEY=your_maptiler_api_key_here
-
-# Optional: For Google Cloud Storage database access
-GCS_ACCESS_KEY_ID=your_access_key_here
-GCS_SECRET_ACCESS_KEY=your_secret_key_here
 ```
 
 ## Architecture
@@ -119,9 +115,27 @@ This dual-component system is built using the script in `geovibes/database/faiss
 
 - **FAISS Index:** It uses a highly optimized FAISS (Facebook AI Similarity Search) index for efficient similarity search on high-dimensional vector embeddings. The script builds an Inverted File (IVF) index with Product Quantization (PQ) for float embeddings or Scalar Quantization for int8 embeddings, enabling fast approximate nearest neighbor search.
 - **DuckDB Metadata Store:** A DuckDB database stores metadata associated with each vector, including a unique ID and the geometry. This allows for quick retrieval of spatial and other attributes after a vector search.
-- **R-Tree Index:** A spatial index (R-Tree) is built on the geometries within DuckDB. This allows for fast spatial querying, like finding all points within a drawn polygon.
 
 This combination of a dedicated vector index and a spatial database allows GeoVibes to perform complex queries that combine both content-based similarity and geographic location.
+
+### DuckDB ↔ FAISS Search Flow
+
+```mermaid
+sequenceDiagram
+    participant UI as GeoVibes UI
+    participant DuckDB
+    participant FAISS
+
+    UI->>DuckDB: ST_DWithin/ST_Point query
+    DuckDB-->>UI: embedding for clicked location
+    UI->>FAISS: search(query_vector, N)
+    FAISS-->>UI: nearest ids and distances
+    UI->>DuckDB: SELECT id, geometry, embedding WHERE id IN ids
+    DuckDB-->>UI: neighbor embeddings and geometries
+    UI->>UI: render detections on map and tiles
+```
+
+Given a latitude and longitude, GeoVibes first issues a spatial query against the `geo_embeddings` table in DuckDB. The geometry column is intersected with a point constructed from the click location, returning the embedding vector tied to that exact tile. That vector becomes the FAISS query vector: the UI submits it to the FAISS index and retrieves the nearest `N` neighbors along with their internal identifiers (for example `id` or `source_id`). With that neighbor list in hand, the UI executes a second DuckDB query that fetches the corresponding embeddings and geometries, enabling the map and tile panel to display each matched location while keeping the vectors in memory for continued iterative search.
 
 ### 3. Earth Engine Authentication (Optional - for NDVI/NDWI basemaps)
 
@@ -157,23 +171,6 @@ python geovibes/database/faiss_db.py embeddings/eg_nm --name new-mexico-dry-run 
 ```
 
 This script processes parquet files from an input directory, builds a FAISS index, and creates a separate DuckDB file containing the metadata for the embeddings.
-
-## Prerequisites for Google Embeddings
-
-The Google workflow requires:
-
-- **Google Earth Engine account** with authentication
-- **Google Cloud Storage bucket** for intermediate file storage
-- **gcloud CLI** installed and authenticated
-
-```bash
-# Authenticate with Earth Engine
-earthengine authenticate
-
-# Authenticate with Google Cloud
-gcloud auth login
-gcloud config set project your-project-id
-```
 
 ## Performance & Limitations
 
