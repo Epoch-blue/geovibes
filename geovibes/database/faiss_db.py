@@ -138,7 +138,13 @@ def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, dtype: str,
         raise IngestParquetError(str(e))
     
     # Use 'tile_id' if available, otherwise fall back to 'id'
-    id_column_in_parquet = 'tile_id' if 'tile_id' in available_columns else 'id' if 'id' in available_columns else None
+    id_column_in_parquet = (
+        'tile_id'
+        if 'tile_id' in available_columns
+        else 'id'
+        if 'id' in available_columns
+        else None
+    )
     if id_column_in_parquet:
         logging.info(f"Source ID column: '{id_column_in_parquet}'. Geometry column found: {has_geometry}.")
     else: 
@@ -181,7 +187,7 @@ def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, dtype: str,
             create_sql = f"""
             CREATE TABLE geo_embeddings (
                 id BIGINT PRIMARY KEY DEFAULT nextval('seq_geo_embeddings_id'),
-                tile_id VARCHAR,
+                source_id VARCHAR,
                 embedding {embedding_sql_type}
                 {', geometry GEOMETRY' if has_geometry else ''}
             );
@@ -205,8 +211,8 @@ def ingest_parquet_to_duckdb(parquet_files: list[str], db_path: str, dtype: str,
             insert_columns = f"embedding{', geometry' if has_geometry else ''}"
             select_clause = f"{embedding_col}"
             if id_column_in_parquet:
-                insert_columns = f"tile_id, {insert_columns}"
-                select_clause = f"tile_id, {select_clause}"
+                insert_columns = f"source_id, {insert_columns}"
+                select_clause = f"{id_column_in_parquet}, {select_clause}"
             
             # The geometry column from GeoParquet is already understood by DuckDB's spatial extension.
             # No explicit cast is needed if the target column is type GEOMETRY.
