@@ -222,6 +222,12 @@ class TilePanel:
 
     def _create_tile_widget(self, row, append: bool):
         geom = shapely.wkt.loads(row["geometry_wkt"])
+        display_value = row.get("source_id")
+        if display_value is None or display_value != display_value:
+            display_value = row.get("tile_id")
+        if display_value is None or display_value != display_value:
+            display_value = row["id"]
+        display_id = str(display_value)
         base_image_layout = {
             "width": "115px",
             "height": "115px",
@@ -266,19 +272,19 @@ class TilePanel:
         map_button = Button(
             icon="fa-map-marker",
             layout=Layout(width="35px", height="28px", margin="0px 2px", padding="2px"),
-            tooltip="Center map",
+            tooltip=f"Center map ({display_id})",
         )
         map_button.on_click(lambda _b, r=row: self.on_center(r))
 
         tick_button = Button(
             icon="fa-check",
             layout=Layout(width="35px", height="28px", margin="0px 2px", padding="2px"),
-            tooltip="Label as positive",
+            tooltip=f"Label as positive ({display_id})",
         )
         cross_button = Button(
             icon="fa-times",
             layout=Layout(width="35px", height="28px", margin="0px 2px", padding="2px"),
-            tooltip="Label as negative",
+            tooltip=f"Label as negative ({display_id})",
         )
 
         self._apply_label_style(point_id, tick_button, cross_button)

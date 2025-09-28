@@ -109,6 +109,8 @@ class GeoVibes:
             verbose=verbose,
             enable_ee=enable_ee,
         )
+        self.id_column_candidates = getattr(self.data, "id_column_candidates", ["id"])
+        self.external_id_column = getattr(self.data, "external_id_column", "id")
         self.state = AppState()
         self.status_bus = StatusBus()
         self.map_manager = MapManager(
@@ -394,6 +396,8 @@ class GeoVibes:
         self._show_operation_status("🔄 Loading database...")
         try:
             self.data.switch_database(new_path)
+            self.id_column_candidates = getattr(self.data, "id_column_candidates", ["id"])
+            self.external_id_column = getattr(self.data, "external_id_column", "id")
             self.map_manager.center_on(self.data.center_y, self.data.center_x)
             self.map_manager.update_boundary_layer(self.data.effective_boundary_path)
             self.reset_all()
@@ -633,8 +637,14 @@ class GeoVibes:
         self._show_operation_status(f"✅ Found {len(filtered)} similar points.")
 
         geometries = [shapely.wkt.loads(row["geometry_wkt"]) for _, row in filtered.iterrows()]
-        detections_df = filtered[["id", "distance"]].copy()
+        display_column = getattr(self, "external_id_column", "id")
+        base_columns = ["id", "distance"]
+        if display_column != "id" and display_column in filtered.columns:
+            base_columns.append(display_column)
+        detections_df = filtered[base_columns].copy()
         detections_df["id"] = detections_df["id"].astype(str)
+        if display_column in detections_df.columns:
+            detections_df[display_column] = detections_df[display_column].astype(str)
         self.state.detections_with_embeddings = gpd.GeoDataFrame(
             detections_df,
             geometry=geometries,
@@ -648,16 +658,25 @@ class GeoVibes:
             color = UIConstants.distance_to_color(
                 row["distance"], min_distance, max_distance
             )
+            display_id = self._display_id_from_row(row)
+            props = {
+                "id": str(row["id"]),
+                "distance": row["distance"],
+                "color": color,
+                "fillColor": color,
+                "source_id": display_id,
+            }
+            external_column_name = getattr(self, "external_id_column", "id")
+            if (
+                external_column_name != "id"
+                and external_column_name in row.index
+            ):
+                props[external_column_name] = display_id
             detections_geojson["features"].append(
                 {
                     "type": "Feature",
                     "geometry": json.loads(row["geometry_json"]),
-                    "properties": {
-                        "id": str(row["id"]),
-                        "distance": row["distance"],
-                        "color": color,
-                        "fillColor": color,
-                    },
+                    "properties": props,
                 }
             )
 
@@ -719,6 +738,18 @@ class GeoVibes:
         if self.state.neg_ids:
             self._fetch_embeddings(self.state.neg_ids)
         self.state.update_query_vector()
+
+    def _display_id_from_row(self, row) -> str:
+        column = getattr(self, "external_id_column", "id")
+        if column != "id" and column in row.index:
+            value = row[column]
+            if pd.isna(value):
+                return str(row["id"])
+            return str(value)
+        for candidate in ("source_id", "tile_id"):
+            if candidate in row.index and not pd.isna(row[candidate]):
+                return str(row[candidate])
+        return str(row["id"])
 
     def _handle_tile_label(self, point_id: str, row, label: str) -> None:
         if point_id not in self.state.cached_embeddings:

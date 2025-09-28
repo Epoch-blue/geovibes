@@ -74,6 +74,8 @@ class DataManager:
         self.geometries_dir = self._resolve_geometries_directory()
         self.local_database_directory = self._resolve_local_database_directory()
         self.manifest_entries: List[Dict[str, str]] = []
+        self.id_column_candidates: List[str] = ["id"]
+        self.external_id_column: str = "id"
 
         self.available_databases = self._discover_databases()
         for entry in self.available_databases:
@@ -111,6 +113,7 @@ class DataManager:
             self._owns_connection = False
 
         self._apply_duckdb_settings(self.current_database_path)
+        self._refresh_id_columns()
 
         # Load FAISS index
         if not self.current_faiss_path:
@@ -566,6 +569,28 @@ class DataManager:
                 except Exception as exc:
                     raise RuntimeError(f"Failed to load required extension: {exc}")
 
+    def _refresh_id_columns(self) -> None:
+        columns = self._detect_id_columns()
+        self.id_column_candidates = columns
+        for candidate in ("source_id", "tile_id"):
+            if candidate in columns:
+                self.external_id_column = candidate
+                return
+        self.external_id_column = "id"
+
+    def _detect_id_columns(self) -> List[str]:
+        try:
+            rows = self.duckdb_connection.execute(
+                "PRAGMA table_info('geo_embeddings')"
+            ).fetchall()
+        except Exception:
+            return ["id"]
+        columns = [row[1] for row in rows if len(row) > 1]
+        candidates = [col for col in ("source_id", "tile_id", "id") if col in columns]
+        if candidates:
+            return candidates
+        return ["id"]
+
     def _detect_embedding_dim(self) -> int:
         try:
             embedding_dim = DatabaseConstants.detect_embedding_dimension(
@@ -681,8 +706,17 @@ class DataManager:
             chunk = point_ids[i : i + chunk_size]
             prepared_chunk = prepare_ids_for_query(chunk)
             placeholders = ",".join(["?" for _ in prepared_chunk])
+            select_parts = ["id"]
+            external_column = getattr(self, "external_id_column", "id")
+            if external_column != "id":
+                select_parts.append(external_column)
+            select_parts.extend([
+                "CAST(embedding AS FLOAT[]) as embedding",
+                "geometry",
+            ])
+            select_clause = ", ".join(select_parts)
             query = f"""
-            SELECT id, tile_id, CAST(embedding AS FLOAT[]) as embedding, geometry 
+            SELECT {select_clause}
             FROM geo_embeddings 
             WHERE id IN ({placeholders})
             """
@@ -716,8 +750,19 @@ class DataManager:
         if not faiss_ids:
             return None
         placeholders = ",".join(["?" for _ in faiss_ids])
+        select_parts = ["id"]
+        external_column = getattr(self, "external_id_column", "id")
+        if external_column != "id":
+            select_parts.append(external_column)
+        select_parts.extend(
+            [
+                "ST_AsGeoJSON(geometry) AS geometry_json",
+                "ST_AsText(geometry) AS geometry_wkt",
+            ]
+        )
+        select_clause = ", ".join(select_parts)
         sql = f"""
-        SELECT id, ST_AsGeoJSON(geometry) AS geometry_json, ST_AsText(geometry) AS geometry_wkt
+        SELECT {select_clause}
         FROM geo_embeddings
         WHERE id IN ({placeholders})
         """
@@ -748,6 +793,7 @@ class DataManager:
         self.duckdb_connection = self._connect_duckdb(database_path)
         self._owns_connection = True
         self._apply_duckdb_settings(database_path)
+        self._refresh_id_columns()
 
         if not self.current_faiss_path:
             raise RuntimeError(
