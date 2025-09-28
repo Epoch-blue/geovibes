@@ -120,18 +120,32 @@ def _assemble_centered_image(
             y_tiles.append((offset, candidate))
     if not y_tiles:
         y_tiles.append((0, min(max(base_y, 0), n - 1)))
-    width = len(x_tiles) * TILE_SIZE_PX
-    height = len(y_tiles) * TILE_SIZE_PX
+    tile_width = None
+    tile_height = None
+    tile_images: Dict[Tuple[int, int], Image.Image] = {}
+    for y_offset, y_index in y_tiles:
+        for x_offset, x_index in x_tiles:
+            tile_bytes = _fetch_tile_bytes(source, template, zoom, x_index, y_index)
+            image = Image.open(BytesIO(tile_bytes))
+            if tile_width is None or tile_height is None:
+                tile_width, tile_height = image.size
+            image = image.convert("RGB")
+            tile_images[(x_offset, y_offset)] = image
+    if tile_width is None or tile_height is None:
+        tile_width = TILE_SIZE_PX
+        tile_height = TILE_SIZE_PX
+
+    width = len(x_tiles) * tile_width
+    height = len(y_tiles) * tile_height
     mosaic = Image.new("RGB", (width, height))
     for row, (y_offset, y_index) in enumerate(y_tiles):
         for col, (x_offset, x_index) in enumerate(x_tiles):
-            tile_bytes = _fetch_tile_bytes(source, template, zoom, x_index, y_index)
-            tile_image = Image.open(BytesIO(tile_bytes)).convert("RGB")
-            mosaic.paste(tile_image, (col * TILE_SIZE_PX, row * TILE_SIZE_PX))
+            tile_image = tile_images[(x_offset, y_offset)]
+            mosaic.paste(tile_image, (col * tile_width, row * tile_height))
     base_col = next(index for index, (offset, _) in enumerate(x_tiles) if offset == 0)
     base_row = next(index for index, (offset, _) in enumerate(y_tiles) if offset == 0)
-    center_x = (base_col + frac_x) * TILE_SIZE_PX
-    center_y = (base_row + frac_y) * TILE_SIZE_PX
+    center_x = (base_col + frac_x) * tile_width
+    center_y = (base_row + frac_y) * tile_height
     meters_per_pixel = _meters_per_pixel(lat_deg, zoom)
     target_px = TILE_SIZE_PX
     if meters_per_pixel and coverage_m > 0:
@@ -156,6 +170,8 @@ def _assemble_centered_image(
         top_int = max(0, top_int - shift)
         bottom_int = top_int + target_px
     cropped = mosaic.crop((left_int, top_int, right_int, bottom_int))
+    if cropped.size != (TILE_SIZE_PX, TILE_SIZE_PX):
+        cropped = cropped.resize((TILE_SIZE_PX, TILE_SIZE_PX), Image.Resampling.BILINEAR)
     if cropped.size != (TILE_SIZE_PX, TILE_SIZE_PX):
         cropped = cropped.resize((TILE_SIZE_PX, TILE_SIZE_PX), Image.Resampling.BILINEAR)
     buffer = BytesIO()
