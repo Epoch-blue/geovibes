@@ -48,7 +48,16 @@ def list_databases_in_directory(
                 print(f"  Found DB: {db_file}, but no associated FAISS index found.")
     if verbose:
         print(f"Found {len(databases)} database(s) in {directory_path}")
-    return sorted(databases, key=lambda x: x["db_path"])
+
+    def sort_key(entry: Dict[str, str]) -> tuple[int, str]:
+        db_name = Path(entry["db_path"]).stem.lower()
+        if "alabama" in db_name and "google" in db_name:
+            return (0, entry["db_path"])
+        if db_name.startswith("alabama_earthgenome_softcon"):
+            return (1, entry["db_path"])
+        return (2, entry["db_path"])
+
+    return sorted(databases, key=sort_key)
 
 
 _TILE_SPEC_PATTERN = re.compile(
