@@ -45,8 +45,12 @@ class DummyTilePanel:
     def __init__(self):
         self.received = None
 
-    def update_results(self, df):
+    def update_results(self, df, **kwargs):
         self.received = df
+        self.kwargs = kwargs
+        callback = kwargs.get("on_ready")
+        if callback:
+            callback()
 
     def clear(self):
         self.received = None

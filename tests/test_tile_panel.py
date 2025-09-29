@@ -1,3 +1,4 @@
+import time
 from types import SimpleNamespace
 
 import pandas as pd
@@ -26,6 +27,12 @@ class DummyMapManager:
         self.operations.append(None)
 
 
+def _await_tiles(panel: TilePanel, timeout: float = 1.0) -> None:
+    end = time.time() + timeout
+    while (panel._pending_batches or panel._pending_futures) and time.time() < end:
+        time.sleep(0.01)
+
+
 def test_tile_panel_update_results(monkeypatch):
     state = AppState()
     map_manager = DummyMapManager()
@@ -46,7 +53,11 @@ def test_tile_panel_update_results(monkeypatch):
         {"id": "2"},
     ])
 
-    panel.update_results(df)
+    ready_calls = []
+
+    panel.update_results(df, auto_show=True, on_ready=lambda: ready_calls.append(True))
+
+    _await_tiles(panel)
 
     assert panel.container.layout.display == "block"
     assert [child.value for child in panel.results_grid.children] == [
@@ -57,6 +68,8 @@ def test_tile_panel_update_results(monkeypatch):
     assert state.tile_page == 0
     assert panel.next_tiles_btn.layout.display != "flex"
     assert map_manager.operations[:2] == ["⏳ Loading tiles...", "✅ Tiles updated"]
+    assert panel.results_ready is True
+    assert ready_calls == [True]
 
     panel.toggle()
     assert panel.container.layout.display == "none"
@@ -73,8 +86,10 @@ def test_tile_panel_handle_map_basemap_change(monkeypatch):
 
     calls = []
 
-    def fake_render(self, append, limit=None):
-        calls.append((append, limit))
+    def fake_render(self, append, limit=None, on_finish=None, page_size=None, loader_token=None):
+        calls.append((append, limit, on_finish, page_size, loader_token))
+        if on_finish:
+            on_finish()
 
     monkeypatch.setattr(TilePanel, "_render_current_page", fake_render)
 
@@ -83,8 +98,10 @@ def test_tile_panel_handle_map_basemap_change(monkeypatch):
 
     panel.handle_map_basemap_change(panel.allowed_sources[0])
 
+    _await_tiles(panel)
+
     assert state.tile_basemap == panel.allowed_sources[0]
-    assert calls == [(False, 1)]
+    assert calls == [(False, 1, None, None, None)]
 
 
 def test_tile_panel_apply_label_style_updates_buttons():
@@ -115,8 +132,8 @@ def test_tile_panel_apply_label_style_updates_buttons():
 
 def test_next_tiles_shows_loading_placeholders(monkeypatch):
     state = AppState()
-    state.initial_load_size = 1
-    state.tiles_per_page = 1
+    state.initial_load_size = 4
+    state.tiles_per_page = 4
     map_manager = DummyMapManager()
 
     panel = TilePanel(
@@ -142,17 +159,20 @@ def test_next_tiles_shows_loading_placeholders(monkeypatch):
 
     monkeypatch.setattr(TilePanel, "_create_tile_widget", fake_widget)
 
-    df = pd.DataFrame([
-        {"id": "1"},
-        {"id": "2"},
-    ])
+    df = pd.DataFrame([{"id": str(i)} for i in range(8)])
 
-    panel.update_results(df)
+    panel.update_results(df, auto_show=True)
+    _await_tiles(panel)
     observed["placeholder_seen"] = False
+
+    assert panel._page_sizes == [4]
 
     panel._on_next_tiles_click(None)
 
+    _await_tiles(panel)
+
     assert observed["placeholder_seen"] is True
+    assert panel._page_sizes == [4, 4]
     assert map_manager.operations[-2:] == ["⏳ Loading tiles...", "✅ Tiles updated"]
 
 
@@ -190,7 +210,9 @@ def test_tile_panel_passes_tile_spec_to_get_map_image(monkeypatch):
         ]
     )
 
-    panel.update_results(df)
+    panel.update_results(df, auto_show=True)
+
+    _await_tiles(panel)
 
     assert captured["tile_spec"] == tile_spec
     assert captured["zoom"] is None

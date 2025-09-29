@@ -606,6 +606,7 @@ class GeoVibes:
             self._show_operation_status("✅ Search complete. No results found.")
             self.map_manager.update_search_layer(self._empty_collection())
             self.tile_panel.clear()
+            self.tiles_button.button_style = ""
             return
 
         metadata_df = self.data.query_search_metadata(faiss_ids)
@@ -613,6 +614,7 @@ class GeoVibes:
             self._show_operation_status("✅ Search complete. No results found.")
             self.map_manager.update_search_layer(self._empty_collection())
             self.tile_panel.clear()
+            self.tiles_button.button_style = ""
             return
 
         id_map = {id_val: i for i, id_val in enumerate(faiss_ids)}
@@ -630,10 +632,13 @@ class GeoVibes:
         else:
             filtered = results_df.head(n_neighbors)
 
+        self.tiles_button.button_style = ""
+
         if filtered.empty:
             self._show_operation_status("✅ Search complete. No results found.")
             self.map_manager.update_search_layer(self._empty_collection())
             self.tile_panel.clear()
+            self.tiles_button.button_style = ""
             return
 
         self._show_operation_status(f"✅ Found {len(filtered)} similar points.")
@@ -687,8 +692,11 @@ class GeoVibes:
             detections_geojson,
             style_callback=self._search_style_callback,
         )
-        self.tile_panel.update_results(filtered)
-        self.tiles_button.button_style = "success"
+        self.tile_panel.update_results(
+            filtered,
+            auto_show=False,
+            on_ready=self._on_tiles_ready,
+        )
 
     # ------------------------------------------------------------------
     # Helpers
@@ -740,6 +748,9 @@ class GeoVibes:
         if self.state.neg_ids:
             self._fetch_embeddings(self.state.neg_ids)
         self.state.update_query_vector()
+
+    def _on_tiles_ready(self) -> None:
+        self.tiles_button.button_style = "success"
 
     def _display_id_from_row(self, row) -> str:
         column = getattr(self, "external_id_column", "id")
