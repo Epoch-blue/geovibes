@@ -146,7 +146,7 @@ Follow the authentication flow in your browser. This is only required if you wan
 ### Step 3: Build Searchable Database
 
 This method uses Facebook AI's FAISS library to create a highly optimized index, which is stored separately from the metadata in a DuckDB database.
-Create a FAISS index and a corresponding metadata database from local parquet files:
+you can point this script at either a local set of embeddings or embeddings stored in the cloud. In this example we use the [Earth Genome Softcon Embeddings on Source Cooperative](https://source.coop/earthgenome/earthindexembeddings/2024).
 
 ```bash
 # Build a full Alabama index using a ROI and remote embeddings
@@ -188,7 +188,8 @@ This script processes parquet files from an input directory, builds a FAISS inde
 
 GeoVibes is experimental research code. Contributions welcome for:
 
-- Alternative vector index backends (FAISS, Qdrant)
+- Alternative vector index backends (lanceDB etc...)
+- Front-end/UI/UX (help please)
 - Custom embedding model support
 - Performance optimizations
 - Documentation improvements
