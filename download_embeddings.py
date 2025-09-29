@@ -397,6 +397,8 @@ def main():
     print("Fetching database sizes...")
     enrich_manifest_with_sizes(manifest_data)
 
+    manifest_data.sort(key=lambda row: (row['region'], row.get('size_bytes') or float('inf'), row['model_name']))
+
     # Display selection menu
     selected_databases = display_selection_menu(manifest_data)
 
