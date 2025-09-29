@@ -59,7 +59,7 @@ class UIConstants:
     NEGATIVE_LABEL = 0
     ERASE_LABEL = -100
     
-    SEARCH_COLORMAP = os.getenv("GEOVIBES_SEARCH_COLORMAP", "managua")
+    SEARCH_COLORMAP = os.getenv("GEOVIBES_SEARCH_COLORMAP", "plasma")
     _COLORMAP_CACHE: dict[str, dict[str, object]] = {}
 
     @classmethod
@@ -103,28 +103,58 @@ class UIConstants:
         return f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
 
     @staticmethod
-    def distance_to_color(distance: float, min_dist: float, max_dist: float) -> str:
-        return UIConstants._distance_to_color(distance, min_dist, max_dist)
+    def distance_to_color(
+        distance: float,
+        min_dist: float,
+        max_dist: float,
+        highlight_cutoff: float | None = None,
+    ) -> str:
+        return UIConstants._distance_to_color(distance, min_dist, max_dist, highlight_cutoff)
 
     @classmethod
-    def _distance_to_color(cls, distance: float, min_dist: float, max_dist: float) -> str:
+    def _distance_to_color(
+        cls,
+        distance: float,
+        min_dist: float,
+        max_dist: float,
+        highlight_cutoff: float | None = None,
+    ) -> str:
         """Convert distance value to hex color using the configured matplotlib colormap.
-        
+
         Args:
             distance: Distance value to convert.
             min_dist: Minimum distance in the dataset.
             max_dist: Maximum distance in the dataset.
-            
+            highlight_cutoff: Optional distance threshold marking the lower distances that should
+                map to the warm end of the colormap.
+
         Returns:
             Hex color string representing similarity (yellow=high similarity, dark blue=low).
         """
         if max_dist == min_dist:
             return cls._color_from_fraction(0.5)
-        
+
         # Normalize distance to 0-1 range
-        normalized = (distance - min_dist) / (max_dist - min_dist)
-        normalized = np.clip(normalized, 0, 1)
-        color_fraction = 1.0 - normalized
+        if highlight_cutoff is not None and highlight_cutoff > min_dist:
+            cutoff = min(highlight_cutoff, max_dist)
+            if cutoff <= min_dist:
+                highlight_cutoff = None
+        if highlight_cutoff is not None and highlight_cutoff > min_dist:
+            cutoff = min(highlight_cutoff, max_dist)
+            if distance <= cutoff:
+                span = cutoff - min_dist if cutoff > min_dist else 1.0
+                local = (distance - min_dist) / span
+                local = np.clip(local, 0, 1)
+                color_fraction = 0.7 + (1.0 - local) * 0.3
+            else:
+                span = max_dist - cutoff if max_dist > cutoff else 1.0
+                local = (distance - cutoff) / span
+                local = np.clip(local, 0, 1)
+                color_fraction = max(0.0, 0.7 - local * 0.7)
+        else:
+            normalized = (distance - min_dist) / (max_dist - min_dist)
+            normalized = np.clip(normalized, 0, 1)
+            color_fraction = 1.0 - normalized
         return cls._color_from_fraction(color_fraction)
 
     @classmethod

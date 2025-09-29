@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import warnings
 from typing import Any, Dict, Optional
 
@@ -661,9 +662,15 @@ class GeoVibes:
         detections_geojson = {"type": "FeatureCollection", "features": []}
         min_distance = filtered["distance"].min()
         max_distance = filtered["distance"].max()
+        highlight_cutoff = None
+        if len(filtered) > 0:
+            top_count = max(1, min(100, int(math.ceil(len(filtered) * 0.1))))
+            highlight_cutoff = (
+                filtered.nsmallest(top_count, "distance")["distance"].max()
+            )
         for _, row in filtered.sort_values("distance", ascending=False).iterrows():
             color = UIConstants.distance_to_color(
-                row["distance"], min_distance, max_distance
+                row["distance"], min_distance, max_distance, highlight_cutoff
             )
             display_id = self._display_id_from_row(row)
             props = {
