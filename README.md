@@ -37,30 +37,15 @@ uv run download_embeddings.py
 
 The script lets you select regions to download, stores geometries in `geometries/`, and extracts the model artifacts into `local_databases/`. You can rerun it at any time; previously downloaded files are skipped.
 
-### Web Application (Recommended)
-
-GeoVibes runs as a standalone web application with an interactive mapping interface:
-
-```bash
-# Run with configuration file (recommended)
-uv run run.py --config config.yaml
-
-# Or rely on manifest defaults
-uv run run.py
-
-# Run with custom port and disable auto-browser opening
-uv run run.py --start-date 2024-06-01 --end-date 2024-12-31 --port 8080 --no-browser
-```
-
-The application will automatically:
-
-1. Start a web server using [Voila](https://github.com/voila-dashboards/voila)
-2. Open your default browser to the GeoVibes interface
-3. Provide interactive mapping with similarity search capabilities
-
 ### Notebook (`vibe_checker.ipynb`)
 
-If you prefer Jupyter, open `vibe_checker.ipynb` in JupyterLab/Notebook and choose the `Python (geovibes)` kernel registered during installation. The notebook loads the same UI components as the web app and expects the assets downloaded by `download_embeddings.py` in `local_databases/` and `geometries/`.
+Launch Jupyter Lab (or Notebook) and open `vibe_checker.ipynb`:
+
+```bash
+uv run jupyter lab
+```
+
+When the notebook opens, select the `Python (geovibes)` kernel registered during installation. The notebook loads the complete GeoVibes UI and expects the assets downloaded by `download_embeddings.py` in `local_databases/` and `geometries/`.
 
 ### Features
 
@@ -68,21 +53,37 @@ If you prefer Jupyter, open `vibe_checker.ipynb` in JupyterLab/Notebook and choo
 - **Flexible labeling**: Point-click and polygon selection for positive/negative examples
 - **Iterative search**: Query vector updates with each labeling iteration using `2×positive_avg - negative_avg`
 - **Save/load**: Persist labeled datasets as GeoJSON for continued refinement
-- **Memory efficient**: Cached embeddings and chunked database queries for large regions
 
 #### Interactive Search Examples
 
 **Label a point and search**  
-Start your search by picking a point for which you would like to find similar ones in your area, then click Search
-![Label a point and search for similar points](images/label_positive_point.gif)
+Start your search by picking a point for which you would like to find similar ones in your area, then click Search. This will open a tile panel showing your search results but also show them on the map.
+
+![Label a point and search for similar points](images/label_and_search.gif)
 
 **Polygon Labeling**  
 Search is iterative: positives get added to your query vector and negatives get subtracted. Use polygon labeling mode for bulk positive/negative selection.
-![Polygon labeling and search for similar points](images/polygon_label.gif)
+![Polygon labeling and search for similar points](images/polygon_labels.gif)
+
+**Tile Panel Labeling**
+You can use the tile panel to pan the map to a given tile, as well as label them.
+
+![Tile panning and labeling](images/label_search_tile_panel.gif)
+
+**Change basemap**
+You can cycle through different basemaps as you are searching. This will cycle through in on both the leaflet map and the individual tiles in the tile panel. NB: we currently do not support pulling the S2 basemaps into the tiles, these are only available as tiles on the leaflet map served via Google Earth Engine.
+
+![Cycling through basemaps](images/label_search_basemap_change.gif)
 
 **Load Previous Datasets**  
 Save your search results as GeoJSON and reload them to continue searching.
-![Load a previous dataset](images/load_saved_changes.gif)
+
+![Load a previous dataset](images/load_dataset.gif)
+
+**Use Google Street View**
+You can also use google maps/street view to help you label.
+
+![Google Street View](images/gsv.gif)
 
 ## Configuration
 
@@ -95,8 +96,6 @@ Create a `config.yaml` file to configure GeoVibes. Paths to DuckDB databases and
 start_date: "2024-01-01"
 end_date: "2025-01-01"
 
-# Optional: Google Cloud Platform project ID (for Earth Engine basemaps)
-gcp_project: "your-gcp-project-id"
 ```
 
 ### Environment Variables
@@ -106,27 +105,7 @@ Create a `.env` file in the repository root for sensitive configuration:
 ```env
 # Required for MapTiler satellite basemaps
 MAPTILER_API_KEY=your_maptiler_api_key_here
-
-# Optional: For Google Cloud Storage database access
-GCS_ACCESS_KEY_ID=your_access_key_here
-GCS_SECRET_ACCESS_KEY=your_secret_key_here
 ```
-
-### Command Line Options
-
-All configuration options can be provided via command line:
-
-```bash
-python run.py \
-  --start-date 2024-01-01 \
-  --end-date 2025-01-01 \
-  --gcp-project your-gcp-project-id \
-  --port 8080 \
-  --no-browser \
-  --verbose
-```
-
-Run `python run.py --help` for all available options.
 
 ## Architecture
 
@@ -136,9 +115,22 @@ This dual-component system is built using the script in `geovibes/database/faiss
 
 - **FAISS Index:** It uses a highly optimized FAISS (Facebook AI Similarity Search) index for efficient similarity search on high-dimensional vector embeddings. The script builds an Inverted File (IVF) index with Product Quantization (PQ) for float embeddings or Scalar Quantization for int8 embeddings, enabling fast approximate nearest neighbor search.
 - **DuckDB Metadata Store:** A DuckDB database stores metadata associated with each vector, including a unique ID and the geometry. This allows for quick retrieval of spatial and other attributes after a vector search.
-- **R-Tree Index:** A spatial index (R-Tree) is built on the geometries within DuckDB. This allows for fast spatial querying, like finding all points within a drawn polygon.
 
 This combination of a dedicated vector index and a spatial database allows GeoVibes to perform complex queries that combine both content-based similarity and geographic location.
+
+### DuckDB ↔ FAISS Search Flow
+
+```mermaid
+flowchart TD
+    Click["User click (lat, lon)"] --> Q1["DuckDB query\nST_DWithin/ST_Point" ]
+    Q1 --> V1["Embedding vector"]
+    V1 --> Q2["FAISS search\nsearch(vector, N)"]
+    Q2 --> R1["Nearest ids + distances"]
+    R1 --> Q3["DuckDB lookup\nSELECT id, geometry, embedding\nWHERE id IN ids"]
+    Q3 --> Render["Render neighbors on map and tiles"]
+```
+
+Given a latitude and longitude, GeoVibes first issues a spatial query against the `geo_embeddings` table in DuckDB. The geometry column is intersected with a point constructed from the click location, returning the embedding vector tied to that exact tile. That vector becomes the FAISS query vector: the UI submits it to the FAISS index and retrieves the nearest `N` neighbors along with their internal identifiers (for example `id` or `source_id`). With that neighbor list in hand, the UI executes a second DuckDB query that fetches the corresponding embeddings and geometries, enabling the map and tile panel to display each matched location while keeping the vectors in memory for continued iterative search.
 
 ### 3. Earth Engine Authentication (Optional - for NDVI/NDWI basemaps)
 
@@ -154,90 +146,11 @@ uv pip install -e .
 earthengine authenticate
 ```
 
-Follow the authentication flow in your browser. This is only required if you want the NDVI/NDWI basemap options. Once authenticated you can opt in by either:
+Follow the authentication flow in your browser. This is only required if you want the NDVI/NDWI basemap options. GeoVibes keeps Earth Engine disabled unless you opt in via:
 
 - Adding `enable_ee: true` to your `config.yaml`
-- Running Voila with `python run.py --enable-ee`
 - Passing `enable_ee=True` when you construct `GeoVibes`
 - Exporting `GEOVIBES_ENABLE_EE=1` in your environment
-
-### 4. Google Cloud Storage Database Access (Optional - for GCS databases)
-
-GeoVibes can connect to DuckDB databases stored on Google Cloud Storage. If your database is hosted on GCS (e.g., `gs://your-bucket/database.db`), you'll need to set up authentication.
-
-#### Option 1: HMAC Keys (Recommended)
-
-1. **Create HMAC Keys in GCP Console:**
-    - Go to [Cloud Storage Settings](https://console.cloud.google.com/storage/settings)
-    - Click "Interoperability" tab
-    - Click "Create a key" under "Access keys for your user account"
-    - Save the Access Key and Secret
-
-2. **Set Environment Variables:**
-
-    ```bash
-    export GCS_ACCESS_KEY_ID="your_access_key_here"
-    export GCS_SECRET_ACCESS_KEY="your_secret_key_here"
-    ```
-
-3. **Or create a `.env` file:**
-    ```env
-    GCS_ACCESS_KEY_ID=your_access_key_here
-    GCS_SECRET_ACCESS_KEY=your_secret_key_here
-    MAPTILER_API_KEY=your_maptiler_api_key_here
-    ```
-
-#### Option 2: Default Google Cloud Authentication
-
-If you're running on Google Cloud or have `gcloud` configured:
-
-```bash
-gcloud auth application-default login
-```
-
-#### Security Notes
-
-- **Never commit credentials to version control**
-- Add `.env` to your `.gitignore` file
-- Use environment variables in production
-- Consider using Google Cloud IAM roles for more secure access
-
-## Generate Embeddings
-
-GeoVibes provides code to export embeddings from AlphaEarth via Google Earth Engine. This is a 3-step workflow:
-
-### Step 1: Create tiling assets in GEE
-
-Generate spatial grid tiles for your region and upload them as GEE assets:
-
-```bash
-python src/google/tiling_to_gee_asset.py \
-  --input_file geometries/mgrs_tiles.parquet \
-  --roi_file aoi.geojson \
-  --gcs_bucket your-bucket \
-  --gee_asset_path projects/your-project/assets/tiles \
-  --tilesize 25 \
-  --overlap 0 \
-  --resolution 10.0
-```
-
-This creates a grid of spatial tiles, uploads them to Google Cloud Storage, and imports them as GEE table assets.
-
-### Step 2: Generate embeddings from satellite imagery
-
-Extract embeddings for each tile using Google's satellite embedding model:
-
-```bash
-python src/google/embeddings.py \
-  --roi_file aoi.geojson \
-  --mgrs_reference_file geometries/mgrs_tiles.parquet \
-  --year 2024 \
-  --gcs_bucket your-bucket \
-  --gcs_prefix embeddings/google_satellite_v1 \
-  --gee_asset_path projects/your-project/assets/tiles
-```
-
-This processes each tile through Google's satellite embedding model and exports results to GCS.
 
 ### Step 3: Build Searchable Database
 
@@ -253,23 +166,6 @@ python geovibes/database/faiss_db.py embeddings/eg_nm --name new-mexico-dry-run 
 ```
 
 This script processes parquet files from an input directory, builds a FAISS index, and creates a separate DuckDB file containing the metadata for the embeddings.
-
-## Prerequisites for Google Embeddings
-
-The Google workflow requires:
-
-- **Google Earth Engine account** with authentication
-- **Google Cloud Storage bucket** for intermediate file storage
-- **gcloud CLI** installed and authenticated
-
-```bash
-# Authenticate with Earth Engine
-earthengine authenticate
-
-# Authenticate with Google Cloud
-gcloud auth login
-gcloud config set project your-project-id
-```
 
 ## Performance & Limitations
 

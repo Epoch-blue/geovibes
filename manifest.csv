@@ -1,4 +1,5 @@
 region,model_name,model_path
+alabama,alabama_quantized_dino_vit_small_patch16_224_2024_2025_32_16_10,s3://us-west-2.opendata.source.coop/geovibes/search/USA/alabama/2024-01-01-2025-01-01/alabama_quantized_dino_vit_small_patch16_224_2024_2025_32_16_10.tar.gz
 alabama,alabama_dino_vit_small_patch16_224_2024_2025_32_16_10,s3://us-west-2.opendata.source.coop/geovibes/search/USA/alabama/2024-01-01-2025-01-01/alabama_dino_vit_small_patch16_224_2024_2025_32_16_10.tar.gz
 alabama,alabama_google_satellite_embeddings_v1_2024_2025_25_0_10,s3://us-west-2.opendata.source.coop/geovibes/search/USA/alabama/2024-01-01-2025-01-01/alabama_google_satellite_embeddings_v1_2024_2025_25_0_10.tar.gz
 alabama,alabama_clay_naip_v1.5_2019_2020_256_0_1,s3://us-west-2.opendata.source.coop/geovibes/search/USA/alabama/2019-01-01-2020-01-01/alabama_clay_naip_v1.5_2019_2020_256_0_1.tar.gz

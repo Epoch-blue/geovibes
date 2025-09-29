@@ -1,7 +1,6 @@
 # GeoVibes Configuration File
-# Minimal settings for basemap date range and optional GCP project
+# Minimal settings for basemap date range
 
 start_date: "2024-01-01"
 end_date: "2025-01-01"
-# enable_ee: true  # Uncomment to opt in to Earth Engine basemaps
-# gcp_project: "your-gcp-project-id"
+enable_ee: true  # Uncomment to opt in to Earth Engine basemaps

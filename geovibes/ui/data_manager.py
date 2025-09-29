@@ -1,0 +1,815 @@
+"""Data access and configuration helpers for the GeoVibes UI."""
+
+from __future__ import annotations
+
+import csv
+import os
+import pathlib
+from typing import Any, Dict, List, Optional, Tuple
+
+import duckdb
+import ee
+import faiss
+import geopandas as gpd
+import shapely.geometry
+
+from geovibes.ee_tools import initialize_ee_with_credentials
+from geovibes.ui_config import BasemapConfig, DatabaseConstants, GeoVibesConfig
+
+from .utils import (
+    get_database_centroid,
+    infer_tile_spec_from_name,
+    list_databases_in_directory,
+    log_to_file,
+    prepare_ids_for_query,
+)
+
+
+class DataManager:
+    """Encapsulates configuration, database, and FAISS operations."""
+
+    def __init__(
+        self,
+        *,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        duckdb_path: Optional[str] = None,
+        duckdb_directory: Optional[str] = None,
+        config: Optional[Dict] = None,
+        enable_ee: Optional[bool] = None,
+        config_path: Optional[str] = None,
+        duckdb_connection: Optional[duckdb.DuckDBPyConnection] = None,
+        baselayer_url: Optional[str] = None,
+        disable_ee: bool = False,
+        verbose: bool = False,
+        **unused_kwargs: Any,
+    ) -> None:
+        self.verbose = verbose
+        self.baselayer_url = baselayer_url or BasemapConfig.BASEMAP_TILES["MAPTILER"]
+        self.duckdb_path = duckdb_path
+        self.duckdb_directory = duckdb_directory
+        self.ee_boundary = None
+
+        if "enable_ee" in unused_kwargs and self.verbose:
+            print("ℹ️ Pass enable_ee via config or GEOVIBES_ENABLE_EE environment variable.")
+
+        # Configuration and Earth Engine toggles
+        self.config = self._load_config(
+            start_date=start_date,
+            end_date=end_date,
+            config=config,
+            config_path=config_path,
+            enable_ee_override=enable_ee,
+        )
+
+        self.ee_available = False
+        env_enable = os.getenv("GEOVIBES_ENABLE_EE")
+        env_opt_in = bool(env_enable and env_enable.strip().lower() in {"1", "true", "yes", "on"})
+        ee_opt_in = (self.config.enable_ee or env_opt_in) and not disable_ee
+        if ee_opt_in:
+            self.ee_available = initialize_ee_with_credentials(verbose=self.verbose)
+        elif self.verbose and not disable_ee:
+            print("ℹ️ Earth Engine basemaps disabled (enable via config or GEOVIBES_ENABLE_EE)")
+
+        self.geometries_dir = self._resolve_geometries_directory()
+        self.local_database_directory = self._resolve_local_database_directory()
+        self.manifest_entries: List[Dict[str, str]] = []
+        self.id_column_candidates: List[str] = ["id"]
+        self.external_id_column: str = "id"
+
+        self.available_databases = self._discover_databases()
+        for entry in self.available_databases:
+            entry.setdefault("tile_spec", infer_tile_spec_from_name(entry["db_path"]))
+        if not self.available_databases:
+            raise FileNotFoundError(
+                "No downloaded models found. Provide duckdb_path/duckdb_directory or run prep_data.py."
+            )
+
+        self.available_databases = sorted(
+            self.available_databases,
+            key=lambda entry: entry.get(
+                "display_name", os.path.basename(entry["db_path"])
+            ),
+        )
+        self.database_info_by_path = {
+            entry["db_path"]: entry for entry in self.available_databases
+        }
+
+        self.current_database_info = self.available_databases[0]
+        self.current_database_path = self.current_database_info["db_path"]
+        self.current_faiss_path = self.current_database_info.get("faiss_path")
+        self.current_geometry_path = self.current_database_info.get("geometry_path")
+        self.tile_spec = self.current_database_info.get("tile_spec")
+        if not self.tile_spec:
+            self.tile_spec = infer_tile_spec_from_name(self.current_database_path)
+        self.effective_boundary_path = None
+
+        # Manage DuckDB connection
+        if duckdb_connection is None:
+            self.duckdb_connection = self._connect_duckdb(self.current_database_path)
+            self._owns_connection = True
+        else:
+            self.duckdb_connection = duckdb_connection
+            self._owns_connection = False
+
+        self._apply_duckdb_settings(self.current_database_path)
+        self._refresh_id_columns()
+
+        # Load FAISS index
+        if not self.current_faiss_path:
+            raise ValueError("Could not find a FAISS index for the selected database.")
+        if self.verbose:
+            print(f"🧠 Loading FAISS index from: {self.current_faiss_path}")
+        self.faiss_index = faiss.read_index(self.current_faiss_path)
+        if self.verbose:
+            print(f"✅ FAISS index loaded. Contains {self.faiss_index.ntotal} vectors.")
+
+        # Detect embedding dimension
+        self.embedding_dim = self._detect_embedding_dim()
+
+        # Warm up if needed
+        if DatabaseConstants.is_gcs_path(self.current_database_path):
+            self._warm_up_gcs_database()
+
+        # Derive map centering data
+        self.effective_boundary_path, (self.center_y, self.center_x) = (
+            self._setup_boundary_and_center()
+        )
+        self._update_ee_boundary()
+
+    # ------------------------------------------------------------------
+    # Configuration helpers
+    # ------------------------------------------------------------------
+
+    def _load_config(
+        self,
+        *,
+        start_date: Optional[str],
+        end_date: Optional[str],
+        config: Optional[Dict],
+        config_path: Optional[str],
+        enable_ee_override: Optional[bool],
+    ) -> GeoVibesConfig:
+        if config_path is not None:
+            cfg = GeoVibesConfig.from_file(config_path)
+        elif config is not None:
+            cfg = GeoVibesConfig.from_dict(config)
+        else:
+            cfg = GeoVibesConfig(
+                start_date=start_date or "2024-01-01",
+                end_date=end_date or "2025-01-01",
+            )
+
+        if enable_ee_override is not None:
+            cfg.enable_ee = bool(enable_ee_override)
+
+        if hasattr(cfg, "validate"):
+            try:
+                cfg.validate()
+            except Exception as exc:  # pragma: no cover - defensive logging
+                if self.verbose:
+                    print(f"⚠️ Config validation skipped: {exc}")
+        return cfg
+
+    # ------------------------------------------------------------------
+    # Filesystem helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _project_root() -> pathlib.Path:
+        # __file__ lives under geovibes/ui/, so ascend to repository root
+        return pathlib.Path(__file__).resolve().parents[2]
+
+    def _resolve_manifest_path(self) -> Optional[str]:
+        override = os.getenv("GEOVIBES_MANIFEST_PATH")
+        if override:
+            candidate = pathlib.Path(override).expanduser()
+            if candidate.exists():
+                return str(candidate)
+
+        manifest_path = self._project_root() / "manifest.csv"
+        return str(manifest_path) if manifest_path.exists() else None
+
+    def _resolve_geometries_directory(self) -> Optional[str]:
+        override = os.getenv("GEOVIBES_GEOMETRIES_DIR")
+        if override:
+            return str(pathlib.Path(override).expanduser())
+        return str(self._project_root() / "geometries")
+
+    def _resolve_local_database_directory(self) -> str:
+        if self.duckdb_directory:
+            return str(pathlib.Path(self.duckdb_directory).expanduser())
+        override = os.getenv("GEOVIBES_LOCAL_DB_DIR")
+        if override:
+            return str(pathlib.Path(override).expanduser())
+        return str(self._project_root() / "local_databases")
+
+    def _discover_databases(self) -> List[Dict[str, str]]:
+        discovered: List[Dict[str, str]] = []
+
+        db_path = self.duckdb_path or getattr(self.config, "duckdb_path", None)
+        if db_path:
+            faiss_path = self._infer_faiss_from_db(db_path)
+            if not faiss_path:
+                if self.verbose:
+                    print(
+                        f"⚠️  Could not locate FAISS index for {db_path}. Skipping."
+                    )
+            else:
+                geometry_path = self._infer_geometry_from_db(db_path)
+                if geometry_path is None:
+                    geometry_path = getattr(self.config, "boundary_path", None)
+                discovered.append(
+                    {
+                        "db_path": db_path,
+                        "faiss_path": faiss_path,
+                        "display_name": os.path.basename(db_path),
+                        "geometry_path": geometry_path,
+                    }
+                )
+                return discovered
+
+        duckdb_directory = self.duckdb_directory or getattr(
+            self.config, "duckdb_directory", None
+        )
+        if duckdb_directory:
+            directory_entries = list_databases_in_directory(
+                duckdb_directory, verbose=self.verbose
+            )
+            for entry in directory_entries:
+                if not entry.get("faiss_path"):
+                    if self.verbose:
+                        print(
+                            f"⚠️  Missing FAISS index for {entry['db_path']}. Skipping."
+                        )
+                    continue
+                entry.setdefault("display_name", os.path.basename(entry["db_path"]))
+                geometry_path = entry.get("geometry_path")
+                if not geometry_path:
+                    geometry_path = self._infer_geometry_from_db(entry["db_path"])
+                if not geometry_path:
+                    geometry_path = getattr(self.config, "boundary_path", None)
+                entry["geometry_path"] = geometry_path
+                discovered.append(entry)
+            for entry in discovered:
+                entry.setdefault("geometry_path", getattr(self.config, "boundary_path", None))
+            if discovered:
+                return discovered
+
+        # Fallback to manifest-driven discovery
+        manifest_path = self._resolve_manifest_path()
+        if manifest_path is None:
+            return discovered
+
+        self.manifest_entries = self._load_manifest_entries(manifest_path)
+        if not self.manifest_entries:
+            return discovered
+
+        if self.verbose:
+            print(
+                f"📄 Loaded {len(self.manifest_entries)} manifest entries from {manifest_path}"
+            )
+
+        discovered.extend(
+            self._discover_available_models(
+                self.local_database_directory, self.manifest_entries
+            )
+        )
+        return discovered
+
+    def _infer_faiss_from_db(self, db_path: str) -> Optional[str]:
+        candidate = pathlib.Path(db_path)
+        base = candidate.stem
+        name_candidates = {base}
+        if base.endswith("_metadata"):
+            name_candidates.add(base[: -len("_metadata")])
+
+        patterns = []
+        for name in name_candidates:
+            patterns.extend(
+                [
+                    f"{name}.index",
+                    f"{name}_faiss.index",
+                    f"{name}_faiss*.index",
+                    f"{name}*.index",
+                ]
+            )
+
+        for pattern in patterns:
+            matches = sorted(candidate.parent.glob(pattern))
+            if matches:
+                return str(matches[0])
+        return None
+
+    def _infer_geometry_from_db(self, db_path: str) -> Optional[str]:
+        if not db_path:
+            return None
+
+        base_name = pathlib.Path(db_path).stem
+        if base_name.endswith("_metadata"):
+            base_name = base_name[: -len("_metadata")]
+
+        candidates = [base_name]
+        parts = base_name.split("_")
+        if parts:
+            candidates.append(parts[0])
+            if len(parts) > 1:
+                candidates.append("_".join(parts[:2]))
+
+        seen: set[str] = set()
+        for candidate in candidates:
+            key = candidate.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            geometry_path = self._resolve_geometry_path(candidate)
+            if geometry_path:
+                return geometry_path
+        return None
+
+    # ------------------------------------------------------------------
+    # Manifest helpers
+    # ------------------------------------------------------------------
+
+    def _load_manifest_entries(self, manifest_path: str) -> List[Dict[str, str]]:
+        entries: List[Dict[str, str]] = []
+        try:
+            with open(manifest_path, "r", newline="", encoding="utf-8") as csvfile:
+                reader = csv.DictReader(csvfile)
+                for row in reader:
+                    entries.append(
+                        {
+                            k: (v.strip() if isinstance(v, str) else v)
+                            for k, v in row.items()
+                        }
+                    )
+        except Exception as exc:  # pragma: no cover
+            if self.verbose:
+                print(f"⚠️  Failed to read manifest at {manifest_path}: {exc}")
+        return entries
+
+    def _discover_available_models(
+        self, directory_path: str, manifest_rows: List[Dict[str, str]]
+    ) -> List[Dict[str, str]]:
+        if not directory_path:
+            return []
+
+        dir_path = pathlib.Path(directory_path).expanduser()
+        if not dir_path.exists():
+            if self.verbose:
+                print(f"⚠️  Database directory not found: {directory_path}")
+            return []
+
+        manifest_lookup = {
+            (row.get("model_name") or "").strip(): row
+            for row in manifest_rows
+            if row.get("model_name")
+        }
+
+        discovered: List[Dict[str, str]] = []
+        seen_db_paths = set()
+
+        for model_name, row in manifest_lookup.items():
+            artifacts = self._locate_model_artifacts(dir_path, model_name)
+            if not artifacts:
+                if self.verbose:
+                    print(f"⚠️  Model files not found locally for {model_name}")
+                continue
+
+            if artifacts["db_path"] in seen_db_paths:
+                continue
+
+            region = (row.get("region") or "").strip() or None
+            geometry_path = self._resolve_geometry_path(region)
+            entry = {
+                "model_name": model_name,
+                "region": region,
+                "db_path": artifacts["db_path"],
+                "faiss_path": artifacts["faiss_path"],
+                "display_name": self._format_model_display_name(region, model_name),
+                "geometry_path": geometry_path,
+            }
+            discovered.append(entry)
+            seen_db_paths.add(entry["db_path"])
+
+        return discovered
+
+    def _locate_model_artifacts(
+        self, root_directory: pathlib.Path, model_name: str
+    ) -> Optional[Dict[str, str]]:
+        candidate_dirs = [root_directory / model_name, root_directory]
+        for candidate in candidate_dirs:
+            if not candidate.exists():
+                continue
+
+            db_path = self._match_single_file(
+                candidate,
+                [
+                    (f"{model_name}_metadata.db", f"{model_name}_metadata.db"),
+                    (f"{model_name}_metadata" + "*.db", f"{model_name}_metadata.db"),
+                    (f"{model_name}.db", f"{model_name}.db"),
+                ],
+            )
+
+            if not db_path:
+                continue
+
+            faiss_path = self._match_single_file(
+                candidate,
+                [
+                    (f"{model_name}_faiss" + "*.index", None),
+                    (f"{model_name}.index", f"{model_name}.index"),
+                ],
+            )
+
+            if db_path and faiss_path:
+                return {"db_path": db_path, "faiss_path": faiss_path}
+
+        return None
+
+    def _match_single_file(
+        self, directory: pathlib.Path, pattern_specs: List[Tuple[str, Optional[str]]]
+    ) -> Optional[str]:
+        for pattern, preferred in pattern_specs:
+            matches = sorted(directory.glob(pattern))
+            selected = self._select_preferred_path(matches, preferred)
+            if selected:
+                return str(selected)
+        return None
+
+    @staticmethod
+    def _select_preferred_path(
+        matches: List[pathlib.Path], preferred_name: Optional[str] = None
+    ) -> Optional[pathlib.Path]:
+        if not matches:
+            return None
+
+        if preferred_name:
+            for match in matches:
+                if match.name == preferred_name:
+                    return match
+
+        matches = sorted(
+            matches,
+            key=lambda path: (
+                DataManager._has_numeric_suffix(path.stem),
+                len(path.name),
+                path.name,
+            ),
+        )
+        return matches[0]
+
+    @staticmethod
+    def _has_numeric_suffix(stem: str) -> int:
+        return 1 if re.search(r"_\d+$", stem) else 0
+
+    def _resolve_geometry_path(self, region: Optional[str]) -> Optional[str]:
+        if not region or not self.geometries_dir:
+            return None
+
+        geom_dir = pathlib.Path(self.geometries_dir)
+        if not geom_dir.exists():
+            return None
+
+        normalized = region.strip().lower().replace(" ", "_")
+        variants = [
+            normalized,
+            normalized.replace("-", "_"),
+            normalized.replace("_", "-"),
+        ]
+
+        for name in dict.fromkeys(variants):
+            candidate = geom_dir / f"{name}.geojson"
+            if candidate.exists():
+                if self.verbose:
+                    print(f"✅ Using geometry file: {candidate}")
+                return str(candidate)
+
+        normalized_full = normalized
+        for geojson_path in geom_dir.glob("*.geojson"):
+            stem = geojson_path.stem.lower()
+            stem_variants = {stem, stem.replace("-", "_"), stem.replace("_", "-")}
+            if any(
+                normalized_full.startswith(variant)
+                or variant in normalized_full
+                for variant in stem_variants
+            ):
+                if self.verbose:
+                    print(f"✅ Using geometry file: {geojson_path}")
+                return str(geojson_path)
+
+        if self.verbose:
+            print(
+                f"⚠️  No geometry found for region '{region}' in {geom_dir}"
+            )
+        return None
+
+    @staticmethod
+    def _format_model_display_name(region: Optional[str], model_name: str) -> str:
+        if region:
+            return f"{region} / {model_name}"
+        return model_name
+
+    # ------------------------------------------------------------------
+    # DuckDB helpers
+    # ------------------------------------------------------------------
+
+    def _connect_duckdb(self, database_path: str) -> duckdb.DuckDBPyConnection:
+        if DatabaseConstants.is_gcs_path(database_path) and self.verbose:
+            print(f"🌐 Connecting to GCS database: {database_path}")
+            if os.getenv("GCS_ACCESS_KEY_ID"):
+                print("🔑 Using HMAC key authentication")
+            else:
+                print("🔑 Using default Google Cloud authentication")
+        elif self.verbose:
+            print(f"💾 Connecting to local database: {database_path}")
+
+        try:
+            connection = DatabaseConstants.setup_duckdb_connection(
+                database_path, read_only=True
+            )
+            if self.verbose:
+                print("✅ Database connection established successfully")
+            return connection
+        except Exception as exc:
+            if DatabaseConstants.is_gcs_path(database_path):
+                error_msg = f"Failed to connect to GCS database: {exc}"
+                if (
+                    "authentication" in str(exc).lower()
+                    or "forbidden" in str(exc).lower()
+                ):
+                    error_msg += "\n💡 Check your GCS authentication setup (see GCS_SETUP.md)"
+                raise RuntimeError(error_msg)
+            raise RuntimeError(f"Failed to connect to local database: {exc}")
+
+    def _apply_duckdb_settings(self, database_path: Optional[str]) -> None:
+        for query in DatabaseConstants.get_memory_setup_queries():
+            self.duckdb_connection.execute(query)
+        try:
+            self.duckdb_connection.execute("SET enable_progress_bar=false")
+            self.duckdb_connection.execute("SET enable_profiling='no_output'")
+            self.duckdb_connection.execute("PRAGMA disable_profiling")
+            self.duckdb_connection.execute("SET enable_object_cache=false")
+            if self.verbose:
+                print("✅ Progress bar and profiling disabled")
+        except Exception:  # pragma: no cover - optional settings
+            pass
+
+        if database_path:
+            extension_queries = DatabaseConstants.get_extension_setup_queries(
+                database_path
+            )
+            for query in extension_queries:
+                try:
+                    self.duckdb_connection.execute(query)
+                    if self.verbose:
+                        if "httpfs" in query:
+                            print("📦 httpfs extension loaded for GCS support")
+                        elif "spatial" in query:
+                            print("🗺️  spatial extension loaded for geometry support")
+                except Exception as exc:
+                    raise RuntimeError(f"Failed to load required extension: {exc}")
+
+    def _refresh_id_columns(self) -> None:
+        columns = self._detect_id_columns()
+        self.id_column_candidates = columns
+        for candidate in ("source_id", "tile_id"):
+            if candidate in columns:
+                self.external_id_column = candidate
+                return
+        self.external_id_column = "id"
+
+    def _detect_id_columns(self) -> List[str]:
+        try:
+            rows = self.duckdb_connection.execute(
+                "PRAGMA table_info('geo_embeddings')"
+            ).fetchall()
+        except Exception:
+            return ["id"]
+        columns = [row[1] for row in rows if len(row) > 1]
+        candidates = [col for col in ("source_id", "tile_id", "id") if col in columns]
+        if candidates:
+            return candidates
+        return ["id"]
+
+    def _detect_embedding_dim(self) -> int:
+        try:
+            embedding_dim = DatabaseConstants.detect_embedding_dimension(
+                self.duckdb_connection
+            )
+            if self.verbose:
+                print(f"🔍 Detected embedding dimension: {embedding_dim}")
+            return embedding_dim
+        except ValueError as exc:
+            if self.verbose:
+                print(f"⚠️ Could not detect embedding dimension: {exc}")
+                print("⚠️ Using default dimension of 384")
+            return 384
+
+    def _warm_up_gcs_database(self) -> None:
+        try:
+            if self.verbose:
+                print("🔧 Optimizing database connection...")
+
+            first_point_query = """
+            SELECT CAST(embedding AS FLOAT[]) as embedding 
+            FROM geo_embeddings 
+            WHERE embedding IS NOT NULL 
+            LIMIT 1
+            """
+            result = self.duckdb_connection.execute(first_point_query).fetchone()
+            if not result or not result[0]:
+                if self.verbose:
+                    print("⚠️  No embeddings found for warm-up")
+                return
+
+            first_embedding = result[0]
+            sql = DatabaseConstants.get_similarity_search_light_query(
+                self.embedding_dim
+            )
+            query_params = [first_embedding, 100]
+            self.duckdb_connection.execute(sql, query_params).fetchall()
+            if self.verbose:
+                print("✅ Database optimization completed")
+        except Exception as exc:
+            if self.verbose:
+                print(f"⚠️  Database warm-up failed: {exc}")
+
+    # ------------------------------------------------------------------
+    # Boundary helpers
+    # ------------------------------------------------------------------
+
+    def _setup_boundary_and_center(self):
+        boundary_path = self.current_geometry_path
+        if (
+            not boundary_path
+            and self.current_database_info
+            and self.current_database_info.get("geometry_path")
+        ):
+            boundary_path = self.current_database_info.get("geometry_path")
+
+        if boundary_path:
+            try:
+                boundary_gdf = gpd.read_file(boundary_path)
+                center_y, center_x = (
+                    boundary_gdf.geometry.iloc[0].centroid.y,
+                    boundary_gdf.geometry.iloc[0].centroid.x,
+                )
+                if self.verbose:
+                    print(f"📍 Using boundary file: {boundary_path}")
+                return boundary_path, (center_y, center_x)
+            except Exception as exc:
+                if self.verbose:
+                    print(f"⚠️  Could not load boundary file {boundary_path}: {exc}")
+                    print("⚠️  Using database centroid for centering")
+
+        center_y, center_x = get_database_centroid(
+            self.duckdb_connection, verbose=self.verbose
+        )
+        return None, (center_y, center_x)
+
+    def _update_ee_boundary(self) -> None:
+        if not self.ee_available:
+            return
+
+        if self.effective_boundary_path:
+            try:
+                boundary_gdf = gpd.read_file(self.effective_boundary_path)
+                geometry = shapely.geometry.mapping(boundary_gdf.union_all())
+                self.ee_boundary = ee.Geometry(geometry)
+            except Exception as exc:
+                if self.verbose:
+                    print(f"⚠️  Failed to update Earth Engine boundary: {exc}")
+                self.ee_boundary = None
+        else:
+            self.ee_boundary = None
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def close(self) -> None:
+        if getattr(self, "_owns_connection", False):
+            if getattr(self, "duckdb_connection", None):
+                self.duckdb_connection.close()
+                if self.verbose:
+                    print("🔌 DuckDB connection closed.")
+
+    def fetch_embeddings(self, point_ids: List[str], chunk_size: Optional[int] = None):
+        if not point_ids:
+            return
+
+        chunk_size = chunk_size or DatabaseConstants.EMBEDDING_CHUNK_SIZE
+        if len(point_ids) > 100 and self.verbose:
+            print(f"🔄 Fetching embeddings for {len(point_ids)} points...")
+
+        for i in range(0, len(point_ids), chunk_size):
+            chunk = point_ids[i : i + chunk_size]
+            prepared_chunk = prepare_ids_for_query(chunk)
+            placeholders = ",".join(["?" for _ in prepared_chunk])
+            select_parts = ["id"]
+            external_column = getattr(self, "external_id_column", "id")
+            if external_column != "id":
+                select_parts.append(external_column)
+            select_parts.extend([
+                "CAST(embedding AS FLOAT[]) as embedding",
+                "geometry",
+            ])
+            select_clause = ", ".join(select_parts)
+            query = f"""
+            SELECT {select_clause}
+            FROM geo_embeddings 
+            WHERE id IN ({placeholders})
+            """
+            log_to_file(
+                f"Fetch embeddings: Built query for chunk with IDs: {prepared_chunk}"
+            )
+            arrow_table = self.duckdb_connection.execute(
+                query, prepared_chunk
+            ).fetch_arrow_table()
+            chunk_df = arrow_table.to_pandas()
+            yield chunk_df
+
+    def nearest_point(self, lon: float, lat: float):
+        sql = DatabaseConstants.NEAREST_POINT_QUERY
+        params = [lon, lat]
+        return self.duckdb_connection.execute(sql, params).fetchone()
+
+    def query_geometries(self, ids: List[str]):
+        if not ids:
+            return None
+        prepared_ids = prepare_ids_for_query(ids)
+        placeholders = ",".join(["?" for _ in prepared_ids])
+        sql = f"""
+        SELECT ST_AsGeoJSON(geometry) as geometry
+        FROM geo_embeddings
+        WHERE id IN ({placeholders})
+        """
+        return self.duckdb_connection.execute(sql, prepared_ids).df()
+
+    def query_search_metadata(self, faiss_ids: List[int]):
+        if not faiss_ids:
+            return None
+        placeholders = ",".join(["?" for _ in faiss_ids])
+        select_parts = ["id"]
+        external_column = getattr(self, "external_id_column", "id")
+        if external_column != "id":
+            select_parts.append(external_column)
+        select_parts.extend(
+            [
+                "ST_AsGeoJSON(geometry) AS geometry_json",
+                "ST_AsText(geometry) AS geometry_wkt",
+            ]
+        )
+        select_clause = ", ".join(select_parts)
+        sql = f"""
+        SELECT {select_clause}
+        FROM geo_embeddings
+        WHERE id IN ({placeholders})
+        """
+        return self.duckdb_connection.execute(sql, faiss_ids).fetchdf()
+
+    def switch_database(self, database_path: str):
+        if database_path == self.current_database_path:
+            return
+
+        self.current_database_path = database_path
+        self.current_database_info = self.database_info_by_path.get(database_path)
+        if self.current_database_info:
+            self.current_faiss_path = self.current_database_info["faiss_path"]
+            self.current_geometry_path = self.current_database_info.get("geometry_path")
+            self.tile_spec = self.current_database_info.get("tile_spec")
+        else:
+            self.current_faiss_path = None
+            self.current_geometry_path = None
+            self.tile_spec = None
+
+        if not self.tile_spec:
+            self.tile_spec = infer_tile_spec_from_name(database_path)
+
+        if getattr(self, "_owns_connection", False):
+            if getattr(self, "duckdb_connection", None):
+                self.duckdb_connection.close()
+
+        self.duckdb_connection = self._connect_duckdb(database_path)
+        self._owns_connection = True
+        self._apply_duckdb_settings(database_path)
+        self._refresh_id_columns()
+
+        if not self.current_faiss_path:
+            raise RuntimeError(
+                f"No FAISS index recorded for {os.path.basename(database_path)}"
+            )
+
+        self.faiss_index = faiss.read_index(self.current_faiss_path)
+        self.embedding_dim = self._detect_embedding_dim()
+        if DatabaseConstants.is_gcs_path(database_path):
+            self._warm_up_gcs_database()
+
+        self.effective_boundary_path, (self.center_y, self.center_x) = (
+            self._setup_boundary_and_center()
+        )
+        self._update_ee_boundary()
+
+
+__all__ = ["DataManager"]

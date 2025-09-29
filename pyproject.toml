@@ -40,7 +40,7 @@ dependencies = [
     "earthengine-api",
     "faiss-cpu",
     "fiona",
-    "flake8", 
+    "flake8",
     "gcsfs",
     "geemap",
     "geopandas",
@@ -68,7 +68,7 @@ dependencies = [
     "shapely",
     "tenacity",
     "tqdm",
-    "voila"
+    "voila",
 ]
 
 
@@ -83,7 +83,7 @@ Issues = "https://github.com/demeterlabs/geovibes/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["geovibes*"]
+include = ["geovibes"]
 
 [tool.setuptools.package-data]
 geovibes = ["*.yaml", "*.json", "ui_config/*"]
