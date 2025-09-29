@@ -51,7 +51,7 @@ end_date: "2025-01-01"
 ```
 
 ### Environment Variables
-
+The main basemap relies on MapTiler. You need to create a [MapTiler account](https://cloud.maptiler.com/maps/) and get an API key in order for this to work.
 Create a `.env` file in the repository root for sensitive configuration:
 
 ```env
