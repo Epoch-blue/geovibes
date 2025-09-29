@@ -59,31 +59,35 @@ When the notebook opens, select the `Python (geovibes)` kernel registered during
 **Label a point and search**  
 Start your search by picking a point for which you would like to find similar ones in your area, then click Search. This will open a tile panel showing your search results but also show them on the map.
 
-![Label a point and search for similar points](images/label_and_search.gif)
+<img src="images/label_and_search.gif" alt="Label a point and search for similar points" width="700" />
+
 
 **Polygon Labeling**  
 Search is iterative: positives get added to your query vector and negatives get subtracted. Use polygon labeling mode for bulk positive/negative selection.
-![Polygon labeling and search for similar points](images/polygon_labels.gif)
+<img src="images/polygon_labels.gif" alt="Polygon labeling and search for similar points" width="700" />
+
 
 **Tile Panel Labeling**
 You can use the tile panel to pan the map to a given tile, as well as label them.
 
-![Tile panning and labeling](images/label_search_tile_panel.gif)
+<img src="images/label_search_tile_panel.gif" alt="Tile panning and labeling" width="700" />
 
 **Change basemap**
 You can cycle through different basemaps as you are searching. This will cycle through in on both the leaflet map and the individual tiles in the tile panel. NB: we currently do not support pulling the S2 basemaps into the tiles, these are only available as tiles on the leaflet map served via Google Earth Engine.
 
-![Cycling through basemaps](images/label_search_basemap_change.gif)
+<img src="images/label_search_basemap_change.gif" alt="Cycling through basemaps" width="700" />
+
 
 **Load Previous Datasets**  
 Save your search results as GeoJSON and reload them to continue searching.
 
-![Load a previous dataset](images/load_dataset.gif)
+<img src="images/load_dataset.gif" alt="Load a previous dataset" width="700" />
+
 
 **Use Google Street View**
 You can also use google maps/street view to help you label.
 
-![Google Street View](images/gsv.gif)
+<img src="images/gsv.gif" alt="Google Street View" width="700" />
 
 ## Configuration
 
@@ -118,21 +122,8 @@ This dual-component system is built using the script in `geovibes/database/faiss
 
 This combination of a dedicated vector index and a spatial database allows GeoVibes to perform complex queries that combine both content-based similarity and geographic location.
 
-### DuckDB ↔ FAISS Search Flow
 
-```mermaid
-flowchart TD
-    Click["User click (lat, lon)"] --> Q1["DuckDB query\nST_DWithin/ST_Point" ]
-    Q1 --> V1["Embedding vector"]
-    V1 --> Q2["FAISS search\nsearch(vector, N)"]
-    Q2 --> R1["Nearest ids + distances"]
-    R1 --> Q3["DuckDB lookup\nSELECT id, geometry, embedding\nWHERE id IN ids"]
-    Q3 --> Render["Render neighbors on map and tiles"]
-```
-
-Given a latitude and longitude, GeoVibes first issues a spatial query against the `geo_embeddings` table in DuckDB. The geometry column is intersected with a point constructed from the click location, returning the embedding vector tied to that exact tile. That vector becomes the FAISS query vector: the UI submits it to the FAISS index and retrieves the nearest `N` neighbors along with their internal identifiers (for example `id` or `source_id`). With that neighbor list in hand, the UI executes a second DuckDB query that fetches the corresponding embeddings and geometries, enabling the map and tile panel to display each matched location while keeping the vectors in memory for continued iterative search.
-
-### 3. Earth Engine Authentication (Optional - for NDVI/NDWI basemaps)
+### Earth Engine Authentication (Optional - for NDVI/NDWI basemaps)
 
 Earth Engine authentication is **completely optional**. GeoVibes works perfectly without it!
 
@@ -158,20 +149,35 @@ This method uses Facebook AI's FAISS library to create a highly optimized index,
 Create a FAISS index and a corresponding metadata database from local parquet files:
 
 ```bash
-# Create a full index from embeddings in a directory
-python geovibes/database/faiss_db.py embeddings/eg_nm --name new-mexico --output_dir faiss_db --dtype INT8
+# Build a full Alabama index using a ROI and remote embeddings
+python geovibes/database/faiss_db.py \
+  --roi-file geometries/alabama.geojson \
+  --mgrs-reference-file geometries/mgrs_tiles.parquet \
+  --embedding-dir s3://us-west-2.opendata.source.coop/earthgenome/earthindexembeddings/2024/ \
+  --name earthgenome_softcon_2024_2025 \
+  --tile-pixels 32 \
+  --tile-overlap 16 \
+  --tile-resolution 10 \
+  --output_dir local_databases
 
-# Create a smaller index for testing (dry run)
-python geovibes/database/faiss_db.py embeddings/eg_nm --name new-mexico-dry-run --output_dir faiss_db --dtype INT8 --dry-run
+# Build a smaller dry-run index for testing
+python geovibes/database/faiss_db.py \
+  --roi-file geometries/alabama.geojson \
+  --mgrs-reference-file geometries/mgrs_tiles.parquet \
+  --embedding-dir s3://us-west-2.opendata.source.coop/earthgenome/earthindexembeddings/2024/ \
+  --name earthgenome_softcon_2024_2025 \
+  --tile-pixels 32 --tile-overlap 16 --tile-resolution 10 \
+  --output_dir local_databases \
+  --dry-run --dry-run-size 5
 ```
 
 This script processes parquet files from an input directory, builds a FAISS index, and creates a separate DuckDB file containing the metadata for the embeddings.
 
 ## Performance & Limitations
 
-- **Database scaling**: Tested up to 3.5M embeddings; 10M+ may cause performance issues
+- **Database scaling**: Tested up to 5M embeddings
 - **Memory management**: Two-layer approach for handling large datasets
-    - **DuckDB memory limits**: Default 12GB (`MEMORY_LIMIT = '12GB'`) controls database operations
+    - **DuckDB memory limits**: Default 24GB (`MEMORY_LIMIT = '24GB'`) controls database operations
     - **Application chunking**: 10,000 embeddings per chunk prevents Python memory overflow during data transfer
     - Both are necessary: DuckDB limits control internal operations, chunking controls Python data loading
     - Modify `DatabaseConstants.MEMORY_LIMIT` and `EMBEDDING_CHUNK_SIZE` for custom allocation
