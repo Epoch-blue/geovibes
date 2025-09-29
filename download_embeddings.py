@@ -16,7 +16,7 @@ import requests
 import termios
 import tty
 import glob
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Optional
 from tqdm import tqdm
 
 
@@ -31,9 +31,22 @@ def parse_manifest(manifest_path: str) -> List[Dict[str, str]]:
     with open(manifest_path, "r", newline="") as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
-            manifest_data.append(row)
+            cleaned = {
+                key: value.strip() if isinstance(value, str) else value
+                for key, value in row.items()
+            }
+            manifest_data.append(cleaned)
 
     return manifest_data
+
+
+def enrich_manifest_with_sizes(manifest_data: List[Dict[str, str]]) -> None:
+    """Populate each manifest row with remote file size information."""
+    for row in manifest_data:
+        url = s3_to_https_url(row["model_path"])
+        size_bytes = get_remote_file_size(url)
+        row["size_bytes"] = size_bytes
+        row["size_display"] = format_size(size_bytes)
 
 
 def get_unique_regions(manifest_data: List[Dict[str, str]]) -> Set[str]:
@@ -44,10 +57,36 @@ def get_unique_regions(manifest_data: List[Dict[str, str]]) -> Set[str]:
 def s3_to_https_url(s3_url: str) -> str:
     """Convert S3 URL to HTTPS URL."""
     # Remove s3:// prefix and convert to https
+    s3_url = s3_url.strip()
     if s3_url.startswith("s3://"):
         path = s3_url[5:]  # Remove 's3://'
         return f"https://s3.us-west-2.amazonaws.com/{path}"
     return s3_url
+
+
+def get_remote_file_size(url: str) -> Optional[int]:
+    """Return remote file size in bytes if available."""
+    try:
+        response = requests.head(url, allow_redirects=True, timeout=10)
+        response.raise_for_status()
+        size_header = response.headers.get("content-length")
+        if size_header and size_header.isdigit():
+            return int(size_header)
+    except requests.exceptions.RequestException:
+        return None
+    return None
+
+
+def format_size(size_bytes: Optional[int]) -> str:
+    if size_bytes is None or size_bytes <= 0:
+        return "Unknown"
+    units = ["B", "KB", "MB", "GB", "TB"]
+    value = float(size_bytes)
+    for unit in units:
+        if value < 1024.0 or unit == units[-1]:
+            return f"{value:.1f} {unit}"
+        value /= 1024.0
+    return f"{value:.1f} TB"
 
 
 def download_file_with_progress(url: str, local_path: str) -> bool:
@@ -203,7 +242,8 @@ def download_and_extract_database(
         # Download tar.gz to temp directory
         temp_tar_path = os.path.join(temp_dir, f"{model_name}.tar.gz")
 
-        print(f"Downloading database: {model_name}")
+        size_display = model_data.get("size_display", "Unknown")
+        print(f"Downloading database: {model_name} ({size_display})")
         if not download_file_with_progress(https_url, temp_tar_path):
             return False
 
@@ -274,13 +314,16 @@ def display_selection_menu(manifest_data: List[Dict[str, str]]) -> List[Dict[str
         print("=" * 80)
 
         # Column headers
-        print(f"   {'Status':<8} {'Region':<15} | {'Model Name'}")
+        print(f"   {'Status':<8} {'Region':<18} {'Size':>12} | {'Model Name'}")
         print("-" * 80)
 
         for i, row in enumerate(manifest_data):
             marker = "[X]" if selected[i] else "[ ]"
             cursor = ">" if i == current_index else " "
-            print(f"{cursor} {marker:<8} {row['region']:<15} | {row['model_name']}")
+            size_display = row.get("size_display", "Unknown")
+            print(
+                f"{cursor} {marker:<8} {row['region']:<18} {size_display:>12} | {row['model_name']}"
+            )
 
         print("\n" + "=" * 80)
         print(f"Selected: {sum(selected)} databases")
@@ -324,7 +367,10 @@ def display_selection_menu(manifest_data: List[Dict[str, str]]) -> List[Dict[str
     if selected_items:
         print(f"\nFinal selection ({len(selected_items)} databases):")
         for i, row in enumerate(selected_items):
-            print(f"  {i + 1}. {row['region']} | {row['model_name']}")
+            size_display = row.get("size_display", "Unknown")
+            print(
+                f"  {i + 1}. {row['region']:<18} {size_display:>12} | {row['model_name']}"
+            )
 
     return selected_items
 
@@ -348,6 +394,10 @@ def main():
     print("Parsing manifest...")
     manifest_data = parse_manifest(manifest_path)
     print(f"Found {len(manifest_data)} database entries")
+    print("Fetching database sizes...")
+    enrich_manifest_with_sizes(manifest_data)
+
+    manifest_data.sort(key=lambda row: (row['region'], row.get('size_bytes') or float('inf'), row['model_name']))
 
     # Display selection menu
     selected_databases = display_selection_menu(manifest_data)
@@ -373,7 +423,7 @@ def main():
     database_success = []
     for db_data in selected_databases:
         success = download_and_extract_database(db_data, local_databases_dir)
-        database_success.append((db_data["model_name"], success))
+        database_success.append((db_data, success))
 
     # Summary
     print("\n" + "=" * 60)
@@ -386,9 +436,11 @@ def main():
         print(f"  {status} {region}.geojson")
 
     print("\nDatabases:")
-    for model_name, success in database_success:
+    for row, success in database_success:
+        model_name = row["model_name"]
+        size_display = row.get("size_display", "Unknown")
         status = "✓" if success else "✗"
-        print(f"  {status} {model_name}")
+        print(f"  {status} {model_name} ({size_display})")
 
     successful_geometries = sum(1 for _, success in geometry_success if success)
     successful_databases = sum(1 for _, success in database_success if success)

@@ -35,7 +35,7 @@ With your virtual environment active, run the interactive downloader to fetch ge
 uv run download_embeddings.py
 ```
 
-The script lets you select regions to download, stores geometries in `geometries/`, and extracts the model artifacts into `local_databases/`. You can rerun it at any time; previously downloaded files are skipped.
+The script lets you select regions to download, stores geometries in `geometries/`, and extracts the model artifacts into `local_databases/`. You can rerun it at any time; previously downloaded files are skipped. We recommend starting with a small database: for example a google database, or a quantized one.
 
 ## Configuration
 
