@@ -37,6 +37,28 @@ uv run download_embeddings.py
 
 The script lets you select regions to download, stores geometries in `geometries/`, and extracts the model artifacts into `local_databases/`. You can rerun it at any time; previously downloaded files are skipped.
 
+## Configuration
+
+### YAML Configuration (Recommended)
+
+Create a `config.yaml` file to configure GeoVibes. Paths to DuckDB databases and boundaries are optional—GeoVibes now discovers downloaded models automatically via `manifest.csv`:
+
+```yaml
+# Basemap date range
+start_date: "2024-01-01"
+end_date: "2025-01-01"
+
+```
+
+### Environment Variables
+
+Create a `.env` file in the repository root for sensitive configuration:
+
+```env
+# Required for MapTiler satellite basemaps
+MAPTILER_API_KEY=your_maptiler_api_key_here
+```
+
 ### Notebook (`vibe_checker.ipynb`)
 
 Launch Jupyter Lab (or Notebook) and open `vibe_checker.ipynb`:
@@ -88,28 +110,6 @@ Save your search results as GeoJSON and reload them to continue searching.
 You can also use google maps/street view to help you label.
 
 <img src="images/gsv.gif" alt="Google Street View" width="700" />
-
-## Configuration
-
-### YAML Configuration (Recommended)
-
-Create a `config.yaml` file to configure GeoVibes. Paths to DuckDB databases and boundaries are optional—GeoVibes now discovers downloaded models automatically via `manifest.csv`:
-
-```yaml
-# Basemap date range
-start_date: "2024-01-01"
-end_date: "2025-01-01"
-
-```
-
-### Environment Variables
-
-Create a `.env` file in the repository root for sensitive configuration:
-
-```env
-# Required for MapTiler satellite basemaps
-MAPTILER_API_KEY=your_maptiler_api_key_here
-```
 
 ## Architecture
 
