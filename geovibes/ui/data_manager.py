@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import os
 import pathlib
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import duckdb
@@ -51,7 +52,9 @@ class DataManager:
         self.ee_boundary = None
 
         if "enable_ee" in unused_kwargs and self.verbose:
-            print("ℹ️ Pass enable_ee via config or GEOVIBES_ENABLE_EE environment variable.")
+            print(
+                "ℹ️ Pass enable_ee via config or GEOVIBES_ENABLE_EE environment variable."
+            )
 
         # Configuration and Earth Engine toggles
         self.config = self._load_config(
@@ -64,12 +67,16 @@ class DataManager:
 
         self.ee_available = False
         env_enable = os.getenv("GEOVIBES_ENABLE_EE")
-        env_opt_in = bool(env_enable and env_enable.strip().lower() in {"1", "true", "yes", "on"})
+        env_opt_in = bool(
+            env_enable and env_enable.strip().lower() in {"1", "true", "yes", "on"}
+        )
         ee_opt_in = (self.config.enable_ee or env_opt_in) and not disable_ee
         if ee_opt_in:
             self.ee_available = initialize_ee_with_credentials(verbose=self.verbose)
         elif self.verbose and not disable_ee:
-            print("ℹ️ Earth Engine basemaps disabled (enable via config or GEOVIBES_ENABLE_EE)")
+            print(
+                "ℹ️ Earth Engine basemaps disabled (enable via config or GEOVIBES_ENABLE_EE)"
+            )
 
         self.geometries_dir = self._resolve_geometries_directory()
         self.local_database_directory = self._resolve_local_database_directory()
@@ -212,9 +219,7 @@ class DataManager:
             faiss_path = self._infer_faiss_from_db(db_path)
             if not faiss_path:
                 if self.verbose:
-                    print(
-                        f"⚠️  Could not locate FAISS index for {db_path}. Skipping."
-                    )
+                    print(f"⚠️  Could not locate FAISS index for {db_path}. Skipping.")
             else:
                 geometry_path = self._infer_geometry_from_db(db_path)
                 if geometry_path is None:
@@ -252,7 +257,9 @@ class DataManager:
                 entry["geometry_path"] = geometry_path
                 discovered.append(entry)
             for entry in discovered:
-                entry.setdefault("geometry_path", getattr(self.config, "boundary_path", None))
+                entry.setdefault(
+                    "geometry_path", getattr(self.config, "boundary_path", None)
+                )
             if discovered:
                 return discovered
 
@@ -490,8 +497,7 @@ class DataManager:
             stem = geojson_path.stem.lower()
             stem_variants = {stem, stem.replace("-", "_"), stem.replace("_", "-")}
             if any(
-                normalized_full.startswith(variant)
-                or variant in normalized_full
+                normalized_full.startswith(variant) or variant in normalized_full
                 for variant in stem_variants
             ):
                 if self.verbose:
@@ -499,9 +505,7 @@ class DataManager:
                 return str(geojson_path)
 
         if self.verbose:
-            print(
-                f"⚠️  No geometry found for region '{region}' in {geom_dir}"
-            )
+            print(f"⚠️  No geometry found for region '{region}' in {geom_dir}")
         return None
 
     @staticmethod
@@ -538,7 +542,9 @@ class DataManager:
                     "authentication" in str(exc).lower()
                     or "forbidden" in str(exc).lower()
                 ):
-                    error_msg += "\n💡 Check your GCS authentication setup (see GCS_SETUP.md)"
+                    error_msg += (
+                        "\n💡 Check your GCS authentication setup (see GCS_SETUP.md)"
+                    )
                 raise RuntimeError(error_msg)
             raise RuntimeError(f"Failed to connect to local database: {exc}")
 
@@ -711,10 +717,12 @@ class DataManager:
             external_column = getattr(self, "external_id_column", "id")
             if external_column != "id":
                 select_parts.append(external_column)
-            select_parts.extend([
-                "CAST(embedding AS FLOAT[]) as embedding",
-                "geometry",
-            ])
+            select_parts.extend(
+                [
+                    "CAST(embedding AS FLOAT[]) as embedding",
+                    "geometry",
+                ]
+            )
             select_clause = ", ".join(select_parts)
             query = f"""
             SELECT {select_clause}
