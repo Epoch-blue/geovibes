@@ -9,21 +9,20 @@ class StubDatasetManager:
         return self.payload
 
 
-def test_handle_save_dataset_emits_filepaths():
-    payload = {
-        "geojson": "labeled_dataset_20250101.geojson",
-        "csv": "labeled_dataset_20250101_labels.csv",
-    }
+def test_handle_save_dataset_reports_geojson():
+    payload = {"geojson": "labeled_dataset_20250101.geojson"}
     captured = {}
 
     vibes = GeoVibes.__new__(GeoVibes)
     vibes.dataset_manager = StubDatasetManager(payload)
-    vibes._show_operation_status = lambda message: captured.setdefault("message", message)
+    vibes._show_operation_status = lambda message: captured.setdefault(
+        "message", message
+    )
 
     vibes._handle_save_dataset()
 
     assert payload["geojson"] in captured["message"]
-    assert payload["csv"] in captured["message"]
+    assert "labels" not in captured["message"]
 
 
 def test_handle_save_dataset_handles_empty_payload():
@@ -31,7 +30,9 @@ def test_handle_save_dataset_handles_empty_payload():
 
     vibes = GeoVibes.__new__(GeoVibes)
     vibes.dataset_manager = StubDatasetManager(None)
-    vibes._show_operation_status = lambda message: captured.setdefault("message", message)
+    vibes._show_operation_status = lambda message: captured.setdefault(
+        "message", message
+    )
 
     vibes._handle_save_dataset()
 

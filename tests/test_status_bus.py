@@ -12,6 +12,8 @@ def test_status_bus_render_includes_operation():
     assert "Lon: 2.3457" in html
 
     bus.clear_operation()
-    html = bus.render(lat=0, lon=0, mode="Polygon", label="Negative", polygon_drawing=True)
+    html = bus.render(
+        lat=0, lon=0, mode="Polygon", label="Negative", polygon_drawing=True
+    )
 
     assert "Drawing polygon" in html

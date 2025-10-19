@@ -140,7 +140,7 @@ def download_file_with_progress(url: str, local_path: str) -> bool:
         if existing_size:
             headers["Range"] = f"bytes={existing_size}-"
             print(
-                f"Resuming {filename}: already have {existing_size / (1024 ** 2):.2f} MB"
+                f"Resuming {filename}: already have {existing_size / (1024**2):.2f} MB"
             )
 
         response = requests.get(url, stream=True, headers=headers)
@@ -154,7 +154,9 @@ def download_file_with_progress(url: str, local_path: str) -> bool:
             response.raise_for_status()
             if os.path.exists(temp_path):
                 os.remove(temp_path)
-            print(f"Server ignored resume request for {filename}. Restarting download...")
+            print(
+                f"Server ignored resume request for {filename}. Restarting download..."
+            )
 
         # Capture total size information from the response when possible
         if existing_size and "content-range" in response.headers:
@@ -397,7 +399,13 @@ def main():
     print("Fetching database sizes...")
     enrich_manifest_with_sizes(manifest_data)
 
-    manifest_data.sort(key=lambda row: (row['region'], row.get('size_bytes') or float('inf'), row['model_name']))
+    manifest_data.sort(
+        key=lambda row: (
+            row["region"],
+            row.get("size_bytes") or float("inf"),
+            row["model_name"],
+        )
+    )
 
     # Display selection menu
     selected_databases = display_selection_menu(manifest_data)

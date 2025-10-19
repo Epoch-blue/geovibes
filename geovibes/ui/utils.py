@@ -51,12 +51,12 @@ def list_databases_in_directory(
 
     # google is most lightweight, start here
     def sort_key(entry: Dict[str, str]) -> tuple[int, str]:
-        db_name = Path(entry['db_path']).stem.lower()
-        if 'alabama' in db_name and 'google' in db_name:
-            return (0, entry['db_path'])
-        if db_name.startswith('alabama_earthgenome_softcon'):
-            return (1, entry['db_path'])
-        return (2, entry['db_path'])
+        db_name = Path(entry["db_path"]).stem.lower()
+        if "alabama" in db_name and "google" in db_name:
+            return (0, entry["db_path"])
+        if db_name.startswith("alabama_earthgenome_softcon"):
+            return (1, entry["db_path"])
+        return (2, entry["db_path"])
 
     return sorted(databases, key=sort_key)
 
@@ -85,7 +85,9 @@ def infer_tile_spec_from_name(name: str) -> Optional[Dict[str, float]]:
     }
 
 
-def get_database_centroid(duckdb_connection, verbose: bool = False) -> tuple[float, float]:
+def get_database_centroid(
+    duckdb_connection, verbose: bool = False
+) -> tuple[float, float]:
     if verbose:
         print("📍 Using default center (0, 0)")
     return 0.0, 0.0

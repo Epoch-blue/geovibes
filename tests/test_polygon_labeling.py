@@ -188,7 +188,9 @@ def test_iterative_label_workflow_positive_then_negative(geo_vibes_stub):
 
     assert gv.state.pos_ids == ["1"]
     assert gv.state.neg_ids == []
-    np.testing.assert_array_equal(gv.state.cached_embeddings["1"], np.array([0.1, 0.2, 0.3]))
+    np.testing.assert_array_equal(
+        gv.state.cached_embeddings["1"], np.array([0.1, 0.2, 0.3])
+    )
     assert layer_calls[-1] == (["1"], [])
     assert query_calls[-1] == ("1",)
 

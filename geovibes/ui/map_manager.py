@@ -52,9 +52,7 @@ class MapManager:
             attribution="",
         )
 
-        self.map = self._build_map(
-            center=(self.data.center_y, self.data.center_x)
-        )
+        self.map = self._build_map(center=(self.data.center_y, self.data.center_x))
         self.legend = self._build_legend()
         self.status_bar = HTML(value="Ready")
         self.vector_layer = None
@@ -82,13 +80,31 @@ class MapManager:
                 end = self.data.config.end_date
 
                 basemap_tasks = [
-                    ("S2_RGB", lambda: get_s2_rgb_median(boundary, start, end), BasemapConfig.S2_RGB_VIS_PARAMS),
-                    ("S2_NDVI", lambda: get_s2_ndvi_median(boundary, start, end), BasemapConfig.NDVI_VIS_PARAMS),
-                    ("S2_NDWI", lambda: get_s2_ndwi_median(boundary, start, end), BasemapConfig.NDWI_VIS_PARAMS),
-                    ("S2_HSV", lambda: get_s2_hsv_median(boundary, start, end), BasemapConfig.S2_HSV_VIS_PARAMS),
+                    (
+                        "S2_RGB",
+                        lambda: get_s2_rgb_median(boundary, start, end),
+                        BasemapConfig.S2_RGB_VIS_PARAMS,
+                    ),
+                    (
+                        "S2_NDVI",
+                        lambda: get_s2_ndvi_median(boundary, start, end),
+                        BasemapConfig.NDVI_VIS_PARAMS,
+                    ),
+                    (
+                        "S2_NDWI",
+                        lambda: get_s2_ndwi_median(boundary, start, end),
+                        BasemapConfig.NDWI_VIS_PARAMS,
+                    ),
+                    (
+                        "S2_HSV",
+                        lambda: get_s2_hsv_median(boundary, start, end),
+                        BasemapConfig.S2_HSV_VIS_PARAMS,
+                    ),
                 ]
 
-                for name, image_func, vis_params in tqdm(basemap_tasks, desc="Loading Earth Engine basemaps"):
+                for name, image_func, vis_params in tqdm(
+                    basemap_tasks, desc="Loading Earth Engine basemaps"
+                ):
                     image = image_func()
                     basemap_tiles[name] = get_ee_image_url(image, vis_params)
 
@@ -152,7 +168,12 @@ class MapManager:
             hover_style=LayerStyles.get_search_hover_style(),
         )
 
-        for layer in [self.pos_layer, self.neg_layer, self.erase_layer, self.points_layer]:
+        for layer in [
+            self.pos_layer,
+            self.neg_layer,
+            self.erase_layer,
+            self.points_layer,
+        ]:
             self.map.add_layer(layer)
 
     def _setup_draw_control(self) -> DrawControl:
@@ -191,7 +212,9 @@ class MapManager:
             layout=Layout(height=UIConstants.DEFAULT_HEIGHT, width="100%"),
         )
 
-    def update_status(self, lat: Optional[float] = None, lon: Optional[float] = None) -> None:
+    def update_status(
+        self, lat: Optional[float] = None, lon: Optional[float] = None
+    ) -> None:
         if lat is None or lon is None:
             center = self.map.center
             lat, lon = center[0], center[1]
@@ -218,7 +241,9 @@ class MapManager:
         self.current_basemap = basemap_name
         self.basemap_layer.url = self.basemap_tiles[basemap_name]
 
-    def add_widget_control(self, widget: ipyw.Widget, position: str = "topright") -> ipyl.WidgetControl:
+    def add_widget_control(
+        self, widget: ipyw.Widget, position: str = "topright"
+    ) -> ipyl.WidgetControl:
         control = ipyl.WidgetControl(widget=widget, position=position)
         self.map.add_control(control)
         return control
@@ -244,7 +269,9 @@ class MapManager:
             if self.verbose:
                 print(f"❌ Could not add boundary layer: {exc}")
 
-    def set_vector_layer(self, geojson_data: dict, name: str, style: Optional[dict] = None) -> None:
+    def set_vector_layer(
+        self, geojson_data: dict, name: str, style: Optional[dict] = None
+    ) -> None:
         if self.vector_layer and self.vector_layer in self.map.layers:
             self.map.remove_layer(self.vector_layer)
         style = style or {

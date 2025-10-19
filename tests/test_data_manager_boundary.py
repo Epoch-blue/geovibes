@@ -23,7 +23,9 @@ def test_update_ee_boundary_uses_current_geometry(monkeypatch):
         "second.geojson": gdf_b,
     }
 
-    monkeypatch.setattr(data_manager_module.gpd, "read_file", lambda path: geometries[path])
+    monkeypatch.setattr(
+        data_manager_module.gpd, "read_file", lambda path: geometries[path]
+    )
 
     recorded = []
 
@@ -43,8 +45,6 @@ def test_update_ee_boundary_uses_current_geometry(monkeypatch):
     second_shape = shape(dm.ee_boundary)
     assert second_shape.equals(polygon_b)
     assert len(recorded) == 2
-
-
 
 
 def test_update_ee_boundary_skips_when_disabled(monkeypatch):

@@ -71,14 +71,16 @@ def _meters_per_pixel(lat_deg: float, zoom: int) -> Optional[float]:
     cos_lat = math.cos(lat_rad)
     if cos_lat <= 0:
         return None
-    return 156543.03392 * cos_lat / (2 ** zoom)
+    return 156543.03392 * cos_lat / (2**zoom)
 
 
-def _tile_float_indices(lat_deg: float, lon_deg: float, zoom: int) -> Tuple[float, float]:
+def _tile_float_indices(
+    lat_deg: float, lon_deg: float, zoom: int
+) -> Tuple[float, float]:
     """Return fractional XYZ tile indices for a geographic coordinate."""
 
     lat_rad = math.radians(lat_deg)
-    n = 2.0 ** zoom
+    n = 2.0**zoom
     x_float = (lon_deg + 180.0) / 360.0 * n
     y_float = (1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * n
     return x_float, y_float
@@ -109,7 +111,7 @@ def _assemble_centered_image(
     base_y = int(math.floor(y_float))
     frac_x = x_float - base_x
     frac_y = y_float - base_y
-    n = 2 ** zoom
+    n = 2**zoom
     x_offsets = [-1, 0, 1]
     y_candidates = [-1, 0, 1]
     x_tiles = [(offset, (base_x + offset) % n) for offset in x_offsets]
@@ -174,9 +176,13 @@ def _assemble_centered_image(
         bottom_int = top_int + target_px
     cropped = mosaic.crop((left_int, top_int, right_int, bottom_int))
     if cropped.size != (TILE_SIZE_PX, TILE_SIZE_PX):
-        cropped = cropped.resize((TILE_SIZE_PX, TILE_SIZE_PX), Image.Resampling.BILINEAR)
+        cropped = cropped.resize(
+            (TILE_SIZE_PX, TILE_SIZE_PX), Image.Resampling.BILINEAR
+        )
     if cropped.size != (TILE_SIZE_PX, TILE_SIZE_PX):
-        cropped = cropped.resize((TILE_SIZE_PX, TILE_SIZE_PX), Image.Resampling.BILINEAR)
+        cropped = cropped.resize(
+            (TILE_SIZE_PX, TILE_SIZE_PX), Image.Resampling.BILINEAR
+        )
     buffer = BytesIO()
     cropped.save(buffer, format="PNG")
     return buffer.getvalue()
@@ -204,7 +210,7 @@ def get_map_image(
 
     Returns:
         The image content as bytes.
-    
+
     Raises:
         ValueError: If the source is not a valid XYZ tile source.
         requests.exceptions.RequestException: If the image download fails.

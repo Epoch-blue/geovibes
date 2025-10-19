@@ -26,10 +26,12 @@ def list_cloud_parquet_files(cloud_path: str) -> list[str]:
     protocol = get_cloud_protocol(cloud_path)
     if not protocol:
         raise ValueError("Cloud path must start with 'gs://' or 's3://'")
-    if not cloud_path.endswith('/'):
-        cloud_path += '/'
+    if not cloud_path.endswith("/"):
+        cloud_path += "/"
     if protocol == "s3":
-        endpoint = os.environ.get("S3_ENDPOINT_URL", "https://s3.us-west-2.amazonaws.com")
+        endpoint = os.environ.get(
+            "S3_ENDPOINT_URL", "https://s3.us-west-2.amazonaws.com"
+        )
         use_anon = os.environ.get("GEOVIBES_S3_USE_ANON", "true").lower() != "false"
         fs = fsspec.filesystem(
             "s3",
@@ -43,7 +45,6 @@ def list_cloud_parquet_files(cloud_path: str) -> list[str]:
         return [f"{protocol}://{p}" for p in fs.glob(cloud_path + "*.parquet")]
 
 
-
 def _download_single_cloud_file(cloud_path: str, temp_dir: str) -> Optional[str]:
     """Download one cloud file to a temp directory and return local path."""
     protocol = get_cloud_protocol(cloud_path)
@@ -55,7 +56,9 @@ def _download_single_cloud_file(cloud_path: str, temp_dir: str) -> Optional[str]
         return local_filename
     try:
         if protocol == "s3":
-            endpoint = os.environ.get("S3_ENDPOINT_URL", "https://s3.us-west-2.amazonaws.com")
+            endpoint = os.environ.get(
+                "S3_ENDPOINT_URL", "https://s3.us-west-2.amazonaws.com"
+            )
             use_anon = os.environ.get("GEOVIBES_S3_USE_ANON", "true").lower() != "false"
             fs = fsspec.filesystem(
                 "s3",
@@ -70,7 +73,6 @@ def _download_single_cloud_file(cloud_path: str, temp_dir: str) -> Optional[str]
         logging.error(f"Failed to download {cloud_path}: {e}")
         return None
     return local_filename
-
 
 
 def download_cloud_files(cloud_paths: list[str], temp_dir: str) -> list[str]:
@@ -104,15 +106,18 @@ def download_cloud_files(cloud_paths: list[str], temp_dir: str) -> list[str]:
     return local_paths
 
 
-
-def find_embedding_files_for_mgrs_ids(mgrs_ids: list[str], embedding_dir: str) -> list[str]:
+def find_embedding_files_for_mgrs_ids(
+    mgrs_ids: list[str], embedding_dir: str
+) -> list[str]:
     """Find parquet files in embedding directory that contain the specified MGRS IDs."""
     found_files: list[str] = []
     if get_cloud_protocol(embedding_dir):
         try:
             all_parquet_files = list_cloud_parquet_files(embedding_dir)
             for mgrs_id in mgrs_ids:
-                matching_files = [f for f in all_parquet_files if mgrs_id in os.path.basename(f)]
+                matching_files = [
+                    f for f in all_parquet_files if mgrs_id in os.path.basename(f)
+                ]
                 found_files.extend(matching_files)
         except Exception as e:
             logging.error(f"Error listing cloud files: {e}")

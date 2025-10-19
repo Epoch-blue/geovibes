@@ -81,14 +81,22 @@ class AppState:
 
     def update_query_vector(self) -> Optional[np.ndarray]:
         """Recompute query vector based on cached embeddings."""
-        pos_embeddings = [self.cached_embeddings[pid] for pid in self.pos_ids if pid in self.cached_embeddings]
+        pos_embeddings = [
+            self.cached_embeddings[pid]
+            for pid in self.pos_ids
+            if pid in self.cached_embeddings
+        ]
         if not pos_embeddings:
             self.query_vector = None
             return None
 
         pos_vec = np.mean(pos_embeddings, axis=0)
 
-        neg_embeddings = [self.cached_embeddings[nid] for nid in self.neg_ids if nid in self.cached_embeddings]
+        neg_embeddings = [
+            self.cached_embeddings[nid]
+            for nid in self.neg_ids
+            if nid in self.cached_embeddings
+        ]
         if neg_embeddings:
             neg_vec = np.mean(neg_embeddings, axis=0)
         else:

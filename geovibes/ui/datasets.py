@@ -82,7 +82,6 @@ class DatasetManager:
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         geojson_filename = f"labeled_dataset_{timestamp}.geojson"
-        csv_filename = f"labeled_dataset_{timestamp}_labels.csv"
 
         geojson_payload = {
             "type": "FeatureCollection",
@@ -91,34 +90,34 @@ class DatasetManager:
                 "timestamp": timestamp,
                 "total_points": len(features),
                 "positive_points": len(
-                    [f for f in features if f["properties"]["label"] == UIConstants.POSITIVE_LABEL]
+                    [
+                        f
+                        for f in features
+                        if f["properties"]["label"] == UIConstants.POSITIVE_LABEL
+                    ]
                 ),
                 "negative_points": len(
-                    [f for f in features if f["properties"]["label"] == UIConstants.NEGATIVE_LABEL]
+                    [
+                        f
+                        for f in features
+                        if f["properties"]["label"] == UIConstants.NEGATIVE_LABEL
+                    ]
                 ),
-                "embedding_dimension": getattr(self.data_manager, "embedding_dim", None),
+                "embedding_dimension": getattr(
+                    self.data_manager, "embedding_dim", None
+                ),
             },
         }
 
         with open(geojson_filename, "w", encoding="utf-8") as handle:
             json.dump(geojson_payload, handle, indent=2)
 
-        import pandas as pd
-
-        labels_df = pd.DataFrame(
-            {"id": f["properties"]["id"], "label": f["properties"]["label"]}
-            for f in features
-        )
-        labels_df.to_csv(csv_filename, index=False)
-
         if self.verbose:
             print("✅ Dataset saved successfully!")
             print(f"📄 Filename: {geojson_filename}")
-            print(f"📄 Labels CSV: {csv_filename}")
 
         return {
             "geojson": geojson_filename,
-            "csv": csv_filename,
             "positive": str(len(self.state.pos_ids)),
             "negative": str(len(self.state.neg_ids)),
         }
