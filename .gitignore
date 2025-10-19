@@ -181,3 +181,7 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+notebooks/*.ipynb
+labeled_dataset_*.geojson
+labeled_dataset_*_labels.csv
