@@ -27,6 +27,7 @@ class GeoVibesConfig:
     @classmethod
     def from_dict(cls, config_dict: dict) -> "GeoVibesConfig":
         """Create configuration from dictionary."""
+
         def _parse_bool(value) -> bool:
             if isinstance(value, str):
                 return value.strip().lower() in {"1", "true", "yes", "on"}

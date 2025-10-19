@@ -95,7 +95,9 @@ class GeoVibes:
             print("Initializing GeoVibes...")
 
         if "enable_ee" in unused_kwargs and self.verbose:
-            print("ℹ️ Pass enable_ee via config or GEOVIBES_ENABLE_EE environment variable.")
+            print(
+                "ℹ️ Pass enable_ee via config or GEOVIBES_ENABLE_EE environment variable."
+            )
 
         # Core services
         self.data = DataManager(
@@ -187,7 +189,11 @@ class GeoVibes:
         )
 
         self.label_toggle = ToggleButtons(
-            options=[("Positive", "Positive"), ("Negative", "Negative"), ("Erase", "Erase")],
+            options=[
+                ("Positive", "Positive"),
+                ("Negative", "Negative"),
+                ("Erase", "Erase"),
+            ],
             value="Positive",
             layout=Layout(width="100%"),
         )
@@ -211,8 +217,12 @@ class GeoVibes:
         self._update_basemap_button_styles()
 
         # Dataset and external tools
-        self.save_btn = Button(description="💾 Save Dataset", layout=Layout(width="100%"))
-        self.load_btn = Button(description="📂 Load Dataset", layout=Layout(width="100%"))
+        self.save_btn = Button(
+            description="💾 Save Dataset", layout=Layout(width="100%")
+        )
+        self.load_btn = Button(
+            description="📂 Load Dataset", layout=Layout(width="100%")
+        )
         self.file_upload = FileUpload(
             accept=".geojson,.parquet",
             multiple=False,
@@ -294,7 +304,10 @@ class GeoVibes:
 
         self.collapse_btn = Button(
             description="◀",
-            layout=Layout(width=UIConstants.COLLAPSE_BUTTON_SIZE, height=UIConstants.COLLAPSE_BUTTON_SIZE),
+            layout=Layout(
+                width=UIConstants.COLLAPSE_BUTTON_SIZE,
+                height=UIConstants.COLLAPSE_BUTTON_SIZE,
+            ),
             tooltip="Collapse/Expand Panel",
         )
         self.panel_collapsed = False
@@ -399,7 +412,9 @@ class GeoVibes:
         self._show_operation_status("🔄 Loading database...")
         try:
             self.data.switch_database(new_path)
-            self.id_column_candidates = getattr(self.data, "id_column_candidates", ["id"])
+            self.id_column_candidates = getattr(
+                self.data, "id_column_candidates", ["id"]
+            )
             self.external_id_column = getattr(self.data, "external_id_column", "id")
             self.map_manager.center_on(self.data.center_y, self.data.center_x)
             self.map_manager.update_boundary_layer(self.data.effective_boundary_path)
@@ -469,7 +484,11 @@ class GeoVibes:
             log_to_file("Handled as Ctrl-Click for Google Maps. Returning.")
             return
 
-        if not self.state.execute_label_point or self.state.lasso_mode or self.state.polygon_drawing:
+        if (
+            not self.state.execute_label_point
+            or self.state.lasso_mode
+            or self.state.polygon_drawing
+        ):
             return
 
         self.label_point(lon=lon, lat=lat)
@@ -547,7 +566,9 @@ class GeoVibes:
                 FROM geo_embeddings
                 WHERE ST_Within(geometry, ST_GeomFromText('{polygon_wkt}'))
                 """
-                arrow_table = self.data.duckdb_connection.execute(query).fetch_arrow_table()
+                arrow_table = self.data.duckdb_connection.execute(
+                    query
+                ).fetch_arrow_table()
                 point_ids.extend(arrow_table.to_pandas()["id"].astype(str).tolist())
 
             if not point_ids:
@@ -599,7 +620,9 @@ class GeoVibes:
         self._show_operation_status(
             f"🔍 FAISS Search: Finding {n_neighbors} neighbors..."
         )
-        distances, ids = self.data.faiss_index.search(query_vector_np, total_requested, params=params)
+        distances, ids = self.data.faiss_index.search(
+            query_vector_np, total_requested, params=params
+        )
         faiss_ids = ids[0].tolist()
         faiss_distances = distances[0].tolist()
 
@@ -625,7 +648,9 @@ class GeoVibes:
 
         self._process_search_results(metadata_df, n_neighbors)
 
-    def _process_search_results(self, results_df: pd.DataFrame, n_neighbors: int) -> None:
+    def _process_search_results(
+        self, results_df: pd.DataFrame, n_neighbors: int
+    ) -> None:
         all_labeled_ids = set(self.state.pos_ids + self.state.neg_ids)
         if not results_df.empty and all_labeled_ids:
             mask = ~results_df["id"].astype(str).isin(all_labeled_ids)
@@ -644,7 +669,9 @@ class GeoVibes:
 
         self._show_operation_status(f"✅ Found {len(filtered)} similar points.")
 
-        geometries = [shapely.wkt.loads(row["geometry_wkt"]) for _, row in filtered.iterrows()]
+        geometries = [
+            shapely.wkt.loads(row["geometry_wkt"]) for _, row in filtered.iterrows()
+        ]
         display_column = getattr(self, "external_id_column", "id")
         base_columns = ["id", "distance"]
         if display_column != "id" and display_column in filtered.columns:
@@ -665,9 +692,9 @@ class GeoVibes:
         highlight_cutoff = None
         if len(filtered) > 0:
             top_count = max(1, min(100, int(math.ceil(len(filtered) * 0.1))))
-            highlight_cutoff = (
-                filtered.nsmallest(top_count, "distance")["distance"].max()
-            )
+            highlight_cutoff = filtered.nsmallest(top_count, "distance")[
+                "distance"
+            ].max()
         for _, row in filtered.sort_values("distance", ascending=False).iterrows():
             color = UIConstants.distance_to_color(
                 row["distance"], min_distance, max_distance, highlight_cutoff
@@ -681,10 +708,7 @@ class GeoVibes:
                 "source_id": display_id,
             }
             external_column_name = getattr(self, "external_id_column", "id")
-            if (
-                external_column_name != "id"
-                and external_column_name in row.index
-            ):
+            if external_column_name != "id" and external_column_name in row.index:
                 props[external_column_name] = display_id
             detections_geojson["features"].append(
                 {
@@ -804,7 +828,6 @@ class GeoVibes:
         self.map_manager.highlight_polygon(polygon, color="red", fill_opacity=0.0)
         self._show_operation_status("📍 Centered on tile")
 
-
     def _tile_polygon_from_spec(self, lat: float, lon: float):
         tile_spec = getattr(self.data, "tile_spec", None)
         if not tile_spec:
@@ -837,6 +860,7 @@ class GeoVibes:
             return shapely.ops.transform(inverse.transform, square)
         except Exception:
             return None
+
     def _handle_save_dataset(self) -> None:
         result = self.dataset_manager.save_dataset()
         if result:
@@ -881,7 +905,9 @@ class GeoVibes:
             "weight": UIConstants.SEARCH_POINT_WEIGHT,
         }
 
-    def _update_status(self, lat: Optional[float] = None, lon: Optional[float] = None) -> None:
+    def _update_status(
+        self, lat: Optional[float] = None, lon: Optional[float] = None
+    ) -> None:
         self.map_manager.update_status(lat=lat, lon=lon)
 
     def _show_operation_status(self, message: str) -> None:
@@ -892,7 +918,9 @@ class GeoVibes:
 
     def _update_basemap_button_styles(self) -> None:
         for name, btn in self.basemap_buttons.items():
-            btn.button_style = "info" if name == self.map_manager.current_basemap else ""
+            btn.button_style = (
+                "info" if name == self.map_manager.current_basemap else ""
+            )
 
     @staticmethod
     def _empty_collection() -> Dict:

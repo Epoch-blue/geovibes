@@ -9,7 +9,6 @@ from typing import Any, Callable, Dict, List, Optional
 import ipywidgets as ipyw
 import shapely.wkt
 from ipywidgets import Button, GridBox, HBox, Image, Label, Layout, VBox
-from IPython import get_ipython
 
 from geovibes.ui_config import BasemapConfig, UIConstants
 from .xyz import get_map_image
@@ -87,7 +86,9 @@ class TilePanel:
             ),
         )
 
-        self.control = self.map_manager.add_widget_control(self.container, position="topright")
+        self.control = self.map_manager.add_widget_control(
+            self.container, position="topright"
+        )
 
         self.results_ready = False
         self._tiles_ready_callback: Optional[Callable[[], None]] = None
@@ -165,7 +166,9 @@ class TilePanel:
         self._loader_token = token
         if auto_show:
             self.show()
-        self._render_current_page(append=False, on_finish=self._handle_tiles_ready, loader_token=token)
+        self._render_current_page(
+            append=False, on_finish=self._handle_tiles_ready, loader_token=token
+        )
 
     def reload_tiles_for_new_basemap(self) -> None:
         if self.state.last_search_results_df is None:
@@ -234,7 +237,9 @@ class TilePanel:
         else:
             already_loaded = sum(self._page_sizes)
             default_size = (
-                self.state.tiles_per_page if self._page_sizes else self.state.initial_load_size
+                self.state.tiles_per_page
+                if self._page_sizes
+                else self.state.initial_load_size
             )
 
             desired = page_size if page_size is not None else default_size
@@ -250,7 +255,9 @@ class TilePanel:
                 on_finish()
             return
 
-        placeholder_widgets = [self._make_placeholder_tile() for _ in range(len(page_df))]
+        placeholder_widgets = [
+            self._make_placeholder_tile() for _ in range(len(page_df))
+        ]
         current_children = list(self.results_grid.children)
         if append:
             placeholder_start = len(current_children)
@@ -260,7 +267,9 @@ class TilePanel:
             current_children = placeholder_widgets
         self.results_grid.children = tuple(current_children)
 
-        placeholder_indices = [placeholder_start + idx for idx in range(len(placeholder_widgets))]
+        placeholder_indices = [
+            placeholder_start + idx for idx in range(len(placeholder_widgets))
+        ]
 
         batch_token = loader_token if loader_token is not None else object()
         remaining = len(page_df)
@@ -370,7 +379,9 @@ class TilePanel:
             overflow="hidden",
         )
         try:
-            tile_spec = getattr(getattr(self.map_manager, "data", None), "tile_spec", None)
+            tile_spec = getattr(
+                getattr(self.map_manager, "data", None), "tile_spec", None
+            )
             image_bytes = get_map_image(
                 source=self.state.tile_basemap,
                 lon=geom.x,

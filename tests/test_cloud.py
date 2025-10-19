@@ -70,10 +70,13 @@ def test_download_cloud_files_filters_none(monkeypatch):
     monkeypatch.setattr(cloud, "Parallel", fake_parallel)
     monkeypatch.setattr(cloud, "_download_single_cloud_file", fake_download)
 
-    result = cloud.download_cloud_files([
-        "keep_file",
-        "drop_file",
-    ], "tmp")
+    result = cloud.download_cloud_files(
+        [
+            "keep_file",
+            "drop_file",
+        ],
+        "tmp",
+    )
 
     assert calls == [("keep_file", "tmp"), ("drop_file", "tmp")]
     assert result == ["keep_file"]
@@ -88,9 +91,12 @@ def test_find_embedding_files_for_mgrs_ids_local(tmp_path):
     for file in (file_a, file_b, file_c):
         file.write_text("data")
 
-    matches = cloud.find_embedding_files_for_mgrs_ids([
-        "abcd123",
-        "missing",
-    ], str(dir_path))
+    matches = cloud.find_embedding_files_for_mgrs_ids(
+        [
+            "abcd123",
+            "missing",
+        ],
+        str(dir_path),
+    )
 
     assert set(matches) == {str(file_a), str(file_b)}

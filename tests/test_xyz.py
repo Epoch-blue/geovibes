@@ -33,7 +33,13 @@ def test_get_map_image_builds_url(monkeypatch):
     content = xyz.get_map_image("GOOGLE_HYBRID", lon=lon, lat=lat, zoom=zoom)
 
     assert content == b"payload"
-    assert captured["args"] == ("GOOGLE_HYBRID", xyz._xyz_sources()["GOOGLE_HYBRID"], zoom, xtile, ytile)
+    assert captured["args"] == (
+        "GOOGLE_HYBRID",
+        xyz._xyz_sources()["GOOGLE_HYBRID"],
+        zoom,
+        xtile,
+        ytile,
+    )
 
 
 def test_compute_zoom_for_tile_matches_expected():
@@ -61,7 +67,14 @@ def test_get_map_image_uses_tile_spec_for_zoom(monkeypatch):
 
     template = xyz._xyz_sources()["GOOGLE_HYBRID"]
     assert content == b"assembled"
-    assert captured["args"] == ("GOOGLE_HYBRID", template, lat, lon, expected_zoom, expected_coverage)
+    assert captured["args"] == (
+        "GOOGLE_HYBRID",
+        template,
+        lat,
+        lon,
+        expected_zoom,
+        expected_coverage,
+    )
 
 
 def test_assemble_centered_image_reads_neighbors(monkeypatch):
@@ -99,7 +112,7 @@ def test_assemble_centered_image_reads_neighbors(monkeypatch):
     north_color = image.getpixel((128, 0))
     south_color = image.getpixel((128, 255))
 
-    n = 2 ** zoom
+    n = 2**zoom
     neighbor_west = ((base_x - 1) % n, base_y)
     neighbor_east = ((base_x + 1) % n, base_y)
     neighbor_north = (base_x, max(base_y - 1, 0))

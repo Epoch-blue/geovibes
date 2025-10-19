@@ -90,12 +90,22 @@ class DatasetManager:
                 "timestamp": timestamp,
                 "total_points": len(features),
                 "positive_points": len(
-                    [f for f in features if f["properties"]["label"] == UIConstants.POSITIVE_LABEL]
+                    [
+                        f
+                        for f in features
+                        if f["properties"]["label"] == UIConstants.POSITIVE_LABEL
+                    ]
                 ),
                 "negative_points": len(
-                    [f for f in features if f["properties"]["label"] == UIConstants.NEGATIVE_LABEL]
+                    [
+                        f
+                        for f in features
+                        if f["properties"]["label"] == UIConstants.NEGATIVE_LABEL
+                    ]
                 ),
-                "embedding_dimension": getattr(self.data_manager, "embedding_dim", None),
+                "embedding_dimension": getattr(
+                    self.data_manager, "embedding_dim", None
+                ),
             },
         }
 

@@ -10,9 +10,11 @@ import shapely.geometry
 from shapely import Geometry
 import shapely.ops
 
+
 @dataclass
 class MGRSTileId:
     """Example MGRS tile: 18SJH"""
+
     utm_zone: int
     latitude_band: str
     grid_square: str
@@ -39,19 +41,20 @@ class MGRSTileId:
     def from_str(cls, mgrs_id: str) -> "MGRSTileId":
         if len(mgrs_id) < 4 or len(mgrs_id) > 5:
             raise ValueError("MGRS ID must be 4 or 5 characters long")
-        
+
         grid_square = mgrs_id[-2:]
         latitude_band = mgrs_id[-3]
         utm_zone = int(mgrs_id[:-3])
-            
+
         return MGRSTileId(
-            utm_zone=utm_zone,
-            latitude_band=latitude_band,
-            grid_square=grid_square)
+            utm_zone=utm_zone, latitude_band=latitude_band, grid_square=grid_square
+        )
+
 
 @dataclass
 class MGRSTileGrid:
     """Class for tracking a MGRS tile grid"""
+
     mgrs_tile_id: MGRSTileId
     tilesize: int
     overlap: int
@@ -69,18 +72,21 @@ class MGRSTileGrid:
 
 def get_crs_from_mgrs_tile_id(mgrs_tile_id: MGRSTileId) -> pyproj.CRS:
     """Get the CRS for a MGRS tile's UTM zone."""
-    north_bands = ['N', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X']
+    north_bands = ["N", "P", "Q", "R", "S", "T", "U", "V", "W", "X"]
     base = 32600 if mgrs_tile_id.latitude_band in north_bands else 32700
     epsg = base + mgrs_tile_id.utm_zone
     return pyproj.CRS(f"EPSG:{epsg}")
 
 
 def chip_mgrs_tile(
-    tile_series: pd.Series, mgrs_tile_grid: MGRSTileGrid, source_crs: pyproj.CRS) -> gpd.GeoDataFrame:
+    tile_series: pd.Series, mgrs_tile_grid: MGRSTileGrid, source_crs: pyproj.CRS
+) -> gpd.GeoDataFrame:
     """
     Top level function to generate chips over an MGRS tile
     """
-    xform_utm = pyproj.Transformer.from_crs(source_crs, mgrs_tile_grid.crs, always_xy=True)
+    xform_utm = pyproj.Transformer.from_crs(
+        source_crs, mgrs_tile_grid.crs, always_xy=True
+    )
     tile_geom_utm = shapely.ops.transform(xform_utm.transform, tile_series.geometry)
 
     eff_tilesize = mgrs_tile_grid.tilesize * mgrs_tile_grid.resolution
@@ -133,8 +139,8 @@ def generate_chips(
 
             if tile_geom_utm.intersects(geom):
                 tile = {
-                    'geometry': geom,
-                    'tile_id': f"{mgrs_tile_grid.mgrs_tile_id}_{mgrs_tile_grid.tilesize}_{mgrs_tile_grid.overlap}_{int(mgrs_tile_grid.resolution)}_{j}_{i}"
+                    "geometry": geom,
+                    "tile_id": f"{mgrs_tile_grid.mgrs_tile_id}_{mgrs_tile_grid.tilesize}_{mgrs_tile_grid.overlap}_{int(mgrs_tile_grid.resolution)}_{j}_{i}",
                 }
                 tiles.append(tile)
 
@@ -143,7 +149,7 @@ def generate_chips(
 
 def get_mgrs_tile_ids_for_roi(
     search_geometry: Geometry,
-    search_geometry_crs: str | pyproj.CRS | None ,
+    search_geometry_crs: str | pyproj.CRS | None,
     mgrs_tiles_file: str = "geometries/mgrs_tiles.parquet",
 ) -> list[MGRSTileId]:
     """
@@ -156,7 +162,7 @@ def get_mgrs_tile_ids_for_roi(
     search_geometry_crs : str | pyproj.CRS | None
         CRS of *search_geometry* (e.g. 'EPSG:4326'). If not provided, will be assumed to be EPSG:4326.
     mgrs_tiles_file : str, default "geometries/mgrs_tiles.parquet"
-        Path to the GeoParquet file that stores MGRS tiles. Assumption this is in 
+        Path to the GeoParquet file that stores MGRS tiles. Assumption this is in
         CRS 4326.
 
     Returns
@@ -169,7 +175,9 @@ def get_mgrs_tile_ids_for_roi(
         logging.warning("No CRS provided for search geometry, assuming EPSG:4326")
 
     if str(search_geometry_crs) != "EPSG:4326":
-        logging.info(f"Reprojecting search geometry from {search_geometry_crs} to EPSG:4326")
+        logging.info(
+            f"Reprojecting search geometry from {search_geometry_crs} to EPSG:4326"
+        )
         transformer = pyproj.Transformer.from_crs(
             search_geometry_crs, "EPSG:4326", always_xy=True
         )
@@ -185,7 +193,8 @@ def get_mgrs_tile_ids_for_roi(
     """
     result = con.execute(q, [shapely.to_wkt(search_geometry)]).fetchall()
     return [MGRSTileId.from_str(mgrs_id=row[0]) for row in result]
-    
+
+
 def get_mgrs_tile_ids_for_roi_from_roi_file(
     roi_geojson_file: str,
     mgrs_tiles_file: str = "geometries/mgrs_tiles.parquet",
@@ -198,7 +207,7 @@ def get_mgrs_tile_ids_for_roi_from_roi_file(
     roi_geojson_file : str
         Path to the ROI file readable by geopandas.read_file or geopandas.read_parquet.
     mgrs_tiles_file : str, default "geometries/mgrs_tiles.parquet"
-        Path to the GeoParquet file that stores MGRS tiles. Assumption that this is in 
+        Path to the GeoParquet file that stores MGRS tiles. Assumption that this is in
         CRS 4326.
 
     Returns
@@ -206,10 +215,12 @@ def get_mgrs_tile_ids_for_roi_from_roi_file(
     list[MGRSTileId]
         List of MGRS tile IDs that intersect the search geometry.
     """
-    if roi_geojson_file.endswith('.parquet'):
+    if roi_geojson_file.endswith(".parquet"):
         roi_gdf = gpd.read_parquet(roi_geojson_file)
     else:
         roi_gdf = gpd.read_file(roi_geojson_file)
     if roi_gdf.crs is None:
         raise ValueError("ROI file must have a CRS")
-    return get_mgrs_tile_ids_for_roi(roi_gdf.geometry.union_all(), roi_gdf.crs, mgrs_tiles_file)
+    return get_mgrs_tile_ids_for_roi(
+        roi_gdf.geometry.union_all(), roi_gdf.crs, mgrs_tiles_file
+    )

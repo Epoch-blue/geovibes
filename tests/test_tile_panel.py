@@ -48,10 +48,12 @@ def test_tile_panel_update_results(monkeypatch):
 
     monkeypatch.setattr(TilePanel, "_create_tile_widget", fake_widget)
 
-    df = pd.DataFrame([
-        {"id": "1"},
-        {"id": "2"},
-    ])
+    df = pd.DataFrame(
+        [
+            {"id": "1"},
+            {"id": "2"},
+        ]
+    )
 
     ready_calls = []
 
@@ -86,7 +88,9 @@ def test_tile_panel_handle_map_basemap_change(monkeypatch):
 
     calls = []
 
-    def fake_render(self, append, limit=None, on_finish=None, page_size=None, loader_token=None):
+    def fake_render(
+        self, append, limit=None, on_finish=None, page_size=None, loader_token=None
+    ):
         calls.append((append, limit, on_finish, page_size, loader_token))
         if on_finish:
             on_finish()
@@ -249,7 +253,9 @@ def test_handle_tile_center_uses_tile_spec(monkeypatch):
     assert color == "red"
     assert fill_opacity == 0.0
 
-    half_side_deg = (tile_spec["tile_size_px"] * tile_spec["meters_per_pixel"]) / (2 * 111_320)
+    half_side_deg = (tile_spec["tile_size_px"] * tile_spec["meters_per_pixel"]) / (
+        2 * 111_320
+    )
     minx, miny, maxx, maxy = polygon.bounds
     tolerance = 1e-5
     assert abs(minx + half_side_deg) < tolerance

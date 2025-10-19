@@ -2,6 +2,7 @@ import json
 
 import pandas as pd
 import numpy as np
+import pandas as pd
 
 from geovibes.ui.datasets import DatasetManager
 from geovibes.ui.state import AppState
@@ -42,7 +43,9 @@ def test_load_from_geojson_updates_state():
     manager.load_from_content(json.dumps(payload).encode("utf-8"), "labels.geojson")
 
     assert state.pos_ids == ["123"]
-    np.testing.assert_array_equal(state.cached_embeddings["123"], np.array([1.0, 0.0, 0.0]))
+    np.testing.assert_array_equal(
+        state.cached_embeddings["123"], np.array([1.0, 0.0, 0.0])
+    )
 
 
 def test_add_vector_layer_from_geojson():

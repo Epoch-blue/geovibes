@@ -15,7 +15,9 @@ def test_handle_save_dataset_reports_geojson():
 
     vibes = GeoVibes.__new__(GeoVibes)
     vibes.dataset_manager = StubDatasetManager(payload)
-    vibes._show_operation_status = lambda message: captured.setdefault("message", message)
+    vibes._show_operation_status = lambda message: captured.setdefault(
+        "message", message
+    )
 
     vibes._handle_save_dataset()
 
@@ -28,7 +30,9 @@ def test_handle_save_dataset_handles_empty_payload():
 
     vibes = GeoVibes.__new__(GeoVibes)
     vibes.dataset_manager = StubDatasetManager(None)
-    vibes._show_operation_status = lambda message: captured.setdefault("message", message)
+    vibes._show_operation_status = lambda message: captured.setdefault(
+        "message", message
+    )
 
     vibes._handle_save_dataset()
 
