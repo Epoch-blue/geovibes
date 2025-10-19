@@ -1,5 +1,6 @@
 import json
 
+import pandas as pd
 import numpy as np
 import pandas as pd
 
@@ -71,16 +72,12 @@ def test_save_dataset_persists_geojson(tmp_path, monkeypatch):
         [
             {
                 "id": "123",
-                "geometry_json": json.dumps(
-                    {"type": "Point", "coordinates": [1.0, 2.0]}
-                ),
+                "geometry_json": json.dumps({"type": "Point", "coordinates": [1.0, 2.0]}),
                 "embedding": [0.1, 0.2, 0.3],
             },
             {
                 "id": "456",
-                "geometry_json": json.dumps(
-                    {"type": "Point", "coordinates": [3.0, 4.0]}
-                ),
+                "geometry_json": json.dumps({"type": "Point", "coordinates": [3.0, 4.0]}),
                 "embedding": [0.7, 0.8, 0.9],
             },
         ]
