@@ -105,11 +105,9 @@ class DatasetManager:
         if self.verbose:
             print("✅ Dataset saved successfully!")
             print(f"📄 Filename: {geojson_filename}")
-            print(f"📄 Labels CSV: {csv_filename}")
 
         return {
             "geojson": geojson_filename,
-            "csv": csv_filename,
             "positive": str(len(self.state.pos_ids)),
             "negative": str(len(self.state.neg_ids)),
         }
