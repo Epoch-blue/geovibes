@@ -10,9 +10,6 @@ __pycache__/
 # C extensions
 *.so
 
-# UV
-uv.lock
-
 # Distribution / packaging
 .Python
 build/
