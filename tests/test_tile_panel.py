@@ -43,10 +43,11 @@ def test_tile_panel_update_results(monkeypatch):
         on_center=lambda row: None,
     )
 
-    def fake_widget(self, row, append):
+    def fake_widget(self, row, image_bytes):
         return Label(value=f"tile-{row['id']}")
 
-    monkeypatch.setattr(TilePanel, "_create_tile_widget", fake_widget)
+    monkeypatch.setattr(TilePanel, "_build_tile_widget", fake_widget)
+    monkeypatch.setattr(TilePanel, "_fetch_tile_image_bytes", lambda self, row: None)
 
     df = pd.DataFrame(
         [
@@ -149,7 +150,7 @@ def test_next_tiles_shows_loading_placeholders(monkeypatch):
 
     observed = {"placeholder_seen": False}
 
-    def fake_widget(self, row, append):
+    def fake_widget(self, row, image_bytes):
         if any(
             isinstance(child, VBox)
             and any(
@@ -161,7 +162,8 @@ def test_next_tiles_shows_loading_placeholders(monkeypatch):
             observed["placeholder_seen"] = True
         return Label(value=f"tile-{row['id']}")
 
-    monkeypatch.setattr(TilePanel, "_create_tile_widget", fake_widget)
+    monkeypatch.setattr(TilePanel, "_build_tile_widget", fake_widget)
+    monkeypatch.setattr(TilePanel, "_fetch_tile_image_bytes", lambda self, row: None)
 
     df = pd.DataFrame([{"id": str(i)} for i in range(8)])
 

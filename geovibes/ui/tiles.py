@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import concurrent.futures
 from typing import Any, Callable, Dict, List, Optional
 
@@ -291,12 +292,16 @@ class TilePanel:
 
         for offset, (_, row) in enumerate(page_df.iterrows()):
             target_index = placeholder_indices[offset]
-            future = self._executor.submit(self._create_tile_widget, row, append)
+            row_data = row
+            ctx = contextvars.copy_context()
+            future = self._executor.submit(self._fetch_tile_image_bytes, row_data)
             self._pending_futures.add(future)
             future.add_done_callback(
-                lambda fut, idx=target_index, bt=batch_token: self._on_tile_future_done(
-                    fut, idx, bt
-                )
+                lambda fut,
+                idx=target_index,
+                bt=batch_token,
+                r=row_data,
+                ctx=ctx: self._on_tile_future_done(fut, idx, bt, r, ctx)
             )
 
         if end_index < len(df):
@@ -313,17 +318,33 @@ class TilePanel:
         if callback:
             callback()
 
-    def _dispatch_to_ui(self, func: Callable[..., None], *args) -> None:
-        if self._async_loop and self._async_loop.is_running():
-            self._async_loop.call_soon_threadsafe(func, *args)
+    def _dispatch_to_ui(
+        self,
+        func: Callable[..., None],
+        *args,
+        context: Optional[contextvars.Context] = None,
+    ) -> None:
+        if context is not None:
+
+            def runner() -> None:
+                context.run(func, *args)
         else:
-            func(*args)
+
+            def runner() -> None:
+                func(*args)
+
+        if self._async_loop and self._async_loop.is_running():
+            self._async_loop.call_soon_threadsafe(runner)
+        else:
+            runner()
 
     def _on_tile_future_done(
         self,
         future: concurrent.futures.Future,
         target_index: int,
         batch_token: object,
+        row,
+        context: contextvars.Context,
     ) -> None:
         self._pending_futures.discard(future)
         batch = self._pending_batches.get(batch_token)
@@ -334,9 +355,9 @@ class TilePanel:
             self._pending_batches.pop(batch_token, None)
             return
         try:
-            widget = future.result()
+            image_bytes = future.result()
         except Exception:
-            widget = self._make_placeholder_tile()
+            image_bytes = None
 
         def apply_result() -> None:
             current_batch = self._pending_batches.get(batch_token)
@@ -347,6 +368,10 @@ class TilePanel:
                 return
             current_children = list(self.results_grid.children)
             if target_index < len(current_children):
+                try:
+                    widget = self._build_tile_widget(row, image_bytes)
+                except Exception:
+                    widget = self._make_placeholder_tile()
                 current_children[target_index] = widget
                 self.results_grid.children = tuple(current_children)
             current_batch["remaining"] -= 1
@@ -358,10 +383,30 @@ class TilePanel:
                 if finish_cb and (token is None or token is self._loader_token):
                     finish_cb()
 
-        self._dispatch_to_ui(apply_result)
+        self._dispatch_to_ui(apply_result, context=context)
 
-    def _create_tile_widget(self, row, append: bool):
-        geom = shapely.wkt.loads(row["geometry_wkt"])
+    def _fetch_tile_image_bytes(self, row) -> Optional[bytes]:
+        try:
+            geom = shapely.wkt.loads(row["geometry_wkt"])
+        except Exception:
+            if self.verbose:
+                print(f"Failed to parse geometry for tile {row.get('id')}")
+            return None
+
+        tile_spec = getattr(getattr(self.map_manager, "data", None), "tile_spec", None)
+        try:
+            return get_map_image(
+                source=self.state.tile_basemap,
+                lon=geom.x,
+                lat=geom.y,
+                tile_spec=tile_spec,
+            )
+        except Exception:
+            if self.verbose:
+                print(f"Failed to fetch tile image for {row.get('id')}")
+            return None
+
+    def _build_tile_widget(self, row, image_bytes: Optional[bytes]) -> VBox:
         display_value = row.get("source_id")
         if display_value is None or display_value != display_value:
             display_value = row.get("tile_id")
@@ -373,20 +418,11 @@ class TilePanel:
             "height": "115px",
             "overflow": "hidden",
         }
-        image_layout = Layout(
-            width="115px",
-            height="115px",
-            overflow="hidden",
-        )
-        try:
-            tile_spec = getattr(
-                getattr(self.map_manager, "data", None), "tile_spec", None
-            )
-            image_bytes = get_map_image(
-                source=self.state.tile_basemap,
-                lon=geom.x,
-                lat=geom.y,
-                tile_spec=tile_spec,
+        if image_bytes:
+            image_layout = Layout(
+                width=base_image_layout["width"],
+                height=base_image_layout["height"],
+                overflow=base_image_layout["overflow"],
             )
             tile_image = Image(
                 value=image_bytes,
@@ -395,7 +431,7 @@ class TilePanel:
                 height=115,
                 layout=image_layout,
             )
-        except Exception:
+        else:
             tile_image = Label(
                 value="Image unavailable",
                 layout=Layout(
