@@ -3,10 +3,12 @@ Pre- vs post-fix tile loading
 
 ```mermaid
 sequenceDiagram
+    participant User
     participant UI as UI Thread
     participant TP as ThreadPool
     participant IW as ipywidgets
 
+    User->>UI: Click Search/Next
     UI->>TP: submit _create_tile_widget(row)
     Note right of TP: Thread executes both<br/>data fetch + widget construction
     TP->>IW: Instantiate Layout/Image/Button (comm open)
@@ -17,11 +19,13 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
+    participant User
     participant UI as UI Thread
     participant TP as ThreadPool
     participant Ctx as Context snapshot
     participant IW as ipywidgets
 
+    User->>UI: Click Search/Next
     UI->>Ctx: copy ContextVars
     UI->>TP: submit _fetch_tile_image_bytes(row)
     TP-->>UI: image bytes (no ipywidgets calls)
