@@ -34,3 +34,20 @@ sequenceDiagram
     IW-->>UI: comm opens successfully (shell_parent present)
     UI-->>User: Tile renders normally
 ```
+
+Overall tile-panel workflow
+---------------------------
+
+```mermaid
+flowchart TD
+    A[User runs search] --> B[TilePanel receives results]
+    B --> C{Tiles cached?}
+    C -- No --> D[Clear previous tiles\nreset pagination]
+    C -- Yes --> E[Reuse existing widgets]
+    D --> F[Show placeholder grid]
+    E --> F
+    F --> G[Thread pool fetches tile images]
+    G --> H[Update cache & page sizes]
+    H --> I[Main thread builds ipywidgets]
+    I --> J[Render grid / show Next button]
+```
