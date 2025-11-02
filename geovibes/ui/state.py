@@ -21,6 +21,7 @@ class AppState:
     pos_ids: List[str] = field(default_factory=list)
     neg_ids: List[str] = field(default_factory=list)
     cached_embeddings: Dict[str, np.ndarray] = field(default_factory=dict)
+    cached_geometries: Dict[str, dict] = field(default_factory=dict)  # point_id -> GeoJSON geometry
     query_vector: Optional[np.ndarray] = None
     selection_mode: str = "point"
     current_label: str = "Positive"
@@ -34,6 +35,8 @@ class AppState:
     initial_load_size: int = 8
     last_search_results_df: Optional["pd.DataFrame"] = None
     detections_with_embeddings: Optional["gpd.GeoDataFrame"] = None
+    location_analysis_enabled: bool = False
+    location_analysis_commodity: str = "coffee"
 
     def set_label_mode(self, label: str) -> None:
         """Update the active label mode."""
@@ -50,6 +53,7 @@ class AppState:
         self.pos_ids.clear()
         self.neg_ids.clear()
         self.cached_embeddings.clear()
+        self.cached_geometries.clear()
         self.query_vector = None
         self.last_search_results_df = None
         self.detections_with_embeddings = None

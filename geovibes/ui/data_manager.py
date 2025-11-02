@@ -120,6 +120,7 @@ class DataManager:
             self._owns_connection = False
 
         self._apply_duckdb_settings(self.current_database_path)
+        self._ensure_lon_lat_indexes()
         self._refresh_id_columns()
 
         # Load FAISS index
@@ -738,10 +739,155 @@ class DataManager:
             chunk_df = arrow_table.to_pandas()
             yield chunk_df
 
+    def _ensure_lon_lat_indexes(self) -> None:
+        """Create indexes on lon/lat columns if they exist and indexes don't exist."""
+        if not self.duckdb_connection:
+            return
+        try:
+            # Check if lon/lat columns exist
+            cols = self.duckdb_connection.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'geo_embeddings' 
+                AND column_name IN ('lon', 'lat')
+            """).fetchall()
+            has_lon = any(c[0] == 'lon' for c in cols)
+            has_lat = any(c[0] == 'lat' for c in cols)
+            
+            if has_lon and has_lat:
+                # Check if indexes already exist
+                try:
+                    self.duckdb_connection.execute("CREATE INDEX IF NOT EXISTS idx_lon ON geo_embeddings(lon)")
+                    self.duckdb_connection.execute("CREATE INDEX IF NOT EXISTS idx_lat ON geo_embeddings(lat)")
+                    if self.verbose:
+                        print("✅ Created indexes on lon/lat columns for fast nearest point queries")
+                except Exception:
+                    pass  # Indexes may already exist or table doesn't support indexes
+        except Exception:
+            pass  # Columns may not exist, ignore
+
     def nearest_point(self, lon: float, lat: float):
         sql = DatabaseConstants.NEAREST_POINT_QUERY
+        # Optimized query uses indexed lon/lat bounding box (2 params: lon, lat)
         params = [lon, lat]
-        return self.duckdb_connection.execute(sql, params).fetchone()
+        try:
+            result = self.duckdb_connection.execute(sql, params).fetchone()
+            # If no result in tight bounding box, try slightly wider (0.05 degrees = ~5.5km)
+            if result is None:
+                wider_sql = """
+                WITH search_point AS (SELECT ? AS lon, ? AS lat)
+                SELECT  g.id,
+                        ST_AsText(g.geometry) AS wkt,
+                        ABS(g.lon - sp.lon) + ABS(g.lat - sp.lat) AS manhattan_dist,
+                        g.embedding
+                FROM    geo_embeddings g
+                CROSS JOIN search_point sp
+                WHERE   g.lon BETWEEN sp.lon - 0.05 AND sp.lon + 0.05
+                    AND g.lat BETWEEN sp.lat - 0.05 AND sp.lat + 0.05
+                ORDER BY manhattan_dist
+                LIMIT   1
+                """
+                result = self.duckdb_connection.execute(wider_sql, params).fetchone()
+            # Last resort: medium box (0.1 degrees = ~11km)
+            if result is None:
+                medium_sql = """
+                WITH search_point AS (SELECT ? AS lon, ? AS lat)
+                SELECT  g.id,
+                        ST_AsText(g.geometry) AS wkt,
+                        ABS(g.lon - sp.lon) + ABS(g.lat - sp.lat) AS manhattan_dist,
+                        g.embedding
+                FROM    geo_embeddings g
+                CROSS JOIN search_point sp
+                WHERE   g.lon BETWEEN sp.lon - 0.1 AND sp.lon + 0.1
+                    AND g.lat BETWEEN sp.lat - 0.1 AND sp.lat + 0.1
+                ORDER BY manhattan_dist
+                LIMIT   1
+                """
+                result = self.duckdb_connection.execute(medium_sql, params).fetchone()
+            
+            if result is not None:
+                # Convert manhattan_dist result to dist_m format expected by caller
+                point_id, wkt, manhattan_dist, embedding = result
+                
+                # Validate wkt is a valid string before using it
+                if wkt is None or not isinstance(wkt, str) or not wkt.strip():
+                    # If wkt is None/invalid, we already have geometry from query
+                    # Use approximate distance based on manhattan_dist
+                    dist_m = manhattan_dist * 111000  # Convert to meters (rough approximation)
+                    # Return empty wkt - caller will handle it
+                    return (point_id, "", dist_m, embedding)
+                
+                # Compute actual ST_Distance for the final result (only once)
+                try:
+                    dist_result = self.duckdb_connection.execute(
+                        "SELECT ST_Distance(ST_GeomFromText(?), ST_Point(?, ?))",
+                        [str(wkt), lon, lat]
+                    ).fetchone()
+                    if dist_result and dist_result[0] is not None:
+                        dist_m = dist_result[0]
+                        return (point_id, wkt, dist_m, embedding)
+                    else:
+                        # Fallback: use manhattan_dist converted to meters
+                        dist_m = manhattan_dist * 111000
+                        return (point_id, wkt, dist_m, embedding)
+                except Exception as dist_err:
+                    # If ST_Distance calculation fails, use approximate
+                    if self.verbose:
+                        print(f"⚠️ Could not compute ST_Distance, using approximate: {dist_err}")
+                    dist_m = manhattan_dist * 111000
+                    return (point_id, wkt, dist_m, embedding)
+            
+        except Exception as e:
+            # Only fall back if it's actually a column error, not other errors
+            if "column" in str(e).lower() or "lon" in str(e).lower() or "lat" in str(e).lower():
+                # If lon/lat columns don't exist, use spatial index with bounding box (leverages R-tree)
+                # Create bounding box manually - this uses spatial index efficiently
+                for buffer_deg in [0.01, 0.05, 0.1, 0.5]:
+                    try:
+                        # Create bounding box polygon - ST_Within uses spatial index
+                        min_lon, max_lon = lon - buffer_deg, lon + buffer_deg
+                        min_lat, max_lat = lat - buffer_deg, lat + buffer_deg
+                        bbox_wkt = f"POLYGON(({min_lon} {min_lat}, {max_lon} {min_lat}, {max_lon} {max_lat}, {min_lon} {max_lat}, {min_lon} {min_lat}))"
+                        
+                        # Use ST_Within with bounding box - leverages spatial index
+                        fallback_sql = """
+                        SELECT  g.id,
+                                ST_AsText(g.geometry) AS wkt,
+                                ST_Distance(g.geometry, ST_Point(?, ?)) AS dist_m,
+                                g.embedding
+                        FROM    geo_embeddings g
+                        WHERE   ST_Within(g.geometry, ST_GeomFromText(?))
+                        ORDER BY dist_m
+                        LIMIT   1
+                        """
+                        result = self.duckdb_connection.execute(
+                            fallback_sql, [lon, lat, bbox_wkt]
+                        ).fetchone()
+                        if result:
+                            return result
+                    except Exception:
+                        continue
+                
+                # Last resort: full table scan (slow but works) - should rarely reach here
+                if self.verbose:
+                    print("⚠️ Warning: Using slow full table scan (no lon/lat columns or spatial index)")
+                fallback_sql = """
+                SELECT  g.id,
+                        ST_AsText(g.geometry) AS wkt,
+                        ST_Distance(g.geometry, ST_Point(?, ?)) AS dist_m,
+                        g.embedding
+                FROM    geo_embeddings g
+                ORDER BY dist_m
+                LIMIT   1
+                """
+                result = self.duckdb_connection.execute(fallback_sql, [lon, lat]).fetchone()
+                return result
+            else:
+                # Other errors - re-raise them so we know what's wrong
+                if self.verbose:
+                    print(f"⚠️ Error in nearest_point query: {e}")
+                raise
+        return None
 
     def query_geometries(self, ids: List[str]):
         if not ids:
@@ -802,6 +948,7 @@ class DataManager:
         self.duckdb_connection = self._connect_duckdb(database_path)
         self._owns_connection = True
         self._apply_duckdb_settings(database_path)
+        self._ensure_lon_lat_indexes()
         self._refresh_id_columns()
 
         if not self.current_faiss_path:

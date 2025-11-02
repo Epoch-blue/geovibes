@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 import warnings
 from typing import Any, Dict, Optional
 
@@ -23,6 +24,7 @@ from ipywidgets import (
     Dropdown,
     FileUpload,
     HBox,
+    HTML,
     IntSlider,
     Label,
     Layout,
@@ -33,6 +35,7 @@ from ipywidgets import (
 from geovibes.ui_config import BasemapConfig, UIConstants
 from geovibes.ui.data_manager import DataManager
 from geovibes.ui.datasets import DatasetManager
+from geovibes.ui.location_analyzer import create_location_analyzer
 from geovibes.ui.map_manager import MapManager
 from geovibes.ui.state import AppState
 from geovibes.ui.status import StatusBus
@@ -135,6 +138,9 @@ class GeoVibes:
             on_center=self._handle_tile_center,
             verbose=self.verbose,
         )
+        
+        # Initialize location analyzer if API keys are available
+        self.location_analyzer = create_location_analyzer()
 
         self._build_ui()
         self._wire_events()
@@ -231,6 +237,27 @@ class GeoVibes:
             description="🌍 Google Maps ↗",
             layout=Layout(width="100%"),
         )
+        # Location analysis section - toggle (off by default) and commodity dropdown
+        self.location_analysis_toggle = ToggleButtons(
+            options=[("Off", False), ("On", True)],
+            value=False,
+            layout=Layout(width="100%"),
+            tooltip="Enable/disable location analysis on map clicks",
+        )
+        self.location_analysis_commodity_dropdown = Dropdown(
+            options=["coffee", "cocoa", "palm oil", "soy", "beef", "wood", "rubber"],
+            value="coffee",
+            description="Commodity:",
+            layout=Layout(width="100%"),
+            tooltip="Select commodity for EUDR compliance analysis",
+        )
+        
+        # Location analysis section
+        location_analysis_widgets = [
+            Label("Location Analysis (Off by default)"),
+            self.location_analysis_toggle,
+            self.location_analysis_commodity_dropdown,
+        ]
 
         # Database dropdown
         database_section_widgets = []
@@ -272,6 +299,7 @@ class GeoVibes:
                     layout=Layout(padding="5px"),
                 ),
                 VBox(basemap_widgets, layout=Layout(padding="5px")),
+                VBox(location_analysis_widgets, layout=Layout(padding="5px")),
                 VBox(
                     [
                         self.save_btn,
@@ -285,7 +313,7 @@ class GeoVibes:
                 ),
             ]
         )
-        accordion_titles.extend(["Label Mode", "Basemaps", "Export & Tools"])
+        accordion_titles.extend(["Label Mode", "Basemaps", "Location Analysis", "Export & Tools"])
 
         accordion = Accordion(children=accordion_children)
         for idx, title in enumerate(accordion_titles):
@@ -323,6 +351,8 @@ class GeoVibes:
             "add_vector_btn": self.add_vector_btn,
             "vector_file_upload": self.vector_file_upload,
             "google_maps_btn": self.google_maps_btn,
+            "location_analysis_toggle": self.location_analysis_toggle,
+            "location_analysis_commodity_dropdown": self.location_analysis_commodity_dropdown,
             "collapse_btn": self.collapse_btn,
             "tiles_button": self.tiles_button,
             "database_dropdown": self.database_dropdown,
@@ -359,6 +389,9 @@ class GeoVibes:
         )
         self.vector_file_upload.observe(self._on_vector_upload, names="value")
         self.google_maps_btn.on_click(self._on_google_maps_click)
+        # Location analysis toggle updates state
+        self.location_analysis_toggle.observe(self._on_location_analysis_toggle_change, names="value")
+        self.location_analysis_commodity_dropdown.observe(self._on_commodity_change, names="value")
 
         self.map_manager.register_draw_handler(self._handle_draw)
         self.map_manager.map.on_interaction(self._on_map_interaction)
@@ -420,6 +453,19 @@ class GeoVibes:
         url = f"https://www.google.com/maps/@{lat},{lon},15z"
         webbrowser.open(url, new=2)
 
+    def _on_location_analysis_toggle_change(self, change) -> None:
+        """Handle location analysis toggle change."""
+        self.state.location_analysis_enabled = change["new"]
+        if self.verbose:
+            status = "enabled" if change["new"] else "disabled"
+            print(f"Location analysis {status}")
+
+    def _on_commodity_change(self, change) -> None:
+        """Handle commodity dropdown change."""
+        self.state.location_analysis_commodity = change["new"]
+        if self.verbose:
+            print(f"Location analysis commodity: {change['new']}")
+
     def _on_file_upload(self, change) -> None:
         if not change["new"]:
             return
@@ -446,6 +492,10 @@ class GeoVibes:
         content = DatasetManager.read_upload_content(file_info["content"])
         try:
             self.dataset_manager.add_vector_from_content(content, file_info["name"])
+            
+            # Auto-label points that intersect with uploaded geometries
+            self._auto_label_from_vector_layer(content, file_info["name"])
+            
             self._show_operation_status("✅ Vector layer added")
         except Exception as exc:
             self._show_operation_status(f"❌ Error loading vector: {exc}")
@@ -455,6 +505,387 @@ class GeoVibes:
             self.vector_file_upload.value = ()
             self.vector_file_upload.layout.display = "none"
             self.add_vector_btn.description = "📄 Add Vector Layer"
+    
+    def _auto_label_from_vector_layer(self, content: bytes, filename: str) -> None:
+        """Automatically label points that intersect with uploaded vector layer."""
+        print(f"[AUTO-LABEL] Starting auto-labeling from vector layer: {filename}")
+        import sys
+        sys.stdout.flush()
+        
+        try:
+            import geopandas as gpd
+            import io
+            
+            # Load the uploaded geometry
+            if filename.lower().endswith(".geojson"):
+                geojson_data = json.loads(content.decode("utf-8"))
+                gdf = gpd.GeoDataFrame.from_features(geojson_data["features"])
+                print(f"[AUTO-LABEL] Loaded GeoJSON with {len(gdf)} features")
+            elif filename.lower().endswith(".parquet"):
+                gdf = gpd.read_parquet(io.BytesIO(content))
+                print(f"[AUTO-LABEL] Loaded Parquet with {len(gdf)} features")
+            else:
+                error_msg = f"[AUTO-LABEL] Unsupported file format: {filename}"
+                print(error_msg)
+                import sys
+                sys.stdout.flush()
+                self._show_operation_status(error_msg)
+                return
+            
+            import sys
+            sys.stdout.flush()
+            
+            if gdf.empty:
+                error_msg = "[AUTO-LABEL] Uploaded vector layer is empty"
+                print(error_msg)
+                sys.stdout.flush()
+                self._show_operation_status(error_msg)
+                return
+            
+            # Ensure CRS is WGS84 for distance calculations
+            if gdf.crs is None:
+                gdf.set_crs("EPSG:4326", inplace=True)
+                print(f"[AUTO-LABEL] Set CRS to EPSG:4326")
+            elif gdf.crs != "EPSG:4326":
+                gdf = gdf.to_crs("EPSG:4326")
+                print(f"[AUTO-LABEL] Reprojected to EPSG:4326")
+            sys.stdout.flush()
+            
+            # Filter polygons/points to only those within the database boundary/extent
+            boundary_gdf = None
+            if self.data.effective_boundary_path:
+                try:
+                    print(f"[AUTO-LABEL] Boundary path: {self.data.effective_boundary_path}")
+                    sys.stdout.flush()
+                    import geopandas as gpd
+                    boundary_gdf = gpd.read_file(self.data.effective_boundary_path)
+                    # Ensure boundary is in WGS84
+                    if boundary_gdf.crs is None:
+                        boundary_gdf.set_crs("EPSG:4326", inplace=True)
+                    elif boundary_gdf.crs != "EPSG:4326":
+                        boundary_gdf = boundary_gdf.to_crs("EPSG:4326")
+                    # Get the union of all boundary geometries
+                    boundary_geom = boundary_gdf.unary_union
+                    print(f"[AUTO-LABEL] Using database boundary to filter polygons (boundary has {len(boundary_gdf)} feature(s))")
+                    sys.stdout.flush()
+                except Exception as e:
+                    error_msg = f"[AUTO-LABEL] Could not load boundary for filtering: {e}"
+                    print(error_msg)
+                    import traceback
+                    traceback.print_exc()
+                    sys.stdout.flush()
+                    boundary_geom = None
+            else:
+                print("[AUTO-LABEL] No database boundary available - processing all polygons")
+                sys.stdout.flush()
+                boundary_geom = None
+            
+            # Filter geometries to only those intersecting the boundary
+            if boundary_geom is not None:
+                # Filter polygons/points that intersect with boundary
+                original_count = len(gdf)
+                gdf = gdf[gdf.geometry.intersects(boundary_geom)]
+                print(f"[AUTO-LABEL] Filtered from {original_count} to {len(gdf)} features within boundary")
+                sys.stdout.flush()
+                if gdf.empty:
+                    error_msg = "[AUTO-LABEL] No features in uploaded layer intersect with database boundary"
+                    print(error_msg)
+                    sys.stdout.flush()
+                    self._show_operation_status("ℹ️ No features intersect with database boundary - no points labeled")
+                    return
+            
+            # Get geometry types
+            has_polygons = gdf.geom_type.isin(["Polygon", "MultiPolygon"]).any()
+            has_points = gdf.geom_type.isin(["Point", "MultiPoint"]).any()
+            
+            print(f"[AUTO-LABEL] Vector layer analysis: {len(gdf)} features, has_polygons={has_polygons}, has_points={has_points}")
+            sys.stdout.flush()
+            
+            labeled_count = 0
+            
+            if has_polygons:
+                # Combine all polygons into a single geometry for efficient querying
+                polygons_gdf = gdf[gdf.geom_type.isin(["Polygon", "MultiPolygon"])].copy()
+                
+                # Fix any invalid geometries before processing
+                print(f"[AUTO-LABEL] Processing {len(polygons_gdf)} polygon(s) (within boundary)")
+                sys.stdout.flush()
+                
+                # Validate and fix geometries
+                for idx in polygons_gdf.index:
+                    geom = polygons_gdf.loc[idx, 'geometry']
+                    if not geom.is_valid or geom.is_empty:
+                        if geom.is_empty:
+                            print(f"[AUTO-LABEL] Empty geometry at index {idx}, skipping...")
+                            sys.stdout.flush()
+                            polygons_gdf.drop(idx, inplace=True)
+                            continue
+                        print(f"[AUTO-LABEL] Invalid geometry at index {idx}, attempting to fix...")
+                        sys.stdout.flush()
+                        # Try to fix invalid geometry (removes self-intersections)
+                        try:
+                            fixed_geom = geom.buffer(0)  # buffer(0) fixes most topology issues
+                            if fixed_geom.is_valid and not fixed_geom.is_empty:
+                                polygons_gdf.loc[idx, 'geometry'] = fixed_geom
+                                print(f"[AUTO-LABEL] Fixed geometry at index {idx}")
+                                sys.stdout.flush()
+                            else:
+                                print(f"[AUTO-LABEL] Could not fix geometry at index {idx} (still invalid or empty), skipping...")
+                                sys.stdout.flush()
+                                polygons_gdf.drop(idx, inplace=True)
+                        except Exception as e:
+                            print(f"[AUTO-LABEL] Error fixing geometry at index {idx}: {e}, skipping...")
+                            sys.stdout.flush()
+                            polygons_gdf.drop(idx, inplace=True)
+                
+                if len(polygons_gdf) == 0:
+                    error_msg = "[AUTO-LABEL] No valid polygons after fixing geometries"
+                    print(error_msg)
+                    sys.stdout.flush()
+                    self._show_operation_status(error_msg)
+                    return
+                
+                t0 = time.time()
+                if len(polygons_gdf) == 1:
+                    # Single polygon - query directly
+                    geom = polygons_gdf.iloc[0].geometry
+                    if not geom.is_valid:
+                        geom = geom.buffer(0)  # Fix if still invalid
+                    
+                    # Validate geometry after fixing
+                    if geom.is_empty or not geom.is_valid:
+                        error_msg = "[AUTO-LABEL] Polygon is empty or invalid after fixing"
+                        print(error_msg)
+                        sys.stdout.flush()
+                        self._show_operation_status(error_msg)
+                        return
+                    
+                    # Convert to WKT using .wkt property
+                    try:
+                        polygon_wkt = geom.wkt
+                        if polygon_wkt is None:
+                            error_msg = "[AUTO-LABEL] Invalid WKT for polygon (None)"
+                            print(error_msg)
+                            sys.stdout.flush()
+                            self._show_operation_status(error_msg)
+                            return
+                        if not isinstance(polygon_wkt, str):
+                            error_msg = f"[AUTO-LABEL] Invalid WKT for polygon (not string, type: {type(polygon_wkt)})"
+                            print(error_msg)
+                            sys.stdout.flush()
+                            self._show_operation_status(error_msg)
+                            return
+                        if not polygon_wkt.strip():
+                            error_msg = "[AUTO-LABEL] Invalid WKT for polygon (empty string)"
+                            print(error_msg)
+                            sys.stdout.flush()
+                            self._show_operation_status(error_msg)
+                            return
+                        if not polygon_wkt.upper().startswith('POLYGON'):
+                            error_msg = f"[AUTO-LABEL] Invalid WKT for polygon (doesn't start with POLYGON): {polygon_wkt[:50]}"
+                            print(error_msg)
+                            sys.stdout.flush()
+                            self._show_operation_status(error_msg)
+                            return
+                    except Exception as e:
+                        error_msg = f"[AUTO-LABEL] Error converting polygon to WKT: {e}"
+                        print(error_msg)
+                        import traceback
+                        traceback.print_exc()
+                        sys.stdout.flush()
+                        self._show_operation_status(error_msg)
+                        return
+                    
+                    # Use string formatting for WKT (DuckDB spatial extension requires literal WKT string)
+                    # Escape single quotes in WKT if any
+                    polygon_wkt_escaped = polygon_wkt.replace("'", "''")
+                    query = f"""
+                    SELECT id, ST_AsText(geometry) as wkt, embedding
+                    FROM geo_embeddings
+                    WHERE ST_Intersects(geometry, ST_GeomFromText('{polygon_wkt_escaped}'))
+                    """
+                    try:
+                        results = self.data.duckdb_connection.execute(query).fetchall()
+                        t1 = time.time()
+                        query_ms = (t1-t0)*1000
+                        print(f"[AUTO-LABEL] Found {len(results)} points intersecting polygon ({query_ms:.1f}ms)")
+                        sys.stdout.flush()
+                    except Exception as e:
+                        error_msg = f"[AUTO-LABEL] Error querying polygon: {e}"
+                        print(error_msg)
+                        import traceback
+                        traceback.print_exc()
+                        sys.stdout.flush()
+                        results = []
+                else:
+                    # Multiple polygons - query each separately to avoid union topology issues
+                    print(f"[AUTO-LABEL] Querying points intersecting {len(polygons_gdf)} polygons (querying separately)...")
+                    sys.stdout.flush()
+                    
+                    all_results = []
+                    seen_point_ids = set()
+                    
+                    for idx, row in polygons_gdf.iterrows():
+                        geom = row.geometry
+                        if not geom.is_valid:
+                            try:
+                                geom = geom.buffer(0)  # Fix if invalid
+                            except Exception as e:
+                                print(f"[AUTO-LABEL] Error fixing geometry at index {idx}: {e}, skipping...")
+                                sys.stdout.flush()
+                                continue
+                        
+                        # Validate geometry after fixing
+                        if geom.is_empty or not geom.is_valid:
+                            print(f"[AUTO-LABEL] Skipping empty/invalid geometry at index {idx}")
+                            sys.stdout.flush()
+                            continue
+                        
+                        # Convert to WKT using .wkt property
+                        try:
+                            polygon_wkt = geom.wkt
+                            # Strict validation - must be a non-empty string
+                            if polygon_wkt is None:
+                                print(f"[AUTO-LABEL] Skipping polygon at index {idx} - WKT is None")
+                                sys.stdout.flush()
+                                continue
+                            if not isinstance(polygon_wkt, str):
+                                print(f"[AUTO-LABEL] Skipping polygon at index {idx} - WKT is not a string (type: {type(polygon_wkt)})")
+                                sys.stdout.flush()
+                                continue
+                            if not polygon_wkt.strip():
+                                print(f"[AUTO-LABEL] Skipping polygon at index {idx} - WKT is empty string")
+                                sys.stdout.flush()
+                                continue
+                            # Additional check: ensure it looks like valid WKT
+                            if not polygon_wkt.upper().startswith('POLYGON'):
+                                print(f"[AUTO-LABEL] Skipping polygon at index {idx} - WKT doesn't start with POLYGON: {polygon_wkt[:50]}")
+                                sys.stdout.flush()
+                                continue
+                        except Exception as e:
+                            print(f"[AUTO-LABEL] Error converting polygon at index {idx} to WKT: {e}, skipping...")
+                            import traceback
+                            traceback.print_exc()
+                            sys.stdout.flush()
+                            continue
+                        
+                        # Use string formatting for WKT (DuckDB spatial extension requires literal WKT string)
+                        # Escape single quotes in WKT if any
+                        polygon_wkt_escaped = polygon_wkt.replace("'", "''")
+                        query = f"""
+                        SELECT id, ST_AsText(geometry) as wkt, embedding
+                        FROM geo_embeddings
+                        WHERE ST_Intersects(geometry, ST_GeomFromText('{polygon_wkt_escaped}'))
+                        """
+                        try:
+                            polygon_results = self.data.duckdb_connection.execute(query).fetchall()
+                            if len(polygon_results) > 0:
+                                print(f"[AUTO-LABEL] Polygon {idx}: Found {len(polygon_results)} points")
+                                sys.stdout.flush()
+                            # Only add points we haven't seen yet
+                            for point_id, wkt_geom, embedding in polygon_results:
+                                point_id = str(point_id)
+                                if point_id not in seen_point_ids:
+                                    all_results.append((point_id, wkt_geom, embedding))
+                                    seen_point_ids.add(point_id)
+                        except Exception as e:
+                            error_msg = f"[AUTO-LABEL] Error querying polygon at index {idx}: {e}"
+                            print(error_msg)
+                            import traceback
+                            traceback.print_exc()
+                            sys.stdout.flush()
+                            continue
+                    
+                    t1 = time.time()
+                    query_ms = (t1-t0)*1000
+                    results = all_results
+                    print(f"[AUTO-LABEL] Found {len(results)} unique points intersecting {len(polygons_gdf)} polygons ({query_ms:.1f}ms)")
+                    sys.stdout.flush()
+                
+                t2 = time.time()
+                for point_id, wkt_geom, embedding in results:
+                    point_id = str(point_id)
+                    if point_id not in self.state.pos_ids:
+                        # Cache embedding and geometry
+                        self.state.cached_embeddings[point_id] = np.array(embedding)
+                        geom = shapely.wkt.loads(wkt_geom)
+                        self.state.cached_geometries[point_id] = shapely.geometry.mapping(geom)
+                        # Add as positive label
+                        self.state.pos_ids.append(point_id)
+                        labeled_count += 1
+                t3 = time.time()
+                cache_ms = (t3-t2)*1000
+                if labeled_count > 0:
+                    print(f"[AUTO-LABEL] Cached {labeled_count} embeddings and geometries ({cache_ms:.1f}ms)")
+                    sys.stdout.flush()
+            
+            if has_points:
+                # For points: find all points within 100m
+                points_gdf = gdf[gdf.geom_type.isin(["Point", "MultiPoint"])]
+                if self.verbose:
+                    print(f"📊 Processing {len(points_gdf)} point(s) - finding nearby points within 100m...")
+                
+                for idx, row in points_gdf.iterrows():
+                    point_wkt = row.geometry.wkt
+                    
+                    # Query points within 100 meters (using ST_Distance)
+                    query = """
+                    SELECT id, ST_AsText(geometry) as wkt, embedding,
+                           ST_Distance(geometry, ST_GeomFromText(?)) as dist_m
+                    FROM geo_embeddings
+                    WHERE ST_Distance(geometry, ST_GeomFromText(?)) <= 100
+                    """
+                    results = self.data.duckdb_connection.execute(query, [point_wkt, point_wkt]).fetchall()
+                    if self.verbose:
+                        print(f"  📊 Found {len(results)} points within 100m of point {idx}")
+                    
+                    for point_id, wkt_geom, embedding, dist_m in results:
+                        point_id = str(point_id)
+                        if point_id not in self.state.pos_ids:
+                            # Cache embedding and geometry
+                            self.state.cached_embeddings[point_id] = np.array(embedding)
+                            geom = shapely.wkt.loads(wkt_geom)
+                            self.state.cached_geometries[point_id] = shapely.geometry.mapping(geom)
+                            # Add as positive label
+                            self.state.pos_ids.append(point_id)
+                            labeled_count += 1
+            
+            if labeled_count > 0:
+                # Update layers and query vector
+                t4 = time.time()
+                self._update_layers()
+                t5 = time.time()
+                self._update_query_vector()
+                t6 = time.time()
+                layers_ms = (t5-t4)*1000
+                vector_ms = (t6-t5)*1000
+                total_ms = (t6-t0)*1000
+                print(f"[AUTO-LABEL] Updated layers ({layers_ms:.1f}ms) and query vector ({vector_ms:.1f}ms)")
+                print(f"[AUTO-LABEL] TOTAL: Auto-labeled {labeled_count} points from vector layer ({total_ms:.1f}ms)")
+                sys.stdout.flush()
+                
+                success_msg = f"✅ Auto-labeled {labeled_count} points from vector layer"
+                self._show_operation_status(success_msg)
+            else:
+                error_msg = "[AUTO-LABEL] No points found to label from vector layer"
+                print(error_msg)
+                if has_polygons:
+                    print("[AUTO-LABEL] Tip: Make sure your polygons intersect with points in the database")
+                    print("[AUTO-LABEL] Tip: Check that the polygons cover areas where points exist")
+                if has_points:
+                    print("[AUTO-LABEL] Tip: Make sure your points are within 100m of database points")
+                sys.stdout.flush()
+                self._show_operation_status("ℹ️ No points found to auto-label from vector layer")
+                    
+        except Exception as e:
+            error_msg = f"[AUTO-LABEL] Error auto-labeling from vector layer: {e}"
+            print(error_msg)
+            import traceback
+            traceback.print_exc()
+            import sys
+            sys.stdout.flush()
+            self._show_operation_status(error_msg)
+            # Don't fail the upload if auto-labeling fails
 
     def _on_map_interaction(self, **kwargs) -> None:
         lat, lon = kwargs.get("coordinates", (0, 0))
@@ -469,6 +900,11 @@ class GeoVibes:
             log_to_file("Handled as Ctrl-Click for Google Maps. Returning.")
             return
 
+        # Check if location analysis is enabled - if so, analyze instead of labeling
+        if self.state.location_analysis_enabled and self.location_analyzer:
+            self.analyze_location(lat, lon, self.state.location_analysis_commodity)
+            return
+
         if not self.state.execute_label_point or self.state.lasso_mode or self.state.polygon_drawing:
             return
 
@@ -479,32 +915,56 @@ class GeoVibes:
     # ------------------------------------------------------------------
 
     def label_point(self, lon: float, lat: float) -> None:
+        t0 = time.time()
         log_to_file("label_point: Querying database for nearest point.")
         result = self.data.nearest_point(lon, lat)
+        t1 = time.time()
+        nearest_ms = (t1-t0)*1000
+        msg = f"[TIMING] nearest_point: {nearest_ms:.1f}ms"
+        print(msg)
+        import sys
+        sys.stdout.flush()
+        self._show_operation_status(msg)  # Show in UI too
+        
         if result is None:
             self._show_operation_status("⚠️ No points found near click.")
             return
 
         point_id = str(result[0])
+        wkt_geometry = result[1]  # Already have geometry - cache it
         embedding = np.array(result[3])
         self.state.cached_embeddings[point_id] = embedding
+        
+        # Cache geometry to avoid querying it later
+        t2 = time.time()
+        # Handle case where wkt_geometry might be None or empty
+        if wkt_geometry and isinstance(wkt_geometry, str) and wkt_geometry.strip():
+            try:
+                geom = shapely.wkt.loads(wkt_geometry)
+                self.state.cached_geometries[point_id] = shapely.geometry.mapping(geom)
+            except Exception:
+                # If WKT parsing fails, we'll need to query geometry later
+                if self.verbose:
+                    print(f"⚠️ Could not parse WKT geometry for point {point_id}")
+        else:
+            # No WKT available - will need to query geometry if needed
+            if self.verbose:
+                print(f"⚠️ No WKT geometry available for point {point_id}")
+        t3 = time.time()
+        geom_ms = (t3-t2)*1000
+        print(f"[TIMING] geometry cache: {geom_ms:.1f}ms")
+        sys.stdout.flush()
 
+        status = None
         if self.state.select_val == UIConstants.ERASE_LABEL:
-            erase_query = """
-            SELECT ST_AsGeoJSON(geometry) as geometry
-            FROM geo_embeddings
-            WHERE id = ?
-            """
-            erase_geojson = self.data.duckdb_connection.execute(
-                erase_query, [point_id]
-            ).fetchone()
-            if erase_geojson:
+            # Use cached geometry instead of querying
+            if point_id in self.state.cached_geometries:
                 geojson = {
                     "type": "FeatureCollection",
                     "features": [
                         {
                             "type": "Feature",
-                            "geometry": json.loads(erase_geojson[0]),
+                            "geometry": self.state.cached_geometries[point_id],
                             "properties": {},
                         }
                     ],
@@ -515,17 +975,110 @@ class GeoVibes:
                     erase_geojson=geojson,
                 )
             self.state.remove_label(point_id)
-            self._show_operation_status("✅ Erased label")
+            status = "Erased"
         else:
             label_state = self.state.apply_label(point_id, self.state.select_val)
             status = "Positive" if label_state == "positive" else "Negative"
             if label_state == "removed":
-                self._show_operation_status("✅ Removed label")
-            else:
-                self._show_operation_status(f"✅ Labeled point as {status}")
+                status = "Removed"
 
+        t4 = time.time()
         self._update_layers()
+        t5 = time.time()
+        layers_ms = (t5-t4)*1000
+        print(f"[TIMING] _update_layers: {layers_ms:.1f}ms")
+        sys.stdout.flush()
+        
+        t6 = time.time()
         self._update_query_vector()
+        t7 = time.time()
+        vector_ms = (t7-t6)*1000
+        total_ms = (t7-t0)*1000
+        print(f"[TIMING] _update_query_vector: {vector_ms:.1f}ms")
+        print(f"[TIMING] TOTAL label_point: {total_ms:.1f}ms")
+        sys.stdout.flush()
+        
+        # ALWAYS show timing in status message
+        timing_msg = f"⏱️ {total_ms:.0f}ms total (nearest: {nearest_ms:.0f}ms, layers: {layers_ms:.0f}ms, vector: {vector_ms:.0f}ms)"
+        if status == "Positive":
+            self._show_operation_status(f"✅ Labeled point as {status} | {timing_msg}")
+        elif status == "Negative":
+            self._show_operation_status(f"✅ Labeled point as {status} | {timing_msg}")
+        elif status == "Erased":
+            self._show_operation_status(f"✅ Erased label | {timing_msg}")
+        elif status == "Removed":
+            self._show_operation_status(f"✅ Removed label | {timing_msg}")
+        else:
+            self._show_operation_status(timing_msg)
+
+    def analyze_location(self, lat: float, lon: float, user_search_context: str = "") -> Optional[Dict]:
+        """
+        Analyze a location using Google Places API and Gemini AI.
+        
+        Args:
+            lat: Latitude
+            lon: Longitude
+            user_search_context: Optional search context (commodity) for better analysis
+            
+        Returns:
+            Dictionary with place info, nearby places, and AI analysis, or None if not available
+        """
+        if not self.location_analyzer:
+            with self.map_manager.location_analysis_output:
+                print("⚠️ Location analyzer not available (missing API keys)")
+            return None
+        
+        try:
+            # Clear previous output
+            self.map_manager.location_analysis_output.clear_output(wait=True)
+            
+            # Show loading message
+            with self.map_manager.location_analysis_output:
+                print(f"🔍 Analyzing location ({lat:.4f}, {lon:.4f}) for {user_search_context}...")
+                import sys
+                sys.stdout.flush()
+            
+            result = self.location_analyzer.analyze_location(lat, lon, user_search_context)
+            
+            if result.get('success'):
+                analysis = result.get('gemini_analysis', '')
+                place_info = result.get('place_info', {})
+                nearby_places = result.get('nearby_places', [])
+                
+                # Display full analysis in the output widget below the map
+                with self.map_manager.location_analysis_output:
+                    print("\n" + "="*80)
+                    print(f"📍 Location Analysis for {user_search_context.upper()}")
+                    print(f"📍 Coordinates: {lat:.4f}, {lon:.4f}")
+                    print("="*80)
+                    print(analysis)
+                    print("\n" + "="*80 + "\n")
+                    import sys
+                    sys.stdout.flush()
+                
+                # Update status bar with brief info
+                status_msg = f"✅ Location analyzed: {place_info.get('place_name', 'Location')}"
+                self._show_operation_status(status_msg)
+                
+                return result
+            else:
+                error = result.get('error', 'Unknown error')
+                with self.map_manager.location_analysis_output:
+                    print(f"⚠️ Location analysis returned no results: {error}")
+                    import sys
+                    sys.stdout.flush()
+                self._show_operation_status(f"⚠️ Location analysis returned no results")
+                return None
+                
+        except Exception as e:
+            error_msg = f"⚠️ Error analyzing location: {e}"
+            with self.map_manager.location_analysis_output:
+                print(error_msg)
+                import sys
+                sys.stdout.flush()
+            if self.verbose:
+                self._show_operation_status(error_msg)
+            return None
 
     def _handle_draw(self, target, action, geo_json) -> None:
         if action == "created" and geo_json["geometry"]["type"] == "Polygon":
@@ -718,13 +1271,72 @@ class GeoVibes:
                 self.state.cached_embeddings[point_id] = np.array(row["embedding"])
 
     def _update_layers(self) -> None:
-        pos_geojson = self._geojson_for_ids(self.state.pos_ids)
-        neg_geojson = self._geojson_for_ids(self.state.neg_ids)
+        t0 = time.time()
+        # Build GeoJSON from cached geometries - instant, no DB queries
+        pos_features = []
+        for pid in self.state.pos_ids:
+            if pid in self.state.cached_geometries:
+                pos_features.append({
+                    "type": "Feature",
+                    "geometry": self.state.cached_geometries[pid],
+                    "properties": {"id": pid},
+                })
+        
+        neg_features = []
+        for pid in self.state.neg_ids:
+            if pid in self.state.cached_geometries:
+                neg_features.append({
+                    "type": "Feature",
+                    "geometry": self.state.cached_geometries[pid],
+                    "properties": {"id": pid},
+                })
+        
+        t1 = time.time()
+        # Query any missing geometries (should be rare)
+        missing_ids = [pid for pid in self.state.pos_ids + self.state.neg_ids if pid not in self.state.cached_geometries]
+        if missing_ids:
+            print(f"[TIMING] ⚠️ Querying {len(missing_ids)} missing geometries")
+            import sys
+            sys.stdout.flush()
+            t2 = time.time()
+            df = self.data.duckdb_connection.execute(
+                f"""
+                SELECT id, ST_AsGeoJSON(geometry) as geometry
+                FROM geo_embeddings
+                WHERE id IN ({','.join(['?' for _ in missing_ids])})
+                """,
+                [str(pid) for pid in missing_ids]
+            ).df()
+            t3 = time.time()
+            missing_ms = (t3-t2)*1000
+            print(f"[TIMING] missing geometries query: {missing_ms:.1f}ms")
+            sys.stdout.flush()
+            for _, row in df.iterrows():
+                pid = str(row['id'])
+                geom = json.loads(row['geometry'])
+                self.state.cached_geometries[pid] = geom
+                feature = {
+                    "type": "Feature",
+                    "geometry": geom,
+                    "properties": {"id": pid},
+                }
+                if pid in self.state.pos_ids:
+                    pos_features.append(feature)
+                if pid in self.state.neg_ids:
+                    neg_features.append(feature)
+        
+        t4 = time.time()
         self.map_manager.update_label_layers(
-            pos_geojson=pos_geojson,
-            neg_geojson=neg_geojson,
+            pos_geojson={"type": "FeatureCollection", "features": pos_features},
+            neg_geojson={"type": "FeatureCollection", "features": neg_features},
             erase_geojson=self._empty_collection(),
         )
+        t5 = time.time()
+        build_ms = (t1-t0)*1000
+        update_ms = (t5-t4)*1000
+        print(f"[TIMING] build features: {build_ms:.1f}ms, update layers: {update_ms:.1f}ms")
+        import sys
+        sys.stdout.flush()
 
     def _geojson_for_ids(self, ids):
         if not ids:
@@ -748,13 +1360,40 @@ class GeoVibes:
         return {"type": "FeatureCollection", "features": features}
 
     def _update_query_vector(self) -> None:
+        t0 = time.time()
         if not self.state.pos_ids:
             self.state.query_vector = None
             return
-        self._fetch_embeddings(self.state.pos_ids)
-        if self.state.neg_ids:
-            self._fetch_embeddings(self.state.neg_ids)
+        # Only fetch embeddings that aren't already cached - avoid redundant DB queries
+        missing_pos = [pid for pid in self.state.pos_ids if pid not in self.state.cached_embeddings]
+        missing_neg = [pid for pid in self.state.neg_ids if pid not in self.state.cached_embeddings]
+        t1 = time.time()
+        if missing_pos or missing_neg:
+            print(f"[TIMING] ⚠️ Fetching {len(missing_pos)} pos, {len(missing_neg)} neg embeddings")
+            import sys
+            sys.stdout.flush()
+        if missing_pos:
+            t2 = time.time()
+            self._fetch_embeddings(missing_pos)
+            t3 = time.time()
+            fetch_pos_ms = (t3-t2)*1000
+            print(f"[TIMING] fetch_pos: {fetch_pos_ms:.1f}ms")
+            sys.stdout.flush()
+        if missing_neg:
+            t4 = time.time()
+            self._fetch_embeddings(missing_neg)
+            t5 = time.time()
+            fetch_neg_ms = (t5-t4)*1000
+            print(f"[TIMING] fetch_neg: {fetch_neg_ms:.1f}ms")
+            sys.stdout.flush()
+        t6 = time.time()
         self.state.update_query_vector()
+        t7 = time.time()
+        check_ms = (t1-t0)*1000
+        update_vec_ms = (t7-t6)*1000
+        print(f"[TIMING] check cache: {check_ms:.1f}ms, update_vector: {update_vec_ms:.1f}ms")
+        import sys
+        sys.stdout.flush()
 
     def _on_tiles_ready(self) -> None:
         self.tiles_button.button_style = "success"

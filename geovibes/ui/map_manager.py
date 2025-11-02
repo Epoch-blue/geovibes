@@ -11,7 +11,7 @@ import ipywidgets as ipyw
 import shapely.geometry
 import shapely.geometry.base
 from ipyleaflet import DrawControl, Map
-from ipywidgets import HTML, HBox, Layout, VBox
+from ipywidgets import HTML, HBox, Layout, VBox, Output
 from tqdm import tqdm
 
 from geovibes.ee_tools import (
@@ -57,6 +57,7 @@ class MapManager:
         )
         self.legend = self._build_legend()
         self.status_bar = HTML(value="Ready")
+        self.location_analysis_output = Output(layout=Layout(width="100%", max_height="300px", overflow="auto"))
         self.vector_layer = None
         self.highlight_layer = None
 
@@ -183,8 +184,9 @@ class MapManager:
                     [self.legend, self.status_bar],
                     layout=Layout(justify_content="space-between", padding="5px"),
                 ),
+                self.location_analysis_output,
             ],
-            layout=Layout(flex="1 1 auto"),
+            layout=Layout(flex="1 1 auto", width="100%"),
         )
         return HBox(
             [side_panel, map_with_overlays],
