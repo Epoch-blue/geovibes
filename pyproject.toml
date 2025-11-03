@@ -69,6 +69,8 @@ dependencies = [
     "tenacity",
     "tqdm",
     "voila",
+    "googlemaps",
+    "google-generativeai"
 ]
 
 
