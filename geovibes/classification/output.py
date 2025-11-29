@@ -55,7 +55,7 @@ class OutputGenerator:
             query = f"""
                 SELECT
                     id,
-                    source_id as tile_id,
+                    tile_id,
                     ST_AsText(geometry) as geometry_wkt
                 FROM geo_embeddings
                 WHERE id IN ({ids_str})

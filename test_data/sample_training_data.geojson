@@ -1,0 +1,7518 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.66732274976388,
+          34.44762727300237
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_74_191",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.65720675182772,
+          31.032958313138455
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_209_233",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.74549439193221,
+          34.253901422095154
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_566_196",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.78674683485741,
+          33.29637046540801
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_530_81",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.74883023934598,
+          34.5661398971048
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_156_144",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.33689832438986,
+          34.60355442275852
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_183_380",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.00173198050427,
+          33.97045413587253
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_368_624",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.04455539493017,
+          31.498113166851606
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_533_5",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.50997702055471,
+          33.51771810057277
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_55_329",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.57990116725523,
+          32.58706384720688
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_40_208",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.34404805863186,
+          31.96650126703518
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFA_32_16_10_237_353",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.25232249721688,
+          31.35188416087591
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFV_32_16_10_437_414",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.5034999667312,
+          33.879112355925244
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFC_32_16_10_311_240",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.20718900644205,
+          32.97595165831829
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_304_504",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.39558620123044,
+          32.10210135677632
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCA_32_16_10_73_427",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.6098842933007,
+          34.35649603117665
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFD_32_16_10_16_174",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.27125501467614,
+          31.785127388488217
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFA_32_16_10_112_398",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.97242678799815,
+          33.53896873495016
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_69_16",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.96463142921661,
+          33.346171582684406
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_563_64",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.5554423193862,
+          32.53139894639443
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_369_299",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.84239031992222,
+          34.73230158479795
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_273_143",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.76785485442637,
+          30.606255300863005
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDU_32_16_10_332_165",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.9152215205866,
+          32.08946743530864
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEA_32_16_10_62_50",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.076169465385,
+          32.622232031833555
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCB_32_16_10_62_619",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.37201038899576,
+          33.08092609628629
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_377_408",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.3800239475002,
+          33.73037976525721
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFC_32_16_10_209_313",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.94012695952306,
+          31.362297670006
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFV_32_16_10_439_5",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.16443710015083,
+          32.31295634515553
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFA_32_16_10_223_455",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.92121600154896,
+          31.633306312450433
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDA_32_16_10_1_79",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.81019389844569,
+          31.659954342740154
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFA_32_16_10_21_80",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.40749896707743,
+          32.96968570376347
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_300_387",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.03209646971645,
+          31.746336335238198
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDA_32_16_10_77_606",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.24636565711742,
+          33.2080158033085
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCB_32_16_10_469_524",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.88100552908013,
+          33.60096908497034
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_112_69",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.3928187319479,
+          32.11546596907193
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEA_32_16_10_81_358",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.7270811326079,
+          33.025917808964756
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_343_118",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.0125367852736,
+          31.834894703563744
+        ]
+      },
+      "properties": {
+        "tile_id": "16REA_32_16_10_141_584",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.56247280303862,
+          32.29176889289892
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_203_294",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.12137352574221,
+          31.29970370681026
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCV_32_16_10_396_583",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.57102555677281,
+          33.87558540496791
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFC_32_16_10_308_201",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.0503834382737,
+          32.75025879329521
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_150_556",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.28697941364545,
+          32.226298164839406
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_157_456",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.21561887279047,
+          33.569678442085454
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_92_455",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.95273514331917,
+          31.677040946909983
+        ]
+      },
+      "properties": {
+        "tile_id": "16REA_32_16_10_29_28",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.00140717640858,
+          32.385516973049356
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFA_32_16_10_275_550",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.11507866951187,
+          31.620212686268072
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCV_32_16_10_618_589",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.22018964169905,
+          32.329629374836635
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFA_32_16_10_234_422",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.92676308013412,
+          30.290483597831614
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDU_32_16_10_114_68",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.38584048701112,
+          34.64514653073608
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_211_404",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.9618791782692,
+          31.485769682450474
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_524_54",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.88615181352229,
+          34.902238354210624
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_391_119",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.44823790075836,
+          32.206655301205714
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEA_32_16_10_144_325",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.7203851723809,
+          34.203902565601425
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_530_161",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.88380898283748,
+          31.44890988177108
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_496_69",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.67036859993306,
+          31.524337189759496
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFV_32_16_10_553_164",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.87206775901957,
+          32.63399492496742
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_67_75",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.56617885125323,
+          33.22908533136371
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_485_210",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.65991507903085,
+          32.83727195826316
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_209_239",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.24027394906031,
+          31.899127495921732
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDA_32_16_10_183_483",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.51360199396498,
+          33.895106202008094
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFC_32_16_10_322_234",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.60994600102487,
+          31.245406357988273
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_356_262",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.52220604050787,
+          34.84826040741583
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_352_273",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.51704600874893,
+          31.053939567988646
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_223_288",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.3295242089941,
+          34.6525708108585
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_217_384",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.39128931004402,
+          31.31470575110556
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_404_362",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.947775370579,
+          34.40189504388657
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_42_30",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.62765589826347,
+          34.297849327921625
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_596_264",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.34957269289539,
+          33.866281601825996
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_297_376",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.04344385838576,
+          34.25327463282927
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_564_600",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.21261697411933,
+          32.3780038997589
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_262_500",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.65868849439829,
+          33.815731745418454
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_262_244",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.16524730130284,
+          31.989275381944392
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCA_32_16_10_249_562",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.29866452160641,
+          31.640611156537776
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDA_32_16_10_4_448",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.56868791017676,
+          33.80030606858404
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_251_296",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.3704716439897,
+          33.12278419272099
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_406_409",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.73505402306779,
+          31.77453370411321
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDA_32_16_10_98_190",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.10996883754386,
+          33.82115377797051
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCC_32_16_10_268_608",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.68725787389273,
+          34.705956025363385
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_253_179",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.32979498551411,
+          33.74063155555924
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_210_388",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.2349534678431,
+          31.3095386704259
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_401_455",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.34880937144668,
+          34.557242648370966
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_150_425",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.68442701843422,
+          31.321542461211326
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_409_218",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.47390363135035,
+          32.504691765724594
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFA_32_16_10_353_271",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.79392606749799,
+          33.647095343449976
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFC_32_16_10_148_74",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.26252527459677,
+          34.29340404138166
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_592_474",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.64914144050178,
+          33.69600931352189
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_179_249",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.79163363279017,
+          34.88653367523538
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_378_119",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.05278249967319,
+          30.566051375172506
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCU_32_16_10_513_619",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.75142233485064,
+          32.46598479465996
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEA_32_16_10_323_146",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.74646039350236,
+          32.3485497570282
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_243_186",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.96603850538766,
+          30.223785755716467
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDU_32_16_10_68_44",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.52335125744717,
+          34.64915397874249
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_214_273",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.96676052431853,
+          32.89247446852346
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_249_604",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.06569942994462,
+          31.486479602020808
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_522_586",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.13496064165265,
+          31.451151960600622
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCV_32_16_10_501_576",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.94036260751784,
+          32.53694144273234
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEA_32_16_10_372_35",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.90222928616528,
+          34.77082828009936
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_300_109",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.40186949681042,
+          33.105871137246496
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_401_307",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.0344021390155,
+          32.697631516323014
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_114_19",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.70054023715812,
+          32.84958333108791
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_221_135",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.61180406545911,
+          34.02179048483508
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_404_224",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.83913166340197,
+          34.77262229853392
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_299_92",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.935295627906,
+          33.33629426982422
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_556_81",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.49709634963095,
+          33.070387606027836
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_370_335",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.28703770570473,
+          33.30917751905273
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_535_458",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.6155577357488,
+          33.34261998359822
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_559_267",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.12978902183329,
+          30.732303088342253
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCV_32_16_10_3_574",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.59815710297578,
+          33.312398796412346
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_538_277",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.21163043972722,
+          31.780995283116965
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCA_32_16_10_105_533",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.54940783930736,
+          31.23701753598226
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_350_298",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.41423930065262,
+          31.062840611104814
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_229_378",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.64572193435427,
+          31.17418232413848
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_306_211",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.07120418262342,
+          34.201314611647334
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_528_584",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.12955719333917,
+          32.663616663538626
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCB_32_16_10_91_588",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.0970021432,
+          32.70008966294583
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_115_529",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.97637295447367,
+          31.277423303347994
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_380_609",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.26009060907991,
+          34.066861478707935
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_435_475",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.43487479809714,
+          34.67383866675125
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_231_376",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.59077085501569,
+          34.87133074290683
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFD_32_16_10_373_180",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.96947767204955,
+          30.91116950193547
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_126_46",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.72958575241245,
+          34.82248324009751
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_335_208",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.01615416441696,
+          32.13738165103294
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_98_26",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.77909033236045,
+          31.58302644179746
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_589_131",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.83249899102991,
+          32.95623488762399
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_294_57",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.0557214393705,
+          31.70446517728706
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDA_32_16_10_48_592",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.572554779403,
+          33.36480181996459
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_579_205",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.68504355061681,
+          30.221224250412074
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDU_32_16_10_65_213",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.84034378758565,
+          33.20405297444783
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_462_93",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.0767051053164,
+          33.663961056786995
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_158_535",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.21792053622285,
+          31.83490470162103
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFA_32_16_10_147_429",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.19458260362744,
+          32.85806872452486
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_224_471",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.52684269897793,
+          34.855271861291975
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_357_324",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.50490765914911,
+          33.79832833560162
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFC_32_16_10_255_240",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.69617397551548,
+          30.858069000821338
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_88_209",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.68260457772226,
+          33.81911226313261
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFC_32_16_10_268_137",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.52987758089414,
+          32.81912749125763
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_196_315",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.66370320606305,
+          33.251817009994056
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_500_153",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.15394989412582,
+          31.881939220487027
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDA_32_16_10_171_534",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.28488026449165,
+          32.6829545872925
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_109_380",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.02043993451693,
+          32.50519976103435
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_350_613",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.4569282141395,
+          31.569408413186384
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_580_354",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.13599929382094,
+          31.17171063669206
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_304_544",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.1920229363078,
+          31.833142532940478
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCA_32_16_10_141_545",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.6573161746099,
+          32.94841558025863
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_286_241",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.09757626047819,
+          32.952993114366784
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_288_568",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.80120844632205,
+          34.544593030160435
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_141_114",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.2781994021914,
+          31.706731729948075
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCA_32_16_10_54_493",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.89963572759437,
+          31.227708781977967
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFV_32_16_10_346_30",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.81646055404445,
+          31.444500252077965
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_493_109",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.76229103484546,
+          31.067672376769494
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFV_32_16_10_236_113",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.08552434823119,
+          31.054815180426914
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_223_574",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.07341040125321,
+          32.71053543100819
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_120_582",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.70159892987711,
+          34.836497529533425
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFD_32_16_10_348_117",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.69683371163207,
+          32.497619354191094
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEA_32_16_10_345_178",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.93045048701777,
+          32.049994176248376
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_37_76",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.7662127447343,
+          31.28279447311565
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFV_32_16_10_385_109",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.43502437054978,
+          31.287847001792432
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFV_32_16_10_391_306",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.82150382783027,
+          34.648718977584885
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFD_32_16_10_217_50",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.10698027069812,
+          32.54186607472626
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_13_486",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.24669057146453,
+          31.101727977502996
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_257_449",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.12833630668976,
+          32.97246949584561
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCB_32_16_10_305_591",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.21059904376034,
+          33.22857204786904
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCB_32_16_10_483_545",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.668264635089,
+          32.258663048647314
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFA_32_16_10_181_159",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.94455731486168,
+          31.43826244316217
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_491_64",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.15380394987653,
+          33.779874838749805
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_236_536",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.62422767891043,
+          31.513373133829184
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_541_223",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.03458355343375,
+          34.338939603534776
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_1_555",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.16707119904079,
+          30.997296477970583
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_185_497",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.85882035266252,
+          31.269215329778188
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFV_32_16_10_375_54",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.59693148412829,
+          31.31331744340432
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_403_270",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.97865170964023,
+          33.04843486084089
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_357_596",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.07088893538346,
+          34.15193146635985
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_497_8",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.13355246364443,
+          30.192894656670344
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCU_32_16_10_255_568",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.38393451728592,
+          31.777795833687875
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCA_32_16_10_104_431",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.97292469151215,
+          33.09889804976854
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_392_599",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.32920233816375,
+          31.494029745980008
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCV_32_16_10_532_461",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.56165185113086,
+          34.63294600903431
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFD_32_16_10_208_199",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.8446302471987,
+          32.5479234583804
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_11_53",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.92344941474721,
+          34.05087837911275
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_427_621",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.79414342032754,
+          32.93607505353528
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_278_161",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.49170898964634,
+          34.833776849898534
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_342_344",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.93742260623836,
+          32.234694586841236
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_165_73",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.91250744104346,
+          34.83329629077639
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_341_50",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.24469286934988,
+          31.142137922966498
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_285_450",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.18909916696337,
+          31.665640552870485
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFA_32_16_10_30_448",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.11495728930808,
+          34.44802581595249
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_74_559",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.83689364195277,
+          34.35864309565609
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_14_144",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.53821615222704,
+          34.17706728714023
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_512_315",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.68550350468182,
+          32.81552393695092
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_193_184",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.23951266729277,
+          31.497483043695336
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFV_32_16_10_538_420",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.52863322591293,
+          32.608410821112
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_50_315",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.61739924457261,
+          31.535006649558532
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_556_227",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.48202398194042,
+          31.858022689684326
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDA_32_16_10_155_340",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.78557507997117,
+          33.320013965479916
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_544_168",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.81318821055616,
+          33.056806002258625
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_360_109",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.8422054129807,
+          32.151466328263844
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEA_32_16_10_105_93",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.97759304055569,
+          33.55340111248954
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_79_13",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.07341105303608,
+          34.916364258305904
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_401_529",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.84512545930912,
+          32.53595878598607
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_1_129",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.76474742698741,
+          34.48825508802422
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_102_135",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.62122205196391,
+          32.681595685395045
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_101_261",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.9178016396485,
+          32.414037536131474
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFA_32_16_10_287_11",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.5030534946871,
+          33.649093489518464
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_146_288",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.37976529493193,
+          31.61041006599831
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCV_32_16_10_613_432",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.86906493357506,
+          31.467667563204493
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_511_109",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.93225004759441,
+          33.05959146058347
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_365_623",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.5005064939063,
+          32.45657517529582
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_317_331",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.1619201413755,
+          31.845653335622064
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFA_32_16_10_155_462",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.61126488854359,
+          34.4350087391583
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_66_274",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.99658611111948,
+          32.69612357967634
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_110_2",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.84468220355193,
+          34.60958607799181
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_186_89",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.17358157569912,
+          34.70788332991235
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_256_473",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.47031772679394,
+          31.31505608159492
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_404_315",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.8624524846693,
+          33.619666102152685
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_127_125",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.99230612048079,
+          34.38332762347548
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_32_579",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.85170185642552,
+          31.41004246580965
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_471_119",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.42422202483587,
+          31.732267273314164
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFA_32_16_10_74_308",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.10889296742911,
+          32.20534739200802
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFA_32_16_10_149_489",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.90060836914743,
+          33.04536031245425
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_352_58",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.79346730686215,
+          30.67684432709014
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDU_32_16_10_381_150",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.02950962676765,
+          34.60101289308743
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_183_35",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.52739428929952,
+          31.334045914753066
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_417_281",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.58184305813292,
+          31.32060475290796
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_408_279",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.41224686835936,
+          32.51462958502954
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_357_383",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.19664333090942,
+          32.57640194045217
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCB_32_16_10_31_548",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.73126009279463,
+          31.506061079108214
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_537_191",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.86295574016826,
+          34.10602141785793
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_462_79",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.71700035971944,
+          31.403648876398137
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_466_199",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.25197225975344,
+          31.069998680748984
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_235_446",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.76593014818154,
+          34.58996668395712
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_174_186",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.30740705154767,
+          34.79240066316376
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_314_396",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.3708180179114,
+          31.105280958674495
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_259_375",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.9772734496988,
+          34.311430938323944
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_607_63",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.1629737178307,
+          32.47682134156562
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCA_32_16_10_331_567",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.3181825478492,
+          34.757884415781874
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_289_443",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.11828181112199,
+          34.454508350662806
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCD_32_16_10_82_608",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.24244376410321,
+          33.173421123755084
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCB_32_16_10_445_526",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.5102203945039,
+          30.493461552416047
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDU_32_16_10_253_319",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.60428202464429,
+          34.88606820017944
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_378_226",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.94944043495856,
+          33.76972685653252
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_232_608",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.24540717044412,
+          34.97736108979343
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_441_485",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.06893327679408,
+          33.43911707074928
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_3_4",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.94432065548004,
+          31.737637207517515
+        ]
+      },
+      "properties": {
+        "tile_id": "16REA_32_16_10_74_625",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.70955153928612,
+          34.825766906582274
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_336_166",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.65617324720124,
+          33.25582283755196
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_499_243",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.64960189844457,
+          33.29626579842314
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_527_247",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.60757172990519,
+          33.92133512323312
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_335_274",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.35941637236648,
+          32.50901816983705
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_353_414",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.6170690923909,
+          34.39120646097301
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_35_220",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.37360270222013,
+          33.17515854866987
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_443_365",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.01748315634629,
+          31.7971289738909
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDA_32_16_10_115_23",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.27198887361895,
+          31.953564333226918
+        ]
+      },
+      "properties": {
+        "tile_id": "16REA_32_16_10_222_430",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.33546742347099,
+          31.362067622490404
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_437_395",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.24545453260968,
+          34.99323167960651
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_452_485",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.38947915251345,
+          34.332566065837526
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_620_351",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.78384070509448,
+          31.948901629920282
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDA_32_16_10_219_162",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.0323423087624,
+          34.83380748530118
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_344_553",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.02874798264938,
+          34.25473728936676
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_568_33",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.36077875369386,
+          31.207534646785476
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFV_32_16_10_336_351",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.75636251347689,
+          31.693573275397238
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDA_32_16_10_42_177",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.72419092332497,
+          32.02398218905011
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFA_32_16_10_18_128",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.80973623719882,
+          30.62476987589955
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDU_32_16_10_345_140",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.46137508636704,
+          33.77333595894662
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_232_358",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.28897366960733,
+          32.83381720065798
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCB_32_16_10_210_496",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.19141543196652,
+          32.82468180364992
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCB_32_16_10_203_553",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.1812474305228,
+          34.10041813757363
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCC_32_16_10_462_569",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.09778064314001,
+          32.24991651784702
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFA_32_16_10_180_495",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.06529925058499,
+          33.28928722294994
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_521_587",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.13064407548154,
+          34.97016882045695
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_438_496",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.42907989565778,
+          32.01170666657856
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEA_32_16_10_9_337",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.90677858579602,
+          32.762077207515595
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_159_15",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.6390178903005,
+          33.25879850751215
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_501_253",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.36472490825417,
+          32.97703420669606
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_305_412",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.09631932919882,
+          33.370085314283706
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_577_569",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.24096127435313,
+          33.06808997018858
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCB_32_16_10_372_526",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.92978104481051,
+          33.26305038770097
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_506_623",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.28227830211384,
+          31.51182977592095
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCV_32_16_10_544_489",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.45529439814555,
+          32.39767057777087
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFA_32_16_10_279_283",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.8877874809285,
+          31.945006647209503
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFA_32_16_10_218_32",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.0455385991499,
+          32.333435505564545
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_234_10",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.1426529950307,
+          33.30509760232141
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_532_542",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.58654403580547,
+          33.88391851414191
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_309_286",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.97543576560982,
+          32.43319551915808
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEA_32_16_10_303_602",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.12295954373668,
+          31.05619327277671
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_226_523",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.9107736523681,
+          33.16082687100324
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_432_52",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.63882495036427,
+          31.221803881167144
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_339_215",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.43778429309279,
+          32.86133852104446
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_225_369",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.15332014566614,
+          32.25320161622683
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCA_32_16_10_176_571",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.55624117514375,
+          33.93168519393121
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFC_32_16_10_347_209",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.09035691591136,
+          34.649578323415085
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_216_521",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.26521726259878,
+          33.616161260668804
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_124_426",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.53426352808148,
+          34.64891516199314
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_214_319",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.68094222892779,
+          33.01822308150514
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_338_145",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.68627614080317,
+          31.34463008381428
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_425_217",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.19215992184834,
+          33.31121239731777
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_538_470",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.29520237989985,
+          32.67538087557525
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_97_413",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.52695483420244,
+          32.73853083230871
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_140_277",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.22515437596205,
+          32.087126242281535
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEA_32_16_10_62_457",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.03680208498623,
+          31.28510834173448
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_385_573",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.6523377767893,
+          31.606422678904146
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFV_32_16_10_610_174",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.94222836194717,
+          33.79419597485745
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_249_612",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.6617249200502,
+          32.32143680237677
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEA_32_16_10_223_199",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.94518198063756,
+          33.01507954230401
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_331_32",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.63863469779287,
+          32.2481049330541
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_173_249",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.75729467103274,
+          32.627446511856284
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_64_181",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.75662359820444,
+          32.62790373632274
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_67_104",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.83453832165446,
+          34.820365820661664
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_334_148",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.4516805300809,
+          31.604147737138543
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFV_32_16_10_610_293",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.60706452528024,
+          33.89331280532001
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFC_32_16_10_320_180",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.0188030279259,
+          33.12494249433928
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_410_31",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.83342845500052,
+          31.815788541394507
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDA_32_16_10_127_132",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.79658205437674,
+          34.9225941780273
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFD_32_16_10_407_62",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.2734725516824,
+          32.2523098217655
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_175_464",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.8430824646444,
+          32.62674532946584
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_62_92",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.69482282648518,
+          34.54870217093558
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_144_175",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.04809421998978,
+          31.664837734953334
+        ]
+      },
+      "properties": {
+        "tile_id": "16REA_32_16_10_23_564",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.74185350838323,
+          33.54989632607089
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFC_32_16_10_81_105",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.29300866555933,
+          31.188385043069754
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCV_32_16_10_320_480",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.69338667632235,
+          30.696185567490886
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDU_32_16_10_394_210",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.56201964540124,
+          34.51031836020022
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFD_32_16_10_123_200",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.38411101879927,
+          33.14490399066413
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_422_359",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.0365804939701,
+          34.45528898848738
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_79_604",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.48811339534164,
+          31.72952675137464
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDA_32_16_10_66_336",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.26337915689997,
+          30.724420419403295
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCU_32_16_10_624_494",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.06311839228997,
+          32.3472791415312
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEA_32_16_10_243_551",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.26818420453121,
+          33.88357964499814
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_308_470",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.19531946668991,
+          32.24379423277973
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_169_510",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.53203492065154,
+          34.23150768311913
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFC_32_16_10_555_220",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.05456258187526,
+          32.59796452047934
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_42_593",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.81026314366194,
+          33.7136307955954
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFC_32_16_10_194_64",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.13622145389277,
+          32.16882427682479
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEA_32_16_10_119_509",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.72070235645675,
+          31.416592134286432
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFV_32_16_10_478_135",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.28081506080036,
+          31.31439789631322
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_403_458",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.84960437051473,
+          33.80729744123458
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_255_87",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.82700499990666,
+          31.20342699891764
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_326_103",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.95239639389676,
+          32.33487192614431
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEA_32_16_10_232_28",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.74060112522275,
+          33.39836725429216
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_601_107",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.82430559859446,
+          31.163368998232365
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_300_134",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.18437816077764,
+          31.905398215839337
+        ]
+      },
+      "properties": {
+        "tile_id": "16REA_32_16_10_189_482",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.71143115518257,
+          33.0794514254094
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_377_210",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.0658627551771,
+          31.889111631953515
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCA_32_16_10_179_620",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.57653588589206,
+          31.996806113162332
+        ]
+      },
+      "properties": {
+        "tile_id": "16REA_32_16_10_251_250",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.83143817816878,
+          32.46900410921936
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEA_32_16_10_325_99",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.71454076356993,
+          30.391436906958713
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDU_32_16_10_183_196",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.81406445765013,
+          34.80302071331278
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFD_32_16_10_324_53",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.58035997779429,
+          33.095044939012425
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_392_203",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.43568798518629,
+          34.158715493075874
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_499_374",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.8028870228963,
+          32.09547308828826
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFA_32_16_10_67_81",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.493896011172,
+          32.846648095261585
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_215_296",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.03635195072809,
+          33.924271515268174
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_336_604",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.01022769937252,
+          32.573438897904595
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_25_619",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.18971752929203,
+          30.984397375282477
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCV_32_16_10_178_540",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.33424192318832,
+          33.32720199747862
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_555_344",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.30195280117887,
+          32.550820513071045
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCB_32_16_10_14_486",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.85187383816385,
+          30.6706996367568
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDU_32_16_10_377_115",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.87355689418679,
+          32.83163343050573
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_206_114",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.67429102546483,
+          34.893489968690545
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_383_186",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.88042147609441,
+          33.09232896547182
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_388_28",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.87877038326029,
+          31.002333101642677
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFV_32_16_10_190_44",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.38094798397564,
+          33.83325349179285
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_274_358",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.42599239227853,
+          33.560731140909475
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_85_333",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.79000407911691,
+          33.80774543956214
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_257_168",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.97613933935374,
+          34.70926971687621
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_258_586",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.83419624382111,
+          32.08819273741886
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_63_133",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.98439369939486,
+          34.07146471975963
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_438_9",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.86354431283195,
+          30.48005010703145
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDU_32_16_10_245_107",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.84428027829634,
+          31.08286880687405
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFV_32_16_10_246_64",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.12028025300742,
+          31.225894225884712
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFV_32_16_10_351_494",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.45203044391621,
+          31.27888887040538
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_379_326",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.56253299390208,
+          33.24203045829401
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_494_212",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.63596774304845,
+          31.09042209091606
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_248_217",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.0451230822092,
+          30.62963541021093
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCU_32_16_10_557_624",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.54180407159413,
+          33.82529784086149
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_268_265",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.1453791839168,
+          33.493269986905474
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCC_32_16_10_41_585",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.61781513704942,
+          34.226713327198226
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_546_220",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.7925276706042,
+          34.720573054678624
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFD_32_16_10_267_66",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.57063840105084,
+          34.86084545026226
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_361_299",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.43718083005673,
+          34.44729827218063
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_74_374",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.57587957956024,
+          33.32260615178673
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_545_290",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.42953879675815,
+          33.62625651581905
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_130_376",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.33614763772698,
+          32.32789261926556
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCA_32_16_10_229_464",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.38207673826747,
+          30.845346417133342
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCV_32_16_10_83_424",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.55180532277784,
+          31.070987498692556
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_235_296",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.92271599562156,
+          31.852930197743174
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFA_32_16_10_154_12",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.38156203570121,
+          34.93275105637412
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_411_353",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.91617059280328,
+          34.671699786036925
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_229_48",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.30919013677261,
+          32.75110858807057
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_156_365",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.34208781026054,
+          31.88709755411255
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFA_32_16_10_182_355",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.33951741049627,
+          31.74318520845121
+        ]
+      },
+      "properties": {
+        "tile_id": "16REA_32_16_10_76_391",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.8943379414011,
+          31.067793569793167
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_232_63",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.89438723979494,
+          32.863237216554644
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_228_102",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.29742003234949,
+          33.89774163573585
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_319_406",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.94279053977445,
+          33.073587181480164
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_374_75",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.2340377575622,
+          31.787503025603776
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFA_32_16_10_114_420",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.21852251617813,
+          32.673371394490395
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_103_419",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.76464135193417,
+          32.28637627980021
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_200_175",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.28693388645796,
+          32.64213843607759
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_74_418",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.53175183201473,
+          33.44716952912127
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_6_272",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.62414534216593,
+          34.7591833276772
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFD_32_16_10_295_162",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.59287127865751,
+          32.262761941528325
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_183_276",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.07999349659748,
+          31.79517059710762
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCA_32_16_10_114_611",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.68553028526289,
+          33.929583872917824
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_341_229",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.10160435005217,
+          34.378189682348875
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCD_32_16_10_29_617",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.09782863254516,
+          31.582919881831913
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_591_535",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.2277473029631,
+          33.64122381771686
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_140_493",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.9569570466255,
+          31.815686676878244
+        ]
+      },
+      "properties": {
+        "tile_id": "16REA_32_16_10_128_617",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.22462888835064,
+          34.1007648268928
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_460_447",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.22783988538416,
+          32.371488677864185
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEA_32_16_10_259_454",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.85326611661563,
+          31.59756894825672
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_599_87",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.51041088730071,
+          32.973012090146554
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_308_245",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.32042936204085,
+          34.69724824856957
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_248_389",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.08851999744967,
+          31.512181592461104
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCV_32_16_10_543_604",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.37512276106186,
+          31.154310704827903
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFV_32_16_10_299_343",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.83770637169877,
+          32.023630101938444
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFA_32_16_10_17_61",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.66601809085617,
+          34.31207597984995
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_606_242",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.28846769869557,
+          34.34789276165283
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_6_409",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.25414591133148,
+          33.81722877999142
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_262_478",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.14481507205807,
+          32.52532527033724
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_364_540",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.10595635859295,
+          30.694096991106097
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCU_32_16_10_602_588",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.27925846589233,
+          31.41370561092766
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCV_32_16_10_476_490",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.17355891407185,
+          31.510920021690318
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_539_522",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.85309240600112,
+          33.01506254424494
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_333_127",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.19272891371097,
+          32.8739323313678
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_235_472",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.01723640948175,
+          33.55484507194581
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_80_615",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.28342914994714,
+          31.49086323188648
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFV_32_16_10_533_394",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.34583364149732,
+          32.52060312863084
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_361_422",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.71873564392577,
+          33.76056117413474
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_224_209",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.44160801172085,
+          31.683338483850722
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCA_32_16_10_39_396",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.64169546541201,
+          34.73757319933335
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_275_205",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.20178570603933,
+          31.882303394047526
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFA_32_16_10_180_438",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.07985967938022,
+          34.17493916871532
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_513_3",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.99009176617605,
+          34.80765731456035
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_326_59",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.02859062891147,
+          34.10369977682239
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_463_560",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.00937211424207,
+          31.655882171506487
+        ]
+      },
+      "properties": {
+        "tile_id": "16REA_32_16_10_17_587",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.91897839310785,
+          33.90641827178401
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_326_94",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.46297910195904,
+          32.10741464137332
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_75_352",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.00171874141076,
+          33.306622660293925
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_533_624",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.37056077416138,
+          31.144258177653356
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_286_375",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.13179570791169,
+          31.045548248408025
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCV_32_16_10_220_575",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.13801845692107,
+          31.091923250319088
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFV_32_16_10_258_485",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.05032049039322,
+          32.7451255921145
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_147_10",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.1148369662636,
+          34.36000713860697
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_13_559",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.28928452618793,
+          30.409453280261385
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCU_32_16_10_406_476",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.56583247707695,
+          34.41214097100627
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_50_300",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.36591443663077,
+          33.67408334973122
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_163_413",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.43953731505991,
+          32.52175396396665
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_362_367",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.05863943166865,
+          30.33645280093783
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCU_32_16_10_354_614",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.04995351884565,
+          33.89896768430821
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_321_549",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.51587463347826,
+          32.22954312295959
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFA_32_16_10_162_249",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.12585766196281,
+          33.44871463676799
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCC_32_16_10_10_596",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.60060651943698,
+          32.915506464183316
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_263_274",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.80315629288448,
+          32.16295922164407
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEA_32_16_10_113_116",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.2453715137336,
+          31.724157119696052
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFA_32_16_10_70_414",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.93623240890314,
+          33.01344468010059
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_333_621",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.26806876618161,
+          31.562726099682056
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_575_466",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.4717053009657,
+          34.533511905711904
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_134_303",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.43223995024553,
+          32.42074370777164
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_292_371",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.71310639624265,
+          33.91499723258284
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_331_213",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.1759357106764,
+          30.67904579792237
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCU_32_16_10_592_546",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.16288551398812,
+          32.640822326242365
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_81_452",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.99663074578342,
+          31.48794002354224
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_523_2",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.82145935559899,
+          33.27072923192757
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_512_61",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.42201684829429,
+          34.90986570322214
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_395_330",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.49569956458332,
+          30.58880783923057
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDU_32_16_10_319_328",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.27805999586197,
+          31.508110761552267
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFV_32_16_10_545_397",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.09749018691478,
+          30.68406320996677
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCU_32_16_10_595_593",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.867058599879,
+          32.79636099665172
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_183_38",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.36548553774628,
+          34.5156917686875
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_122_364",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.71795852847987,
+          34.48925820612581
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_104_213",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.91312225993823,
+          31.32156311905916
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_410_82",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.89925957307253,
+          34.98005020007407
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_445_112",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.41678035424499,
+          32.26639717983026
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCA_32_16_10_187_416",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.65328935348518,
+          33.258919863252395
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_505_159",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.3066583854272,
+          33.512615767303345
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_51_447",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.21992877354596,
+          30.988446256889237
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCV_32_16_10_181_522",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.45489778169,
+          32.0195435908104
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFA_32_16_10_17_287",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.97791229051413,
+          33.914622281130654
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_332_60",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.11884230753101,
+          34.43191892739655
+        ]
+      },
+      "properties": {
+        "tile_id": "16SED_32_16_10_65_506",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.646935142359,
+          33.90789737544079
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEC_32_16_10_325_204",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.56802097549865,
+          32.36391329094125
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDA_32_16_10_253_291",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.4072148803301,
+          34.37381296810241
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_23_391",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.16594379757271,
+          34.68748717722534
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDD_32_16_10_240_530",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.66315178563241,
+          32.81271941610672
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDB_32_16_10_192_237",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.48330169318726,
+          33.55277034956311
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFC_32_16_10_85_255",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.40146685860596,
+          31.82865794168919
+        ]
+      },
+      "properties": {
+        "tile_id": "16REA_32_16_10_135_354",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.7909944070274,
+          31.538295312933922
+        ]
+      },
+      "properties": {
+        "tile_id": "16REV_32_16_10_558_124",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.19765941419817,
+          32.13732436265901
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCA_32_16_10_96_544",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.43805815905056,
+          31.50018280243251
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_532_365",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.33085240689762,
+          32.546188283927535
+        ]
+      },
+      "properties": {
+        "tile_id": "16SCB_32_16_10_11_469",
+        "label": 0,
+        "class": "barren"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.21479589614718,
+          33.08622459607699
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_382_458",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.1801883411282,
+          31.453166680848977
+        ]
+      },
+      "properties": {
+        "tile_id": "16RDV_32_16_10_499_518",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.71244297159141,
+          34.24976918913108
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_563_215",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -86.55338915296286,
+          32.574089159256374
+        ]
+      },
+      "properties": {
+        "tile_id": "16SEB_32_16_10_26_262",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.7387892794712,
+          33.4790442121833
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_29_196",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.90268021247022,
+          33.36960216978928
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_580_13",
+        "label": 0,
+        "class": "agriculture"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -87.61331768325041,
+          34.238761670253815
+        ]
+      },
+      "properties": {
+        "tile_id": "16SDC_32_16_10_555_272",
+        "label": 0,
+        "class": "urban"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.09320386779679,
+          31.042993853854096
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCV_32_16_10_218_598",
+        "label": 0,
+        "class": "forest"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -88.1562882420673,
+          31.814708149218067
+        ]
+      },
+      "properties": {
+        "tile_id": "16RCA_32_16_10_128_566",
+        "label": 1,
+        "class": "target"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.74209874182779,
+          31.452890405877465
+        ]
+      },
+      "properties": {
+        "tile_id": "16RFV_32_16_10_503_122",
+        "label": 0,
+        "class": "water"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -85.21427814721018,
+          32.715159119055926
+        ]
+      },
+      "properties": {
+        "tile_id": "16SFB_32_16_10_132_421",
+        "label": 0,
+        "class": "agriculture"
+      }
+    }
+  ],
+  "metadata": {
+    "description": "Sample training data for GeoVibes classification",
+    "total_samples": 500,
+    "positive_samples": 90,
+    "negative_samples": 410,
+    "negative_class_distribution": {
+      "forest": 85,
+      "urban": 86,
+      "barren": 92,
+      "agriculture": 73,
+      "water": 74
+    }
+  }
+}

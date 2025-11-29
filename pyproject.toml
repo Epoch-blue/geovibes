@@ -70,6 +70,7 @@ dependencies = [
     "tqdm",
     "ruff",
     "voila",
+    "xgboost>=2.0.0",
 ]
 
 
