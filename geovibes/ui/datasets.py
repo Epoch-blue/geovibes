@@ -41,6 +41,7 @@ class DatasetManager:
         placeholders = ",".join(["?" for _ in prepared_ids])
         query = f"""
         SELECT id,
+               tile_id,
                ST_AsGeoJSON(geometry) AS geometry_json,
                embedding
         FROM geo_embeddings
@@ -58,8 +59,10 @@ class DatasetManager:
             point_id = str(row["id"])
             if point_id in self.state.pos_ids:
                 label = UIConstants.POSITIVE_LABEL
+                class_name = "geovibes_pos"
             elif point_id in self.state.neg_ids:
                 label = UIConstants.NEGATIVE_LABEL
+                class_name = "geovibes_neg"
             else:
                 continue
 
@@ -74,7 +77,9 @@ class DatasetManager:
                     "geometry": json.loads(row["geometry_json"]),
                     "properties": {
                         "id": point_id,
+                        "tile_id": row["tile_id"],
                         "label": label,
+                        "class": class_name,
                         "embedding": embedding.tolist(),
                     },
                 }

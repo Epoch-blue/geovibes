@@ -4,15 +4,18 @@ Sample negatives from ESRI LULC using Earth Engine stratified sampling.
 Adapted from ei-notebook/src/sample_negatives.py
 
 This module samples negative training examples directly from ESRI Global LULC
-using Earth Engine's stratifiedSample(), then filters out points too close
-to positive examples.
+using Earth Engine's stratifiedSample(), filters points near positives,
+then matches to DuckDB tiles to get tile_ids for the classification pipeline.
 """
 
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 
+import duckdb
 import geopandas as gpd
+import pandas as pd
 import shapely
 
 # Earth Engine imports - required for this module
@@ -70,11 +73,12 @@ class NegativeSampler:
     Sample negative training examples using Earth Engine stratified sampling.
 
     Uses ESRI Global LULC to sample points stratified by landcover class,
-    then filters out samples too close to positive examples.
+    filters samples near positives, then matches to DuckDB for tile_ids.
     """
 
     def __init__(
         self,
+        duckdb_path: str,
         lulc_config: Optional[LULCConfig] = None,
         sampling_config: Optional[SamplingConfig] = None,
     ):
@@ -83,11 +87,14 @@ class NegativeSampler:
 
         Parameters
         ----------
+        duckdb_path : str
+            Path to DuckDB database with geo_embeddings table
         lulc_config : LULCConfig, optional
             Configuration for LULC data source
         sampling_config : SamplingConfig, optional
             Configuration for sampling parameters
         """
+        self.duckdb_path = duckdb_path
         self.lulc_config = lulc_config or LULCConfig()
         self.sampling_config = sampling_config or SamplingConfig()
         self._ee_initialized = False
@@ -222,10 +229,97 @@ class NegativeSampler:
 
         return samples_gdf
 
+    def spatial_match_tiles(self, samples_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        """
+        Match sampled points to nearest tiles in DuckDB.
+
+        Uses UTM projection for accurate distance calculation in meters.
+
+        Parameters
+        ----------
+        samples_gdf : GeoDataFrame
+            Sampled points with geometry
+
+        Returns
+        -------
+        GeoDataFrame with tile_id column added, filtered to only matched points
+        """
+        # Determine UTM zone from centroid of points
+        center_lon = samples_gdf.geometry.x.mean()
+        center_lat = samples_gdf.geometry.y.mean()
+        utm_zone = int(((center_lon + 180) / 6) + 1)
+        hemisphere = "N" if center_lat >= 0 else "S"
+        utm_epsg = 32600 + utm_zone if hemisphere == "N" else 32700 + utm_zone
+
+        logging.info(
+            f"Spatial matching {len(samples_gdf)} points using UTM zone {utm_zone}{hemisphere}..."
+        )
+
+        conn = duckdb.connect(self.duckdb_path, read_only=True)
+        conn.execute("LOAD spatial;")
+
+        results = []
+        start_time = time.perf_counter()
+
+        for idx, row in samples_gdf.iterrows():
+            lon, lat = row.geometry.x, row.geometry.y
+
+            # Query finds nearest tile by distance in meters (UTM projection)
+            query = f"""
+                SELECT
+                    tile_id,
+                    ST_Distance(
+                        ST_Transform(geometry, 'EPSG:4326', 'EPSG:{utm_epsg}'),
+                        ST_Transform(ST_Point({lon}, {lat}), 'EPSG:4326', 'EPSG:{utm_epsg}')
+                    ) as distance_m
+                FROM geo_embeddings
+                WHERE geometry IS NOT NULL
+                ORDER BY distance_m
+                LIMIT 1
+            """
+
+            result = conn.execute(query).fetchone()
+            if result is None:
+                logging.warning(f"No nearby tile found for point ({lon}, {lat})")
+                continue
+
+            tile_id, distance_m = result
+            results.append({"idx": idx, "tile_id": tile_id, "distance_m": distance_m})
+
+        conn.close()
+
+        elapsed = time.perf_counter() - start_time
+        logging.info(f"Spatial matching completed in {elapsed:.1f}s")
+
+        # Add tile_id to dataframe
+        match_df = pd.DataFrame(results).set_index("idx")
+        samples_gdf = samples_gdf.copy()
+        samples_gdf["tile_id"] = samples_gdf.index.map(match_df["tile_id"])
+        samples_gdf["match_distance_m"] = samples_gdf.index.map(match_df["distance_m"])
+
+        # Filter out unmatched points
+        samples_gdf = samples_gdf.dropna(subset=["tile_id"])
+
+        # Report statistics
+        logging.info(f"  Matched {len(samples_gdf)} points")
+        logging.info(
+            f"  Mean match distance: {samples_gdf['match_distance_m'].mean():.1f}m"
+        )
+        logging.info(
+            f"  Max match distance: {samples_gdf['match_distance_m'].max():.1f}m"
+        )
+
+        # Warn if any matches are far
+        far_matches = samples_gdf[samples_gdf["match_distance_m"] > 500]
+        if len(far_matches) > 0:
+            logging.warning(f"  {len(far_matches)} points matched >500m away")
+
+        return samples_gdf
+
     def sample_negatives(
         self,
         positives_gdf: gpd.GeoDataFrame,
-        aoi: Optional[gpd.GeoDataFrame] = None,
+        aoi: gpd.GeoDataFrame,
     ) -> gpd.GeoDataFrame:
         """
         Full pipeline to sample negative training examples.
@@ -234,31 +328,17 @@ class NegativeSampler:
         ----------
         positives_gdf : GeoDataFrame
             Positive training examples (to avoid)
-        aoi : GeoDataFrame, optional
-            Area of interest. If None, uses bounding box of positives expanded by 10%
+        aoi : GeoDataFrame
+            Area of interest (required)
 
         Returns
         -------
         GeoDataFrame with sampled negatives including:
             - geometry: Point geometry
+            - tile_id: Matched tile ID from DuckDB
             - class: LULC class name
             - label: 0 (negative)
         """
-        # Determine AOI from positives if not provided
-        if aoi is None:
-            bounds = positives_gdf.total_bounds
-            dx = (bounds[2] - bounds[0]) * 0.1
-            dy = (bounds[3] - bounds[1]) * 0.1
-            from shapely.geometry import box
-
-            aoi_geom = box(
-                bounds[0] - dx,
-                bounds[1] - dy,
-                bounds[2] + dx,
-                bounds[3] + dy,
-            )
-            aoi = gpd.GeoDataFrame(geometry=[aoi_geom], crs="EPSG:4326")
-
         # Sample from LULC
         logging.info("Sampling negatives from ESRI LULC...")
         samples = self.sample_from_lulc(aoi)
@@ -273,11 +353,21 @@ class NegativeSampler:
         # Filter near positives
         samples = self.filter_near_positives(samples, positives_gdf)
 
+        # Spatial match to get tile_ids
+        logging.info("Matching samples to DuckDB tiles...")
+        samples = self.spatial_match_tiles(samples)
+
         # Map class integers to names
         samples["class"] = samples["remapped"].map(self.lulc_config.class_names)
 
         # Add label column
         samples["label"] = 0
+
+        # Select final columns
+        final_columns = ["geometry", "tile_id", "class", "label"]
+        if "match_distance_m" in samples.columns:
+            final_columns.append("match_distance_m")
+        samples = samples[final_columns]
 
         logging.info(f"Final negative sample count: {len(samples)}")
 
@@ -286,22 +376,25 @@ class NegativeSampler:
 
 def sample_negatives_cli(
     positives_path: str,
+    aoi_path: str,
+    duckdb_path: str,
     output_path: str,
-    aoi_path: Optional[str] = None,
     buffer_meters: float = 500.0,
     seed: int = 42,
 ) -> gpd.GeoDataFrame:
     """
-    Convenience function to sample negatives from command line.
+    Sample negatives from command line.
 
     Parameters
     ----------
     positives_path : str
         Path to positive points file (GeoJSON or Parquet)
+    aoi_path : str
+        Path to AOI file (GeoJSON)
+    duckdb_path : str
+        Path to DuckDB database with geo_embeddings table
     output_path : str
         Path to save output (GeoJSON or Parquet)
-    aoi_path : str, optional
-        Path to AOI file
     buffer_meters : float
         Buffer distance from positives
     seed : int
@@ -321,14 +414,12 @@ def sample_negatives_cli(
     else:
         positives = gpd.read_file(positives_path)
 
-    # Load AOI if provided
-    aoi = None
-    if aoi_path:
-        aoi = gpd.read_file(aoi_path)
+    # Load AOI
+    aoi = gpd.read_file(aoi_path)
 
     # Sample negatives
     sampling_config = SamplingConfig(buffer_meters=buffer_meters, seed=seed)
-    sampler = NegativeSampler(sampling_config=sampling_config)
+    sampler = NegativeSampler(duckdb_path=duckdb_path, sampling_config=sampling_config)
     negatives = sampler.sample_negatives(positives, aoi=aoi)
 
     # Save output
@@ -350,8 +441,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--positives", required=True, help="Path to positive points file"
     )
+    parser.add_argument("--aoi", required=True, help="Path to AOI file (GeoJSON)")
+    parser.add_argument("--db", required=True, help="Path to DuckDB database")
     parser.add_argument("--output", required=True, help="Output file path")
-    parser.add_argument("--aoi", help="Optional AOI file path")
     parser.add_argument(
         "--buffer", type=float, default=500.0, help="Buffer distance in meters"
     )
@@ -361,8 +453,9 @@ if __name__ == "__main__":
 
     sample_negatives_cli(
         positives_path=args.positives,
-        output_path=args.output,
         aoi_path=args.aoi,
+        duckdb_path=args.db,
+        output_path=args.output,
         buffer_meters=args.buffer,
         seed=args.seed,
     )

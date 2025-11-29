@@ -202,23 +202,17 @@ class ClassificationDataLoader:
             lon, lat = row["lon"], row["lat"]
 
             # Query finds nearest tile by distance in meters (UTM projection)
+            # Use ST_Distance for ordering since <-> operator doesn't work with GEOMETRY
             query = f"""
-                WITH input_point AS (
-                    SELECT ST_Transform(
-                        ST_Point({lon}, {lat}),
-                        'EPSG:4326',
-                        'EPSG:{utm_epsg}'
-                    ) as geom
-                )
                 SELECT
-                    g.tile_id,
+                    tile_id,
                     ST_Distance(
-                        ST_Transform(g.geometry, 'EPSG:4326', 'EPSG:{utm_epsg}'),
-                        (SELECT geom FROM input_point)
+                        ST_Transform(geometry, 'EPSG:4326', 'EPSG:{utm_epsg}'),
+                        ST_Transform(ST_Point({lon}, {lat}), 'EPSG:4326', 'EPSG:{utm_epsg}')
                     ) as distance_m
-                FROM geo_embeddings g
-                WHERE g.geometry IS NOT NULL
-                ORDER BY g.geometry <-> ST_Point({lon}, {lat})
+                FROM geo_embeddings
+                WHERE geometry IS NOT NULL
+                ORDER BY distance_m
                 LIMIT 1
             """
 
