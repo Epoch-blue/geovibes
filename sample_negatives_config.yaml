@@ -1,0 +1,37 @@
+# Sample Negatives Configuration
+# Use with: uv run python -m geovibes.classification.sample_negatives --config sample_negatives_config.yaml
+
+# Required paths
+positives_path: "labeled_positives.geojson"
+aoi_path: "geometries/alabama.geojson"
+duckdb_path: "local_databases/alabama_quantized_dino_vit_small_patch16_224_2024_2025_32_16_10_metadata.db"
+output_path: "sampled_negatives.geojson"
+
+# Sampling parameters
+samples_per_class:
+  2: 500   # trees
+  4: 500   # crops
+  5: 200   # built_area
+  6: 200   # bare_ground
+  9: 300   # rangeland
+
+scale: 10              # Sampling scale in meters (ESRI LULC is 10m)
+buffer_meters: 500.0   # Minimum distance from positive points
+seed: 42               # Random seed for reproducibility
+
+# LULC configuration (optional - defaults shown)
+# lulc_collection: "projects/sat-io/open-datasets/landcover/ESRI_Global-LULC_10m_TS"
+# lulc_start_date: "2023-01-01"
+# lulc_end_date: "2023-12-31"
+# lulc_input_classes: [1, 2, 4, 5, 7, 8, 9, 10, 11]
+# lulc_output_classes: [1, 2, 3, 4, 5, 6, 7, 8, 9]
+# lulc_class_names:
+#   1: "water"
+#   2: "trees"
+#   3: "flooded_vegetation"
+#   4: "crops"
+#   5: "built_area"
+#   6: "bare_ground"
+#   7: "snow_ice"
+#   8: "clouds"
+#   9: "rangeland"

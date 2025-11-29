@@ -8,15 +8,18 @@ using Earth Engine's stratifiedSample(), filters points near positives,
 then matches to DuckDB tiles to get tile_ids for the classification pipeline.
 """
 
+import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from pathlib import Path
+from typing import Dict, Optional, Union
 
 import duckdb
 import geopandas as gpd
 import pandas as pd
 import shapely
+import yaml
 
 # Earth Engine imports - required for this module
 import ee
@@ -68,6 +71,116 @@ class SamplingConfig:
     seed: int = 42
 
 
+@dataclass
+class NegativeSamplingConfig:
+    """Complete configuration for negative sampling pipeline."""
+
+    # Required paths
+    positives_path: str
+    aoi_path: str
+    duckdb_path: str
+    output_path: str
+
+    # Sampling parameters
+    samples_per_class: Dict[int, int] = field(
+        default_factory=lambda: {
+            2: 500,  # trees
+            4: 500,  # crops
+            5: 200,  # built_area
+            6: 200,  # bare_ground
+            9: 300,  # rangeland
+        }
+    )
+    scale: int = 10
+    buffer_meters: float = 500.0
+    seed: int = 42
+
+    # LULC configuration
+    lulc_collection: str = (
+        "projects/sat-io/open-datasets/landcover/ESRI_Global-LULC_10m_TS"
+    )
+    lulc_start_date: str = "2023-01-01"
+    lulc_end_date: str = "2023-12-31"
+    lulc_input_classes: list = field(
+        default_factory=lambda: [1, 2, 4, 5, 7, 8, 9, 10, 11]
+    )
+    lulc_output_classes: list = field(
+        default_factory=lambda: [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    )
+    lulc_class_names: Dict[int, str] = field(
+        default_factory=lambda: {
+            1: "water",
+            2: "trees",
+            3: "flooded_vegetation",
+            4: "crops",
+            5: "built_area",
+            6: "bare_ground",
+            7: "snow_ice",
+            8: "clouds",
+            9: "rangeland",
+        }
+    )
+
+    @classmethod
+    def from_file(cls, config_path: Union[str, Path]) -> "NegativeSamplingConfig":
+        """
+        Load configuration from YAML or JSON file.
+
+        Parameters
+        ----------
+        config_path : str or Path
+            Path to config file (.yaml, .yml, or .json)
+
+        Returns
+        -------
+        NegativeSamplingConfig
+        """
+        config_path = Path(config_path)
+
+        with open(config_path) as f:
+            if config_path.suffix in (".yaml", ".yml"):
+                data = yaml.safe_load(f)
+            elif config_path.suffix == ".json":
+                data = json.load(f)
+            else:
+                raise ValueError(
+                    f"Unsupported config format: {config_path.suffix}. "
+                    "Use .yaml, .yml, or .json"
+                )
+
+        # Convert string keys to int for samples_per_class and class_names
+        if "samples_per_class" in data:
+            data["samples_per_class"] = {
+                int(k): v for k, v in data["samples_per_class"].items()
+            }
+        if "lulc_class_names" in data:
+            data["lulc_class_names"] = {
+                int(k): v for k, v in data["lulc_class_names"].items()
+            }
+
+        return cls(**data)
+
+    def to_lulc_config(self) -> LULCConfig:
+        """Convert to LULCConfig."""
+        return LULCConfig(
+            collection=self.lulc_collection,
+            start_date=self.lulc_start_date,
+            end_date=self.lulc_end_date,
+            input_classes=self.lulc_input_classes,
+            output_classes=self.lulc_output_classes,
+            class_names=self.lulc_class_names,
+        )
+
+    def to_sampling_config(self) -> SamplingConfig:
+        """Convert to SamplingConfig."""
+        return SamplingConfig(
+            samples_per_class=self.samples_per_class,
+            scale=self.scale,
+            buffer_meters=self.buffer_meters,
+            seed=self.seed,
+        )
+
+
 class NegativeSampler:
     """
     Sample negative training examples using Earth Engine stratified sampling.
@@ -98,6 +211,26 @@ class NegativeSampler:
         self.lulc_config = lulc_config or LULCConfig()
         self.sampling_config = sampling_config or SamplingConfig()
         self._ee_initialized = False
+
+    @classmethod
+    def from_config(cls, config: NegativeSamplingConfig) -> "NegativeSampler":
+        """
+        Create NegativeSampler from a NegativeSamplingConfig.
+
+        Parameters
+        ----------
+        config : NegativeSamplingConfig
+            Complete configuration
+
+        Returns
+        -------
+        NegativeSampler
+        """
+        return cls(
+            duckdb_path=config.duckdb_path,
+            lulc_config=config.to_lulc_config(),
+            sampling_config=config.to_sampling_config(),
+        )
 
     def _init_earth_engine(self) -> None:
         """Initialize Earth Engine if not already done."""
@@ -252,7 +385,8 @@ class NegativeSampler:
         utm_epsg = 32600 + utm_zone if hemisphere == "N" else 32700 + utm_zone
 
         logging.info(
-            f"Spatial matching {len(samples_gdf)} points using UTM zone {utm_zone}{hemisphere}..."
+            f"Spatial matching {len(samples_gdf)} points using UTM zone "
+            f"{utm_zone}{hemisphere}..."
         )
 
         conn = duckdb.connect(self.duckdb_path, read_only=True)
@@ -374,6 +508,52 @@ class NegativeSampler:
         return samples
 
 
+def run_from_config(config_path: Union[str, Path]) -> gpd.GeoDataFrame:
+    """
+    Run negative sampling pipeline from a config file.
+
+    Parameters
+    ----------
+    config_path : str or Path
+        Path to config file (.yaml, .yml, or .json)
+
+    Returns
+    -------
+    GeoDataFrame with sampled negatives
+    """
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    )
+
+    # Load config
+    config = NegativeSamplingConfig.from_file(config_path)
+    logging.info(f"Loaded config from {config_path}")
+
+    # Load positives
+    if config.positives_path.endswith(".parquet"):
+        positives = gpd.read_parquet(config.positives_path)
+    else:
+        positives = gpd.read_file(config.positives_path)
+    logging.info(f"Loaded {len(positives)} positive points")
+
+    # Load AOI
+    aoi = gpd.read_file(config.aoi_path)
+    logging.info(f"Loaded AOI from {config.aoi_path}")
+
+    # Create sampler and run
+    sampler = NegativeSampler.from_config(config)
+    negatives = sampler.sample_negatives(positives, aoi=aoi)
+
+    # Save output
+    if config.output_path.endswith(".parquet"):
+        negatives.to_parquet(config.output_path)
+    else:
+        negatives.to_file(config.output_path, driver="GeoJSON")
+    logging.info(f"Saved {len(negatives)} negatives to {config.output_path}")
+
+    return negatives
+
+
 def sample_negatives_cli(
     positives_path: str,
     aoi_path: str,
@@ -383,7 +563,7 @@ def sample_negatives_cli(
     seed: int = 42,
 ) -> gpd.GeoDataFrame:
     """
-    Sample negatives from command line.
+    Sample negatives from command line arguments (legacy interface).
 
     Parameters
     ----------
@@ -438,12 +618,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Sample negatives from ESRI LULC using Earth Engine"
     )
+
+    # Config file mode (preferred)
     parser.add_argument(
-        "--positives", required=True, help="Path to positive points file"
+        "--config",
+        help="Path to config file (.yaml or .json) with all parameters",
     )
-    parser.add_argument("--aoi", required=True, help="Path to AOI file (GeoJSON)")
-    parser.add_argument("--db", required=True, help="Path to DuckDB database")
-    parser.add_argument("--output", required=True, help="Output file path")
+
+    # Legacy argument mode
+    parser.add_argument("--positives", help="Path to positive points file")
+    parser.add_argument("--aoi", help="Path to AOI file (GeoJSON)")
+    parser.add_argument("--db", help="Path to DuckDB database")
+    parser.add_argument("--output", help="Output file path")
     parser.add_argument(
         "--buffer", type=float, default=500.0, help="Buffer distance in meters"
     )
@@ -451,11 +637,20 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    sample_negatives_cli(
-        positives_path=args.positives,
-        aoi_path=args.aoi,
-        duckdb_path=args.db,
-        output_path=args.output,
-        buffer_meters=args.buffer,
-        seed=args.seed,
-    )
+    if args.config:
+        # Config file mode
+        run_from_config(args.config)
+    elif args.positives and args.aoi and args.db and args.output:
+        # Legacy argument mode
+        sample_negatives_cli(
+            positives_path=args.positives,
+            aoi_path=args.aoi,
+            duckdb_path=args.db,
+            output_path=args.output,
+            buffer_meters=args.buffer,
+            seed=args.seed,
+        )
+    else:
+        parser.error(
+            "Must provide either --config OR all of: --positives, --aoi, --db, --output"
+        )
