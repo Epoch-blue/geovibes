@@ -75,11 +75,13 @@ class SamplingConfig:
 class NegativeSamplingConfig:
     """Complete configuration for negative sampling pipeline."""
 
-    # Required paths
-    positives_path: str
+    # Required path (in config)
     aoi_path: str
-    duckdb_path: str
-    output_path: str
+
+    # Paths passed via CLI (not in config)
+    positives_path: str = ""
+    duckdb_path: str = ""
+    output_path: str = ""
 
     # Sampling parameters
     samples_per_class: Dict[int, int] = field(
@@ -508,7 +510,12 @@ class NegativeSampler:
         return samples
 
 
-def run_from_config(config_path: Union[str, Path]) -> gpd.GeoDataFrame:
+def run_from_config(
+    config_path: Union[str, Path],
+    positives_path: str,
+    duckdb_path: str,
+    output_path: str,
+) -> gpd.GeoDataFrame:
     """
     Run negative sampling pipeline from a config file.
 
@@ -516,6 +523,12 @@ def run_from_config(config_path: Union[str, Path]) -> gpd.GeoDataFrame:
     ----------
     config_path : str or Path
         Path to config file (.yaml, .yml, or .json)
+    positives_path : str
+        Path to positive points file (GeoJSON or Parquet)
+    duckdb_path : str
+        Path to DuckDB database with geo_embeddings table
+    output_path : str
+        Path to save output (GeoJSON or Parquet)
 
     Returns
     -------
@@ -527,6 +540,10 @@ def run_from_config(config_path: Union[str, Path]) -> gpd.GeoDataFrame:
 
     # Load config
     config = NegativeSamplingConfig.from_file(config_path)
+    # Override paths from CLI
+    config.positives_path = positives_path
+    config.duckdb_path = duckdb_path
+    config.output_path = output_path
     logging.info(f"Loaded config from {config_path}")
 
     # Load positives
@@ -619,38 +636,25 @@ if __name__ == "__main__":
         description="Sample negatives from ESRI LULC using Earth Engine"
     )
 
-    # Config file mode (preferred)
+    # Required CLI arguments
+    parser.add_argument(
+        "--positives", required=True, help="Path to positive points file"
+    )
+    parser.add_argument("--db", required=True, help="Path to DuckDB database")
+    parser.add_argument("--output", required=True, help="Output file path")
+
+    # Config file (contains AOI, sampling params, LULC config)
     parser.add_argument(
         "--config",
-        help="Path to config file (.yaml or .json) with all parameters",
+        required=True,
+        help="Path to config file (.yaml or .json) with AOI and sampling parameters",
     )
-
-    # Legacy argument mode
-    parser.add_argument("--positives", help="Path to positive points file")
-    parser.add_argument("--aoi", help="Path to AOI file (GeoJSON)")
-    parser.add_argument("--db", help="Path to DuckDB database")
-    parser.add_argument("--output", help="Output file path")
-    parser.add_argument(
-        "--buffer", type=float, default=500.0, help="Buffer distance in meters"
-    )
-    parser.add_argument("--seed", type=int, default=42, help="Random seed")
 
     args = parser.parse_args()
 
-    if args.config:
-        # Config file mode
-        run_from_config(args.config)
-    elif args.positives and args.aoi and args.db and args.output:
-        # Legacy argument mode
-        sample_negatives_cli(
-            positives_path=args.positives,
-            aoi_path=args.aoi,
-            duckdb_path=args.db,
-            output_path=args.output,
-            buffer_meters=args.buffer,
-            seed=args.seed,
-        )
-    else:
-        parser.error(
-            "Must provide either --config OR all of: --positives, --aoi, --db, --output"
-        )
+    run_from_config(
+        config_path=args.config,
+        positives_path=args.positives,
+        duckdb_path=args.db,
+        output_path=args.output,
+    )

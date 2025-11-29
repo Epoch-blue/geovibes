@@ -1,11 +1,13 @@
 # Sample Negatives Configuration
-# Use with: uv run python -m geovibes.classification.sample_negatives --config sample_negatives_config.yaml
+# Usage:
+#   uv run python -m geovibes.classification.sample_negatives \
+#       --config sample_negatives_config.yaml \
+#       --positives labeled_positives.geojson \
+#       --db local_databases/alabama.db \
+#       --output sampled_negatives.geojson
 
-# Required paths
-positives_path: "labeled_positives.geojson"
+# Area of interest (required in config)
 aoi_path: "geometries/alabama.geojson"
-duckdb_path: "local_databases/alabama_quantized_dino_vit_small_patch16_224_2024_2025_32_16_10_metadata.db"
-output_path: "sampled_negatives.geojson"
 
 # Sampling parameters
 samples_per_class:
