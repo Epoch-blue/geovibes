@@ -1,5 +1,40 @@
 # CLAUDE.md - GeoVibes Project Guide
+After making changes, commit them with a useful commit message.
 
+## Development Approach
+
+- **Test-Driven Development Strategy**: 
+  - For each code generation session, create a structured approach:
+    - Generate code and modify types
+    - Create functions with stubbed return values
+    - Create unit tests that check for expected values (may initially fail)
+    - Implement functions progressively
+    - Run unit tests to verify implementation
+  - When modifying existing functions:
+    - Ensure a unit test exists
+    - Create a unit test if none exists
+    - Modify the function
+    - Run tests to verify changes
+  - **Continuous TDD Commitment**: Consistently apply test-driven development principles throughout the project lifecycle
+  - **Session Guideline**: Lets use TDD principles for this session
+
+- **Parallelization & Subagent Strategy**:
+  - **Maximize Parallel Execution**: When multiple independent tasks exist, execute them in parallel rather than sequentially
+  - **Deploy Subagents for Complex Tasks**: Use the Task tool with specialized subagents for:
+    - `Explore` agent: Codebase exploration, finding files, understanding architecture
+    - `general-purpose` agent: Multi-step research tasks, complex searches
+    - `Plan` agent: Designing implementation approaches for complex features
+  - **Parallel Subagent Deployment**: Launch multiple subagents simultaneously when tasks are independent (e.g., searching for different patterns, exploring different parts of the codebase)
+  - **When to Parallelize**:
+    - Running independent tests or linting checks
+    - Searching for multiple patterns or files
+    - Reading multiple independent files
+    - Exploring different modules or components
+    - Making independent code changes across files
+  - **Example Parallel Patterns**:
+    - Run `pytest`, `black --check`, and `ruff check` in parallel
+    - Deploy multiple Explore agents to investigate different subsystems simultaneously
+    - Read multiple test files in parallel when understanding test coverage
 
 ## Project Overview
 
