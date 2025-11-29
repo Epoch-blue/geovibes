@@ -473,11 +473,13 @@ class NegativeSampler:
         self, group_gdf: gpd.GeoDataFrame, zone: int, hemisphere: str
     ) -> list:
         """
-        Match points in a single UTM zone using bounding box pre-filtering.
+        Match points in a single UTM zone using batch query with R-tree index.
 
-        Uses a two-phase approach:
-        1. Try matching with a tight bounding box (~500m)
-        2. If no match, expand to larger box (~2km)
+        Uses ST_Intersects to leverage the spatial R-tree index (10x+ faster
+        than ST_X/ST_Y BETWEEN which forces full table scans).
+
+        Processes points in batches using a single query with DISTINCT ON
+        for efficient nearest-neighbor lookup.
 
         Parameters
         ----------
@@ -492,7 +494,6 @@ class NegativeSampler:
         -------
         List of dicts with idx, tile_id, distance_m
         """
-        import numpy as np
 
         utm_epsg = 32600 + zone if hemisphere == "N" else 32700 + zone
 
@@ -502,50 +503,130 @@ class NegativeSampler:
 
         results = []
 
-        for _, row in group_gdf.iterrows():
-            idx = row["_idx"]
-            lon, lat = row["_lon"], row["_lat"]
+        # Process in batches for efficient querying
+        batch_size = 50
+        points_list = list(group_gdf.iterrows())
 
-            # Bounding box sizes in degrees (approximate)
-            # 1 degree lat ≈ 111km, 1 degree lon ≈ 111km * cos(lat)
-            cos_lat = max(0.1, abs(np.cos(np.radians(lat))))
+        for batch_start in range(0, len(points_list), batch_size):
+            batch = points_list[batch_start : batch_start + batch_size]
 
-            # Try progressively larger bounding boxes
-            for buffer_m in [500, 2000, 10000]:
-                lat_buffer = buffer_m / 111000  # degrees
-                lon_buffer = buffer_m / (111000 * cos_lat)
+            # Build VALUES clause for batch query
+            values_parts = []
+            for _, row in batch:
+                idx = row["_idx"]
+                lon, lat = row["_lon"], row["_lat"]
+                values_parts.append(f"({idx}, {lon}, {lat})")
 
-                query = f"""
+            if not values_parts:
+                continue
+
+            values_clause = ", ".join(values_parts)
+
+            # Buffer in degrees (approximately 500m)
+            # Using a fixed buffer since ST_Intersects with R-tree is fast
+            buffer_deg = 0.005  # ~500m at mid-latitudes
+
+            # Batch query using DISTINCT ON pattern - leverages R-tree index
+            # via ST_Intersects instead of ST_X/ST_Y BETWEEN (which forces table scan)
+            query = f"""
+                WITH sample_points AS (
+                    SELECT * FROM (VALUES {values_clause}) AS t(idx, lon, lat)
+                ),
+                candidates AS (
                     SELECT
-                        tile_id,
+                        p.idx,
+                        g.tile_id,
                         ST_Distance(
-                            ST_Transform(geometry, 'EPSG:4326', 'EPSG:{utm_epsg}'),
-                            ST_Transform(
-                                ST_Point({lon}, {lat}),
-                                'EPSG:4326',
-                                'EPSG:{utm_epsg}'
-                            )
+                            ST_Transform(g.geometry, 'EPSG:4326', 'EPSG:{utm_epsg}'),
+                            ST_Transform(ST_Point(p.lon, p.lat), 'EPSG:4326', 'EPSG:{utm_epsg}')
                         ) as distance_m
-                    FROM geo_embeddings
-                    WHERE geometry IS NOT NULL
-                      AND ST_X(geometry) BETWEEN {lon - lon_buffer} AND {lon + lon_buffer}
-                      AND ST_Y(geometry) BETWEEN {lat - lat_buffer} AND {lat + lat_buffer}
-                    ORDER BY distance_m
-                    LIMIT 1
-                """
+                    FROM sample_points p
+                    JOIN geo_embeddings g ON ST_Intersects(
+                        g.geometry,
+                        ST_Buffer(ST_Point(p.lon, p.lat), {buffer_deg})
+                    )
+                    WHERE g.geometry IS NOT NULL
+                )
+                SELECT DISTINCT ON (idx) idx, tile_id, distance_m
+                FROM candidates
+                ORDER BY idx, distance_m
+            """
 
-                result = conn.execute(query).fetchone()
-                if result is not None:
-                    tile_id, distance_m = result
+            try:
+                batch_results = conn.execute(query).fetchall()
+                for idx, tile_id, distance_m in batch_results:
                     results.append(
                         {"idx": idx, "tile_id": tile_id, "distance_m": distance_m}
                     )
-                    break
-            else:
-                # No match found even with largest buffer
-                logging.warning(
-                    f"No tile found within 10km of point ({lon:.4f}, {lat:.4f})"
-                )
+
+                # Check for unmatched points and retry with larger buffer
+                matched_idxs = {r[0] for r in batch_results}
+                unmatched = [
+                    (_, row) for _, row in batch if row["_idx"] not in matched_idxs
+                ]
+
+                if unmatched:
+                    # Retry unmatched points with larger buffer (2km)
+                    for _, row in unmatched:
+                        idx = row["_idx"]
+                        lon, lat = row["_lon"], row["_lat"]
+
+                        retry_query = f"""
+                            SELECT
+                                tile_id,
+                                ST_Distance(
+                                    ST_Transform(geometry, 'EPSG:4326', 'EPSG:{utm_epsg}'),
+                                    ST_Transform(ST_Point({lon}, {lat}), 'EPSG:4326', 'EPSG:{utm_epsg}')
+                                ) as distance_m
+                            FROM geo_embeddings
+                            WHERE geometry IS NOT NULL
+                              AND ST_Intersects(
+                                  geometry,
+                                  ST_Buffer(ST_Point({lon}, {lat}), 0.02)
+                              )
+                            ORDER BY distance_m
+                            LIMIT 1
+                        """
+                        result = conn.execute(retry_query).fetchone()
+                        if result:
+                            results.append(
+                                {
+                                    "idx": idx,
+                                    "tile_id": result[0],
+                                    "distance_m": result[1],
+                                }
+                            )
+                        else:
+                            logging.warning(
+                                f"No tile found within 2km of ({lon:.4f}, {lat:.4f})"
+                            )
+
+            except Exception as e:
+                logging.warning(f"Batch query failed: {e}, falling back to per-point")
+                # Fallback to per-point queries
+                for _, row in batch:
+                    idx = row["_idx"]
+                    lon, lat = row["_lon"], row["_lat"]
+
+                    query = f"""
+                        SELECT tile_id,
+                            ST_Distance(
+                                ST_Transform(geometry, 'EPSG:4326', 'EPSG:{utm_epsg}'),
+                                ST_Transform(ST_Point({lon}, {lat}), 'EPSG:4326', 'EPSG:{utm_epsg}')
+                            ) as distance_m
+                        FROM geo_embeddings
+                        WHERE ST_Intersects(
+                            geometry,
+                            ST_Buffer(ST_Point({lon}, {lat}), 0.005)
+                        )
+                        ORDER BY distance_m
+                        LIMIT 1
+                    """
+                    result = conn.execute(query).fetchone()
+                    if result:
+                        results.append(
+                            {"idx": idx, "tile_id": result[0], "distance_m": result[1]}
+                        )
 
         conn.close()
         return results

@@ -9,10 +9,37 @@ Orchestrates the full classification workflow:
 5. Generate output GeoJSON
 
 All steps are timed and reported.
+
+Usage:
+    # As a library
+    with ClassificationPipeline(duckdb_path="path/to/db.duckdb") as pipeline:
+        result = pipeline.run(
+            geojson_path="training.geojson",
+            output_dir="output/",
+            probability_threshold=0.7,
+        )
+
+    # From command line
+    uv run python -m geovibes.classification.pipeline \\
+        --geojson full_dataset.geojson \\
+        --output output/ \\
+        --db path/to/embeddings.db \\
+        --threshold 0.5
+
+    # Or with separate files
+    uv run python -m geovibes.classification.pipeline \\
+        --positives geovibes_labeled.geojson \\
+        --negatives sampled_negatives.geojson \\
+        --output output/ \\
+        --db path/to/embeddings.db
 """
 
 from dataclasses import dataclass
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Optional, Callable, List
+from pathlib import Path
+import argparse
+import json
+import tempfile
 import numpy as np
 import time
 import os
@@ -297,3 +324,155 @@ class ClassificationPipeline:
         """Report progress if callback is provided."""
         if callback is not None:
             callback(message, progress)
+
+
+def combine_datasets(geojson_paths: List[str]) -> str:
+    """
+    Combine multiple GeoJSON files into a single dataset.
+
+    IMPORTANT: This function respects existing labels in the input files.
+    It does NOT overwrite labels - each feature's label comes from its
+    original properties.
+
+    Parameters
+    ----------
+    geojson_paths : List[str]
+        Paths to GeoJSON files to combine
+
+    Returns
+    -------
+    str
+        Path to combined temporary GeoJSON file
+    """
+    all_features = []
+    sources = {}
+
+    for path in geojson_paths:
+        with open(path) as f:
+            data = json.load(f)
+
+        features = data.get("features", [])
+        sources[path] = len(features)
+
+        for feature in features:
+            props = feature.get("properties", {})
+            # Validate required fields exist
+            if "label" not in props:
+                raise ValueError(f"Feature missing 'label' in {path}")
+            # Default class if not present
+            if "class" not in props:
+                props["class"] = "unknown"
+            feature["properties"] = props
+            all_features.append(feature)
+
+    # Count positives and negatives
+    pos_count = sum(1 for f in all_features if f["properties"]["label"] == 1)
+    neg_count = sum(1 for f in all_features if f["properties"]["label"] == 0)
+
+    combined = {
+        "type": "FeatureCollection",
+        "features": all_features,
+        "metadata": {
+            "sources": sources,
+            "positive_count": pos_count,
+            "negative_count": neg_count,
+        },
+    }
+
+    temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".geojson", delete=False)
+    json.dump(combined, temp_file, indent=2)
+    temp_file.close()
+
+    print(
+        f"Combined {pos_count} positives + {neg_count} negatives from {len(geojson_paths)} file(s)"
+    )
+    print(f"Temporary combined file: {temp_file.name}")
+
+    return temp_file.name
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Run classification pipeline on satellite embeddings"
+    )
+
+    input_group = parser.add_argument_group("input options")
+    input_group.add_argument(
+        "--geojson",
+        help="Single GeoJSON with both positives and negatives (label column)",
+    )
+    input_group.add_argument(
+        "--positives",
+        help="GeoJSON with positive examples (from GeoVibes). Labels are respected, not overwritten.",
+    )
+    input_group.add_argument(
+        "--negatives",
+        help="GeoJSON with negative examples (from sample_negatives). Labels are respected, not overwritten.",
+    )
+
+    parser.add_argument(
+        "--output",
+        required=True,
+        help="Output directory for results",
+    )
+    parser.add_argument(
+        "--db",
+        required=True,
+        help="Path to DuckDB database with geo_embeddings table",
+    )
+
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.5,
+        help="Probability threshold for detection (default: 0.5)",
+    )
+    parser.add_argument(
+        "--test-fraction",
+        type=float,
+        default=0.2,
+        help="Fraction of data for test set (default: 0.2)",
+    )
+    parser.add_argument(
+        "--memory-limit",
+        default="8GB",
+        help="DuckDB memory limit (default: 8GB)",
+    )
+
+    args = parser.parse_args()
+
+    # Validate input arguments
+    if args.geojson and (args.positives or args.negatives):
+        parser.error("Use either --geojson OR (--positives and --negatives), not both")
+
+    if not args.geojson and not (args.positives and args.negatives):
+        parser.error(
+            "Must provide either --geojson OR both --positives and --negatives"
+        )
+
+    # Determine input path
+    if args.geojson:
+        geojson_path = args.geojson
+    else:
+        geojson_path = combine_datasets([args.positives, args.negatives])
+
+    Path(args.output).mkdir(parents=True, exist_ok=True)
+
+    with ClassificationPipeline(
+        duckdb_path=args.db,
+        memory_limit=args.memory_limit,
+    ) as pipeline:
+        result = pipeline.run(
+            geojson_path=geojson_path,
+            output_dir=args.output,
+            probability_threshold=args.threshold,
+            test_fraction=args.test_fraction,
+        )
+
+    print(f"\nDetections: {result.num_detections}")
+    print(f"F1: {result.metrics.f1:.3f}, AUC: {result.metrics.auc_roc:.3f}")
+    print(f"Output files: {result.output_files}")
+
+
+if __name__ == "__main__":
+    main()

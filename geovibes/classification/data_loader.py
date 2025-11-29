@@ -120,16 +120,17 @@ class ClassificationDataLoader:
 
         Returns:
             Tuple of (DataFrame, has_tile_id) where DataFrame has columns:
-                - tile_id (if present in properties)
+                - tile_id (if present in properties, or looked up from id)
                 - label
                 - class
-                - lon, lat (if geometry present and no tile_id)
+                - lon, lat (if geometry present and no tile_id/id)
         """
         with open(self.geojson_path, "r") as f:
             geojson_data = json.load(f)
 
         records = []
         has_tile_id = False
+        db_ids_to_lookup = []
 
         for i, feature in enumerate(geojson_data["features"]):
             props = feature["properties"]
@@ -138,12 +139,17 @@ class ClassificationDataLoader:
                 "class": props["class"],
             }
 
-            # Check for tile_id
+            # Check for tile_id first
             if "tile_id" in props:
                 record["tile_id"] = props["tile_id"]
                 has_tile_id = True
+            # Check for numeric id (DuckDB row id)
+            elif "id" in props:
+                record["db_id"] = int(props["id"])
+                db_ids_to_lookup.append(int(props["id"]))
+                has_tile_id = True  # Will be resolved via lookup
             else:
-                # Extract coordinates from geometry
+                # Extract coordinates from geometry for spatial matching
                 geom = feature["geometry"]
                 if geom["type"] != "Point":
                     raise ValueError(
@@ -156,6 +162,25 @@ class ClassificationDataLoader:
             records.append(record)
 
         df = pd.DataFrame(records)
+
+        # If we have db_ids to lookup, resolve them to tile_ids
+        if db_ids_to_lookup:
+            print(f"Looking up tile_ids for {len(db_ids_to_lookup)} database IDs...")
+            id_to_tile = self._lookup_tile_ids_from_db_ids(db_ids_to_lookup)
+            # Only map for rows that have db_id (not for rows that already have tile_id)
+            if "db_id" in df.columns:
+                needs_lookup = df["db_id"].notna()
+                df.loc[needs_lookup, "tile_id"] = df.loc[needs_lookup, "db_id"].map(
+                    id_to_tile
+                )
+                # Check for any missing lookups
+                missing = df["tile_id"].isna() & df["db_id"].notna()
+                if missing.any():
+                    missing_ids = df.loc[missing, "db_id"].tolist()[:10]
+                    raise ValueError(
+                        f"Could not find tile_ids for db_ids: {missing_ids}..."
+                    )
+                df = df.drop(columns=["db_id"])
 
         # Validate data types
         df["label"] = df["label"].astype(int)
@@ -170,6 +195,25 @@ class ClassificationDataLoader:
             )
 
         return df, has_tile_id
+
+    def _lookup_tile_ids_from_db_ids(self, db_ids: List[int]) -> Dict[int, str]:
+        """
+        Look up tile_ids from DuckDB row ids.
+
+        Args:
+            db_ids: List of DuckDB row IDs
+
+        Returns:
+            Dictionary mapping db_id -> tile_id
+        """
+        ids_str = ",".join(str(i) for i in db_ids)
+        query = f"""
+            SELECT id, tile_id
+            FROM geo_embeddings
+            WHERE id IN ({ids_str})
+        """
+        result = self.conn.execute(query).fetchall()
+        return {row[0]: row[1] for row in result}
 
     def _spatial_match(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -251,15 +295,15 @@ class ClassificationDataLoader:
         Returns:
             Dictionary mapping tile_id -> embedding (np.ndarray of float32)
         """
-        # Build parameterized query
-        placeholders = ",".join(["?" for _ in tile_ids])
+        # Build query with string-escaped tile_ids (single quotes for SQL strings)
+        escaped_ids = ",".join(f"'{tid}'" for tid in tile_ids)
         query = f"""
             SELECT tile_id, embedding
             FROM geo_embeddings
-            WHERE tile_id IN ({placeholders})
+            WHERE tile_id IN ({escaped_ids})
         """
 
-        result = self.conn.execute(query, tile_ids).fetchall()
+        result = self.conn.execute(query).fetchall()
 
         embeddings_dict = {}
         for tile_id, embedding in result:
