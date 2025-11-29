@@ -52,7 +52,8 @@ class BatchInference:
         self,
         classifier,  # EmbeddingClassifier
         duckdb_connection,
-        batch_size: int = 500_000,  # Increased from 100K for better throughput
+        batch_size: int = 0,  # 0 = auto (single batch if fits in memory)
+        max_memory_gb: float = 12.0,  # Max memory for embeddings
     ):
         """
         Initialize batch inference.
@@ -64,14 +65,48 @@ class BatchInference:
         duckdb_connection : duckdb.DuckDBPyConnection
             DuckDB connection with geo_embeddings table
         batch_size : int
-            Number of embeddings to score per batch (default 500K)
+            Number of embeddings to score per batch.
+            0 = auto-detect (use single batch if fits in max_memory_gb)
+        max_memory_gb : float
+            Maximum memory to use for embeddings (default 12GB, safe for 32GB system)
         """
         self.classifier = classifier
         self.conn = duckdb_connection
-        self.batch_size = batch_size
+        self.max_memory_gb = max_memory_gb
+        self._batch_size = batch_size
 
         # Load spatial extension for geometry operations
         self.conn.execute("LOAD spatial;")
+
+    @property
+    def batch_size(self) -> int:
+        """Get batch size, auto-detecting if set to 0."""
+        if self._batch_size > 0:
+            return self._batch_size
+
+        # Auto-detect: use single batch if fits in memory
+        total_count = self.get_total_count()
+        embedding_dim = self._detect_embedding_dim()
+
+        # Memory estimate: count * dim * 4 bytes (float32)
+        memory_gb = total_count * embedding_dim * 4 / (1024**3)
+
+        if memory_gb <= self.max_memory_gb:
+            # Single batch fits in memory - fastest option
+            return total_count
+        else:
+            # Use batches that fit in max_memory_gb
+            max_batch = int(self.max_memory_gb * (1024**3) / (embedding_dim * 4))
+            return max_batch
+
+    def _detect_embedding_dim(self) -> int:
+        """Detect embedding dimension from first row."""
+        result = self.conn.execute(
+            "SELECT embedding FROM geo_embeddings LIMIT 1"
+        ).fetchone()
+        if result and result[0]:
+            return len(result[0])
+        return 384  # Default fallback
 
     def get_total_count(self) -> int:
         """
