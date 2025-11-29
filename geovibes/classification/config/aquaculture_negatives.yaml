@@ -1,0 +1,15 @@
+  # Required paths
+  aoi_path: "geometries/alabama.geojson"
+
+  # Sampling parameters
+  samples_per_class:
+    1: 500  # water
+    2: 500   # trees
+    4: 500   # crops
+    5: 200   # built_area
+    6: 200   # bare_ground
+    9: 300   # rangeland
+
+  scale: 320
+  buffer_meters: 500.0
+  seed: 42

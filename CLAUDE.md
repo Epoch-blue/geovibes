@@ -1,6 +1,9 @@
 # CLAUDE.md - GeoVibes Project Guide
 After making changes, commit them with a useful commit message.
-
+Use `uv run` to run with the correct env strategy
+Do not leave comments unless explicitly asked to
+Do not implement classes unless explicitly necessary, where possible use functions and keep things simple.
+Be parsimonious with code.
 ## Development Approach
 
 - **Test-Driven Development Strategy**: 
