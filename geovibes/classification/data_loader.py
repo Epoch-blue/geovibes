@@ -2,6 +2,7 @@
 Data loader for classification training.
 
 Loads GeoJSON training data and fetches corresponding embeddings from DuckDB.
+Supports both tile_id matching and spatial (nearest point) matching.
 """
 
 from dataclasses import dataclass
@@ -18,6 +19,7 @@ class LoaderTiming:
     """Timing information for data loading operations."""
 
     parse_geojson_sec: float
+    spatial_match_sec: float
     fetch_embeddings_sec: float
     stratified_split_sec: float
     total_sec: float
@@ -26,6 +28,10 @@ class LoaderTiming:
 class ClassificationDataLoader:
     """
     Loads training data from GeoJSON and fetches embeddings from DuckDB.
+
+    Supports two matching modes:
+    1. tile_id matching: GeoJSON has tile_id property that matches DuckDB
+    2. Spatial matching: GeoJSON has point geometry, finds nearest embedding
 
     Supports stratified train/test split with equal negatives per class.
     """
@@ -36,7 +42,8 @@ class ClassificationDataLoader:
 
         Args:
             duckdb_connection: Active DuckDB connection to database with geo_embeddings table
-            geojson_path: Path to GeoJSON file with tile_id, label, class properties
+            geojson_path: Path to GeoJSON file with label, class properties
+                         and either tile_id property OR point geometry
         """
         self.conn = duckdb_connection
         self.geojson_path = geojson_path
@@ -62,8 +69,15 @@ class ClassificationDataLoader:
 
         # Parse GeoJSON
         parse_start = time.perf_counter()
-        df = self._parse_geojson()
+        df, has_tile_id = self._parse_geojson()
         parse_time = time.perf_counter() - parse_start
+
+        # Spatial matching if no tile_id
+        spatial_time = 0.0
+        if not has_tile_id:
+            spatial_start = time.perf_counter()
+            df = self._spatial_match(df)
+            spatial_time = time.perf_counter() - spatial_start
 
         # Fetch embeddings
         fetch_start = time.perf_counter()
@@ -92,6 +106,7 @@ class ClassificationDataLoader:
 
         timing = LoaderTiming(
             parse_geojson_sec=parse_time,
+            spatial_match_sec=spatial_time,
             fetch_embeddings_sec=fetch_time,
             stratified_split_sec=split_time,
             total_sec=total_time,
@@ -99,26 +114,46 @@ class ClassificationDataLoader:
 
         return train_df, test_df, timing
 
-    def _parse_geojson(self) -> pd.DataFrame:
+    def _parse_geojson(self) -> Tuple[pd.DataFrame, bool]:
         """
-        Parse GeoJSON file and extract tile_id, label, class from properties.
+        Parse GeoJSON file and extract properties and geometry.
 
         Returns:
-            DataFrame with columns: tile_id, label, class
+            Tuple of (DataFrame, has_tile_id) where DataFrame has columns:
+                - tile_id (if present in properties)
+                - label
+                - class
+                - lon, lat (if geometry present and no tile_id)
         """
         with open(self.geojson_path, "r") as f:
             geojson_data = json.load(f)
 
         records = []
-        for feature in geojson_data["features"]:
+        has_tile_id = False
+
+        for i, feature in enumerate(geojson_data["features"]):
             props = feature["properties"]
-            records.append(
-                {
-                    "tile_id": props["tile_id"],
-                    "label": props["label"],
-                    "class": props["class"],
-                }
-            )
+            record = {
+                "label": props["label"],
+                "class": props["class"],
+            }
+
+            # Check for tile_id
+            if "tile_id" in props:
+                record["tile_id"] = props["tile_id"]
+                has_tile_id = True
+            else:
+                # Extract coordinates from geometry
+                geom = feature["geometry"]
+                if geom["type"] != "Point":
+                    raise ValueError(
+                        f"Feature {i}: Expected Point geometry for spatial matching, "
+                        f"got {geom['type']}"
+                    )
+                record["lon"] = geom["coordinates"][0]
+                record["lat"] = geom["coordinates"][1]
+
+            records.append(record)
 
         df = pd.DataFrame(records)
 
@@ -133,6 +168,80 @@ class ClassificationDataLoader:
             raise ValueError(
                 f"Invalid label values found: {invalid_labels}. Must be 0 or 1."
             )
+
+        return df, has_tile_id
+
+    def _spatial_match(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Find nearest tile_id for each point using spatial matching.
+
+        Uses UTM projection for accurate distance calculation in meters.
+
+        Args:
+            df: DataFrame with lon, lat columns
+
+        Returns:
+            DataFrame with tile_id column added
+        """
+        # Determine UTM zone from centroid of points
+        center_lon = df["lon"].mean()
+        center_lat = df["lat"].mean()
+        utm_zone = int(((center_lon + 180) / 6) + 1)
+        hemisphere = "N" if center_lat >= 0 else "S"
+        utm_epsg = 32600 + utm_zone if hemisphere == "N" else 32700 + utm_zone
+
+        print(
+            f"Spatial matching {len(df)} points using UTM zone {utm_zone}{hemisphere}..."
+        )
+
+        # Build query to find nearest point for each input point
+        # Using DuckDB spatial functions with UTM projection for accurate distances
+        results = []
+
+        for idx, row in df.iterrows():
+            lon, lat = row["lon"], row["lat"]
+
+            # Query finds nearest tile by distance in meters (UTM projection)
+            query = f"""
+                WITH input_point AS (
+                    SELECT ST_Transform(
+                        ST_Point({lon}, {lat}),
+                        'EPSG:4326',
+                        'EPSG:{utm_epsg}'
+                    ) as geom
+                )
+                SELECT
+                    g.tile_id,
+                    ST_Distance(
+                        ST_Transform(g.geometry, 'EPSG:4326', 'EPSG:{utm_epsg}'),
+                        (SELECT geom FROM input_point)
+                    ) as distance_m
+                FROM geo_embeddings g
+                WHERE g.geometry IS NOT NULL
+                ORDER BY g.geometry <-> ST_Point({lon}, {lat})
+                LIMIT 1
+            """
+
+            result = self.conn.execute(query).fetchone()
+            if result is None:
+                raise ValueError(f"No nearby tile found for point ({lon}, {lat})")
+
+            tile_id, distance_m = result
+            results.append({"idx": idx, "tile_id": tile_id, "distance_m": distance_m})
+
+        # Add tile_id to dataframe
+        match_df = pd.DataFrame(results).set_index("idx")
+        df["tile_id"] = match_df["tile_id"]
+        df["match_distance_m"] = match_df["distance_m"]
+
+        # Report statistics
+        print(f"  Mean match distance: {df['match_distance_m'].mean():.1f}m")
+        print(f"  Max match distance: {df['match_distance_m'].max():.1f}m")
+
+        # Warn if any matches are far
+        far_matches = df[df["match_distance_m"] > 500]
+        if len(far_matches) > 0:
+            print(f"  WARNING: {len(far_matches)} points matched >500m away")
 
         return df
 

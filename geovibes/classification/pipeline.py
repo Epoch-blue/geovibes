@@ -46,6 +46,7 @@ class PipelineTiming:
             "=" * 60,
             f"Data Loading:           {self.data_loading.total_sec:>8.2f}s",
             f"  - Parse GeoJSON:      {self.data_loading.parse_geojson_sec:>8.2f}s",
+            f"  - Spatial matching:   {self.data_loading.spatial_match_sec:>8.2f}s",
             f"  - Fetch embeddings:   {self.data_loading.fetch_embeddings_sec:>8.2f}s",
             f"  - Stratified split:   {self.data_loading.stratified_split_sec:>8.2f}s",
             f"Training:               {self.training_sec:>8.2f}s",
