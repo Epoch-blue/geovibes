@@ -368,7 +368,10 @@ class NegativeSampler:
         """
         Match sampled points to nearest tiles in DuckDB.
 
-        Uses UTM projection for accurate distance calculation in meters.
+        Optimizations:
+        - Groups points by UTM zone for accurate distance calculation
+        - Uses bounding box pre-filter to avoid full table scans
+        - Processes UTM zones in parallel
 
         Parameters
         ----------
@@ -379,65 +382,79 @@ class NegativeSampler:
         -------
         GeoDataFrame with tile_id column added, filtered to only matched points
         """
-        # Determine UTM zone from centroid of points
-        center_lon = samples_gdf.geometry.x.mean()
-        center_lat = samples_gdf.geometry.y.mean()
-        utm_zone = int(((center_lon + 180) / 6) + 1)
-        hemisphere = "N" if center_lat >= 0 else "S"
-        utm_epsg = 32600 + utm_zone if hemisphere == "N" else 32700 + utm_zone
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import numpy as np
 
-        logging.info(
-            f"Spatial matching {len(samples_gdf)} points using UTM zone "
-            f"{utm_zone}{hemisphere}..."
-        )
-
-        conn = duckdb.connect(self.duckdb_path, read_only=True)
-        conn.execute("LOAD spatial;")
-
-        results = []
         start_time = time.perf_counter()
 
-        for idx, row in samples_gdf.iterrows():
-            lon, lat = row.geometry.x, row.geometry.y
+        # Prepare data with UTM zone info
+        samples_gdf = samples_gdf.copy()
+        samples_gdf["_idx"] = samples_gdf.index
+        samples_gdf["_lon"] = samples_gdf.geometry.x
+        samples_gdf["_lat"] = samples_gdf.geometry.y
 
-            # Query finds nearest tile by distance in meters (UTM projection)
-            query = f"""
-                SELECT
-                    tile_id,
-                    ST_Distance(
-                        ST_Transform(geometry, 'EPSG:4326', 'EPSG:{utm_epsg}'),
-                        ST_Transform(ST_Point({lon}, {lat}), 'EPSG:4326', 'EPSG:{utm_epsg}')
-                    ) as distance_m
-                FROM geo_embeddings
-                WHERE geometry IS NOT NULL
-                ORDER BY distance_m
-                LIMIT 1
-            """
+        # Calculate UTM zone for each point
+        samples_gdf["_utm_zone"] = ((samples_gdf["_lon"] + 180) / 6).astype(int) + 1
+        samples_gdf["_hemisphere"] = np.where(samples_gdf["_lat"] >= 0, "N", "S")
 
-            result = conn.execute(query).fetchone()
-            if result is None:
-                logging.warning(f"No nearby tile found for point ({lon}, {lat})")
-                continue
+        # Group by UTM zone
+        zone_groups = list(samples_gdf.groupby(["_utm_zone", "_hemisphere"]))
 
-            tile_id, distance_m = result
-            results.append({"idx": idx, "tile_id": tile_id, "distance_m": distance_m})
+        logging.info(
+            f"Spatial matching {len(samples_gdf)} points across "
+            f"{len(zone_groups)} UTM zone(s)..."
+        )
 
-        conn.close()
+        # Process zones in parallel
+        all_results = []
+        max_workers = min(4, len(zone_groups))
+
+        if max_workers == 1:
+            # Single zone - no need for threading overhead
+            (zone, hemi), group = zone_groups[0]
+            results = self._match_zone_batch(group, zone, hemi)
+            all_results.extend(results)
+        else:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {
+                    executor.submit(self._match_zone_batch, group, zone, hemi): (
+                        zone,
+                        hemi,
+                    )
+                    for (zone, hemi), group in zone_groups
+                }
+                for future in as_completed(futures):
+                    zone, hemi = futures[future]
+                    results = future.result()
+                    all_results.extend(results)
+                    logging.info(f"  Zone {zone}{hemi}: matched {len(results)} points")
 
         elapsed = time.perf_counter() - start_time
         logging.info(f"Spatial matching completed in {elapsed:.1f}s")
 
-        # Add tile_id to dataframe
-        match_df = pd.DataFrame(results).set_index("idx")
-        samples_gdf = samples_gdf.copy()
-        samples_gdf["tile_id"] = samples_gdf.index.map(match_df["tile_id"])
-        samples_gdf["match_distance_m"] = samples_gdf.index.map(match_df["distance_m"])
+        # Merge results back to dataframe
+        if not all_results:
+            logging.warning("No points matched!")
+            samples_gdf["tile_id"] = None
+            samples_gdf["match_distance_m"] = None
+            return samples_gdf.dropna(subset=["tile_id"])
+
+        match_df = pd.DataFrame(all_results).set_index("idx")
+        samples_gdf["tile_id"] = samples_gdf["_idx"].map(match_df["tile_id"])
+        samples_gdf["match_distance_m"] = samples_gdf["_idx"].map(
+            match_df["distance_m"]
+        )
+
+        # Clean up temp columns
+        samples_gdf = samples_gdf.drop(
+            columns=["_idx", "_lon", "_lat", "_utm_zone", "_hemisphere"]
+        )
 
         # Filter out unmatched points
         samples_gdf = samples_gdf.dropna(subset=["tile_id"])
 
         # Report statistics
-        logging.info(f"  Matched {len(samples_gdf)} points")
+        logging.info(f"  Matched {len(samples_gdf)} points total")
         logging.info(
             f"  Mean match distance: {samples_gdf['match_distance_m'].mean():.1f}m"
         )
@@ -451,6 +468,87 @@ class NegativeSampler:
             logging.warning(f"  {len(far_matches)} points matched >500m away")
 
         return samples_gdf
+
+    def _match_zone_batch(
+        self, group_gdf: gpd.GeoDataFrame, zone: int, hemisphere: str
+    ) -> list:
+        """
+        Match points in a single UTM zone using bounding box pre-filtering.
+
+        Uses a two-phase approach:
+        1. Try matching with a tight bounding box (~500m)
+        2. If no match, expand to larger box (~2km)
+
+        Parameters
+        ----------
+        group_gdf : GeoDataFrame
+            Points in this UTM zone
+        zone : int
+            UTM zone number
+        hemisphere : str
+            'N' or 'S'
+
+        Returns
+        -------
+        List of dicts with idx, tile_id, distance_m
+        """
+        import numpy as np
+
+        utm_epsg = 32600 + zone if hemisphere == "N" else 32700 + zone
+
+        # Each thread gets its own connection
+        conn = duckdb.connect(self.duckdb_path, read_only=True)
+        conn.execute("LOAD spatial;")
+
+        results = []
+
+        for _, row in group_gdf.iterrows():
+            idx = row["_idx"]
+            lon, lat = row["_lon"], row["_lat"]
+
+            # Bounding box sizes in degrees (approximate)
+            # 1 degree lat ≈ 111km, 1 degree lon ≈ 111km * cos(lat)
+            cos_lat = max(0.1, abs(np.cos(np.radians(lat))))
+
+            # Try progressively larger bounding boxes
+            for buffer_m in [500, 2000, 10000]:
+                lat_buffer = buffer_m / 111000  # degrees
+                lon_buffer = buffer_m / (111000 * cos_lat)
+
+                query = f"""
+                    SELECT
+                        tile_id,
+                        ST_Distance(
+                            ST_Transform(geometry, 'EPSG:4326', 'EPSG:{utm_epsg}'),
+                            ST_Transform(
+                                ST_Point({lon}, {lat}),
+                                'EPSG:4326',
+                                'EPSG:{utm_epsg}'
+                            )
+                        ) as distance_m
+                    FROM geo_embeddings
+                    WHERE geometry IS NOT NULL
+                      AND ST_X(geometry) BETWEEN {lon - lon_buffer} AND {lon + lon_buffer}
+                      AND ST_Y(geometry) BETWEEN {lat - lat_buffer} AND {lat + lat_buffer}
+                    ORDER BY distance_m
+                    LIMIT 1
+                """
+
+                result = conn.execute(query).fetchone()
+                if result is not None:
+                    tile_id, distance_m = result
+                    results.append(
+                        {"idx": idx, "tile_id": tile_id, "distance_m": distance_m}
+                    )
+                    break
+            else:
+                # No match found even with largest buffer
+                logging.warning(
+                    f"No tile found within 10km of point ({lon:.4f}, {lat:.4f})"
+                )
+
+        conn.close()
+        return results
 
     def sample_negatives(
         self,
