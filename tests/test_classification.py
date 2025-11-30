@@ -1119,3 +1119,245 @@ class TestPipelineIntegration:
         assert combined["metadata"]["negative_count"] == 1
         assert combined["metadata"]["sources"][str(path1)] == 1
         assert combined["metadata"]["sources"][str(path2)] == 2
+
+
+class TestRandomNegativeSampling:
+    """Tests for random negative sampling from DuckDB."""
+
+    @pytest.fixture
+    def duckdb_file_for_sampling(self, tmp_path):
+        """Create a DuckDB file with geo_embeddings for sampling tests."""
+        db_path = tmp_path / "test_sampling.duckdb"
+        conn = duckdb.connect(str(db_path))
+        conn.execute("INSTALL spatial; LOAD spatial;")
+
+        np.random.seed(42)
+        embedding_dim = 64
+        n_samples = 50
+
+        embeddings = np.random.randn(n_samples, embedding_dim).astype(np.float32)
+
+        conn.execute(f"""
+            CREATE TABLE geo_embeddings (
+                id BIGINT PRIMARY KEY,
+                tile_id VARCHAR,
+                embedding FLOAT[{embedding_dim}],
+                geometry GEOMETRY
+            )
+        """)
+
+        for i in range(n_samples):
+            lon = -86.5 + (i % 10) * 0.01
+            lat = 33.0 + (i // 10) * 0.01
+            tile_id = f"TILE{i:04d}"
+            emb_list = embeddings[i].tolist()
+            conn.execute(
+                """
+                INSERT INTO geo_embeddings (id, tile_id, embedding, geometry)
+                VALUES (?, ?, ?, ST_GeomFromText(?))
+                """,
+                [i + 1, tile_id, emb_list, f"POINT({lon} {lat})"],
+            )
+
+        conn.close()
+        return str(db_path)
+
+    def test_sample_random_negatives_basic(self, duckdb_file_for_sampling):
+        """Basic random sampling excludes positive tile_ids."""
+        from geovibes.classification.sample_negatives import sample_random_negatives
+
+        positive_tile_ids = ["TILE0000", "TILE0001", "TILE0002"]
+
+        result = sample_random_negatives(
+            duckdb_path=duckdb_file_for_sampling,
+            positive_tile_ids=positive_tile_ids,
+            num_samples=10,
+            seed=42,
+        )
+
+        assert len(result) == 10
+        assert "tile_id" in result.columns
+        assert "geometry" in result.columns
+        assert "class" in result.columns
+        assert "label" in result.columns
+
+        # Check no positives in result
+        for tile_id in positive_tile_ids:
+            assert tile_id not in result["tile_id"].values
+
+        # Check all labels are 0
+        assert (result["label"] == 0).all()
+        assert (result["class"] == "random_neg").all()
+
+    def test_sample_random_negatives_default_count(self, duckdb_file_for_sampling):
+        """Default sample count equals number of positives."""
+        from geovibes.classification.sample_negatives import sample_random_negatives
+
+        positive_tile_ids = ["TILE0000", "TILE0001", "TILE0002", "TILE0003", "TILE0004"]
+
+        result = sample_random_negatives(
+            duckdb_path=duckdb_file_for_sampling,
+            positive_tile_ids=positive_tile_ids,
+            seed=42,
+        )
+
+        assert len(result) == len(positive_tile_ids)
+
+    def test_sample_random_negatives_reproducible(self, duckdb_file_for_sampling):
+        """Same seed produces same samples."""
+        from geovibes.classification.sample_negatives import sample_random_negatives
+
+        positive_tile_ids = ["TILE0000"]
+
+        result1 = sample_random_negatives(
+            duckdb_path=duckdb_file_for_sampling,
+            positive_tile_ids=positive_tile_ids,
+            num_samples=5,
+            seed=42,
+        )
+        result2 = sample_random_negatives(
+            duckdb_path=duckdb_file_for_sampling,
+            positive_tile_ids=positive_tile_ids,
+            num_samples=5,
+            seed=42,
+        )
+
+        assert list(result1["tile_id"]) == list(result2["tile_id"])
+
+    def test_sample_random_negatives_different_seeds(self, duckdb_file_for_sampling):
+        """Different seeds produce different samples."""
+        from geovibes.classification.sample_negatives import sample_random_negatives
+
+        positive_tile_ids = ["TILE0000"]
+
+        result1 = sample_random_negatives(
+            duckdb_path=duckdb_file_for_sampling,
+            positive_tile_ids=positive_tile_ids,
+            num_samples=10,
+            seed=42,
+        )
+        result2 = sample_random_negatives(
+            duckdb_path=duckdb_file_for_sampling,
+            positive_tile_ids=positive_tile_ids,
+            num_samples=10,
+            seed=123,
+        )
+
+        # Should be different (very unlikely to be identical with different seeds)
+        assert list(result1["tile_id"]) != list(result2["tile_id"])
+
+    def test_sample_random_negatives_with_buffer(self, duckdb_file_for_sampling):
+        """Spatial buffer excludes nearby points."""
+        from geovibes.classification.sample_negatives import sample_random_negatives
+
+        # TILE0000 is at (-86.5, 33.0), TILE0001 is at (-86.49, 33.0)
+        # Distance between them is ~0.01 degrees * 111km/degree ≈ 1.1km
+        positive_tile_ids = ["TILE0000"]
+
+        # With 2km buffer, should exclude TILE0001 (about 1.1km away)
+        result = sample_random_negatives(
+            duckdb_path=duckdb_file_for_sampling,
+            positive_tile_ids=positive_tile_ids,
+            num_samples=45,
+            buffer_meters=2000.0,
+            seed=42,
+        )
+
+        # TILE0001 should not be in results due to buffer
+        assert "TILE0001" not in result["tile_id"].values
+        # TILE0000 should not be in results (it's a positive)
+        assert "TILE0000" not in result["tile_id"].values
+
+    def test_sample_random_negatives_empty_positives(self, duckdb_file_for_sampling):
+        """Empty positive list samples from entire database."""
+        from geovibes.classification.sample_negatives import sample_random_negatives
+
+        result = sample_random_negatives(
+            duckdb_path=duckdb_file_for_sampling,
+            positive_tile_ids=[],
+            num_samples=10,
+            seed=42,
+        )
+
+        assert len(result) == 10
+
+    def test_sample_random_negatives_from_geojson(
+        self, duckdb_file_for_sampling, tmp_path
+    ):
+        """Convenience function extracts tile_ids from GeoJSON."""
+        from geovibes.classification.sample_negatives import (
+            sample_random_negatives_from_geojson,
+        )
+
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [0, 0]},
+                    "properties": {"tile_id": "TILE0000", "label": 1, "class": "pos"},
+                },
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [0, 0]},
+                    "properties": {"tile_id": "TILE0001", "label": 1, "class": "pos"},
+                },
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [0, 0]},
+                    "properties": {"tile_id": "TILE0002", "label": 0, "class": "neg"},
+                },
+            ],
+        }
+
+        geojson_path = tmp_path / "positives.geojson"
+        geojson_path.write_text(json.dumps(geojson))
+
+        result = sample_random_negatives_from_geojson(
+            duckdb_path=duckdb_file_for_sampling,
+            positives_geojson_path=str(geojson_path),
+            seed=42,
+        )
+
+        # Should have 2 samples (matching 2 positives in the geojson)
+        assert len(result) == 2
+        # Should not include the positive tile_ids
+        assert "TILE0000" not in result["tile_id"].values
+        assert "TILE0001" not in result["tile_id"].values
+
+    def test_sample_random_negatives_from_geojson_saves_output(
+        self, duckdb_file_for_sampling, tmp_path
+    ):
+        """Output path saves GeoJSON file."""
+        from geovibes.classification.sample_negatives import (
+            sample_random_negatives_from_geojson,
+        )
+
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [0, 0]},
+                    "properties": {"tile_id": "TILE0000", "label": 1, "class": "pos"},
+                },
+            ],
+        }
+
+        geojson_path = tmp_path / "positives.geojson"
+        geojson_path.write_text(json.dumps(geojson))
+
+        output_path = tmp_path / "negatives.geojson"
+
+        sample_random_negatives_from_geojson(
+            duckdb_path=duckdb_file_for_sampling,
+            positives_geojson_path=str(geojson_path),
+            output_path=str(output_path),
+            num_samples=5,
+            seed=42,
+        )
+
+        assert output_path.exists()
+
+        saved = gpd.read_file(output_path)
+        assert len(saved) == 5

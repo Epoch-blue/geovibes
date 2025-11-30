@@ -1,11 +1,14 @@
 """
-Sample negatives from ESRI LULC using Earth Engine stratified sampling.
+Sample negatives from ESRI LULC using Earth Engine stratified sampling,
+or randomly from DuckDB.
 
 Adapted from ei-notebook/src/sample_negatives.py
 
-This module samples negative training examples directly from ESRI Global LULC
-using Earth Engine's stratifiedSample(), filters points near positives,
-then matches to DuckDB tiles to get tile_ids for the classification pipeline.
+This module provides two negative sampling strategies:
+1. LULC-based: Sample from ESRI Global LULC using Earth Engine's stratifiedSample(),
+   filter points near positives, then match to DuckDB tiles.
+2. Random: Randomly sample from DuckDB, excluding positive tile_ids and optionally
+   filtering by spatial buffer.
 """
 
 import json
@@ -13,15 +16,16 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import duckdb
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import shapely
 import yaml
 
-# Earth Engine imports - required for this module
+# Earth Engine imports - required for LULC-based sampling
 import ee
 import geemap
 
@@ -383,7 +387,6 @@ class NegativeSampler:
         GeoDataFrame with tile_id column added, filtered to only matched points
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
-        import numpy as np
 
         start_time = time.perf_counter()
 
@@ -804,6 +807,248 @@ def sample_negatives_cli(
     else:
         negatives.to_file(output_path, driver="GeoJSON")
     logging.info(f"Saved {len(negatives)} negatives to {output_path}")
+
+    return negatives
+
+
+def sample_random_negatives(
+    duckdb_path: str,
+    positive_tile_ids: List[str],
+    num_samples: Optional[int] = None,
+    buffer_meters: float = 0.0,
+    seed: int = 42,
+) -> gpd.GeoDataFrame:
+    """
+    Randomly sample negative examples from DuckDB, excluding positives.
+
+    This provides a simpler alternative to LULC-based stratified sampling.
+    By default, samples the same number of negatives as positives.
+
+    Parameters
+    ----------
+    duckdb_path : str
+        Path to DuckDB database with geo_embeddings table
+    positive_tile_ids : List[str]
+        List of tile_ids to exclude (positive samples)
+    num_samples : int, optional
+        Number of negative samples to return. If None, uses len(positive_tile_ids).
+    buffer_meters : float
+        Buffer distance in meters around positives to also exclude.
+        Default 0.0 means only exact tile_id matches are excluded.
+    seed : int
+        Random seed for reproducibility
+
+    Returns
+    -------
+    GeoDataFrame with columns:
+        - geometry: Point geometry
+        - tile_id: Matched tile ID from DuckDB
+        - class: "random_neg"
+        - label: 0 (negative)
+    """
+    if num_samples is None:
+        num_samples = len(positive_tile_ids)
+
+    logging.info(
+        f"Sampling {num_samples} random negatives (excluding {len(positive_tile_ids)} positives)"
+    )
+
+    conn = duckdb.connect(duckdb_path, read_only=True)
+    conn.execute("LOAD spatial;")
+
+    try:
+        if buffer_meters > 0 and positive_tile_ids:
+            samples = _sample_with_buffer(
+                conn, positive_tile_ids, num_samples, buffer_meters, seed
+            )
+        else:
+            samples = _sample_without_buffer(conn, positive_tile_ids, num_samples, seed)
+    finally:
+        conn.close()
+
+    samples["class"] = "random_neg"
+    samples["label"] = 0
+
+    logging.info(f"Sampled {len(samples)} random negatives")
+    return samples
+
+
+def _sample_without_buffer(
+    conn: duckdb.DuckDBPyConnection,
+    positive_tile_ids: List[str],
+    num_samples: int,
+    seed: int,
+) -> gpd.GeoDataFrame:
+    """Sample random rows excluding positive tile_ids."""
+    conn.execute(f"SELECT setseed({seed / 2**31})")
+
+    if positive_tile_ids:
+        escaped_ids = ",".join(f"'{tid}'" for tid in positive_tile_ids)
+        exclude_clause = f"WHERE tile_id NOT IN ({escaped_ids})"
+    else:
+        exclude_clause = ""
+
+    query = f"""
+        SELECT
+            tile_id,
+            ST_AsText(geometry) as geometry_wkt
+        FROM geo_embeddings
+        {exclude_clause}
+        ORDER BY RANDOM()
+        LIMIT {num_samples}
+    """
+
+    result = conn.execute(query).fetchdf()
+
+    if len(result) == 0:
+        return gpd.GeoDataFrame(
+            columns=["geometry", "tile_id"], geometry="geometry", crs="EPSG:4326"
+        )
+
+    result["geometry"] = gpd.GeoSeries.from_wkt(result["geometry_wkt"])
+    gdf = gpd.GeoDataFrame(
+        result[["tile_id", "geometry"]], geometry="geometry", crs="EPSG:4326"
+    )
+    return gdf
+
+
+def _sample_with_buffer(
+    conn: duckdb.DuckDBPyConnection,
+    positive_tile_ids: List[str],
+    num_samples: int,
+    buffer_meters: float,
+    seed: int,
+) -> gpd.GeoDataFrame:
+    """Sample random rows excluding buffer zone around positives."""
+    conn.execute(f"SELECT setseed({seed / 2**31})")
+
+    escaped_ids = ",".join(f"'{tid}'" for tid in positive_tile_ids)
+
+    # First get positive geometries and determine UTM zone
+    pos_query = f"""
+        SELECT ST_X(geometry) as lon, ST_Y(geometry) as lat
+        FROM geo_embeddings
+        WHERE tile_id IN ({escaped_ids})
+        LIMIT 1
+    """
+    pos_result = conn.execute(pos_query).fetchone()
+
+    if pos_result is None:
+        return _sample_without_buffer(conn, positive_tile_ids, num_samples, seed)
+
+    lon, lat = pos_result
+    utm_zone = int(((lon + 180) / 6) + 1)
+    hemisphere = "N" if lat >= 0 else "S"
+    utm_epsg = 32600 + utm_zone if hemisphere == "N" else 32700 + utm_zone
+
+    # Create buffer union around positives in UTM coordinates
+    buffer_query = f"""
+        WITH positive_geoms AS (
+            SELECT geometry
+            FROM geo_embeddings
+            WHERE tile_id IN ({escaped_ids})
+        ),
+        buffered AS (
+            SELECT ST_Union_Agg(
+                ST_Buffer(
+                    ST_Transform(geometry, 'EPSG:4326', 'EPSG:{utm_epsg}'),
+                    {buffer_meters}
+                )
+            ) as buffer_geom
+            FROM positive_geoms
+        ),
+        buffer_4326 AS (
+            SELECT ST_Transform(buffer_geom, 'EPSG:{utm_epsg}', 'EPSG:4326') as buffer_geom
+            FROM buffered
+        )
+        SELECT
+            g.tile_id,
+            ST_AsText(g.geometry) as geometry_wkt
+        FROM geo_embeddings g, buffer_4326 b
+        WHERE g.tile_id NOT IN ({escaped_ids})
+          AND NOT ST_Intersects(g.geometry, b.buffer_geom)
+        ORDER BY RANDOM()
+        LIMIT {num_samples}
+    """
+
+    result = conn.execute(buffer_query).fetchdf()
+
+    if len(result) == 0:
+        logging.warning(
+            f"No samples found outside {buffer_meters}m buffer, falling back to simple exclusion"
+        )
+        return _sample_without_buffer(conn, positive_tile_ids, num_samples, seed)
+
+    result["geometry"] = gpd.GeoSeries.from_wkt(result["geometry_wkt"])
+    gdf = gpd.GeoDataFrame(
+        result[["tile_id", "geometry"]], geometry="geometry", crs="EPSG:4326"
+    )
+    return gdf
+
+
+def sample_random_negatives_from_geojson(
+    duckdb_path: str,
+    positives_geojson_path: str,
+    output_path: Optional[str] = None,
+    num_samples: Optional[int] = None,
+    buffer_meters: float = 0.0,
+    seed: int = 42,
+) -> gpd.GeoDataFrame:
+    """
+    Sample random negatives using positives from a GeoJSON file.
+
+    This is a convenience function that extracts tile_ids from a GeoJSON
+    file and calls sample_random_negatives.
+
+    Parameters
+    ----------
+    duckdb_path : str
+        Path to DuckDB database
+    positives_geojson_path : str
+        Path to GeoJSON file with positive samples (must have tile_id property)
+    output_path : str, optional
+        If provided, save output GeoJSON to this path
+    num_samples : int, optional
+        Number of samples. If None, uses number of positives.
+    buffer_meters : float
+        Buffer distance around positives
+    seed : int
+        Random seed
+
+    Returns
+    -------
+    GeoDataFrame with sampled negatives
+    """
+    with open(positives_geojson_path) as f:
+        geojson = json.load(f)
+
+    positive_tile_ids = []
+    for feature in geojson.get("features", []):
+        props = feature.get("properties", {})
+        if props.get("label") == 1 and "tile_id" in props:
+            positive_tile_ids.append(props["tile_id"])
+
+    if not positive_tile_ids:
+        raise ValueError(
+            f"No positive samples with tile_id found in {positives_geojson_path}"
+        )
+
+    logging.info(f"Found {len(positive_tile_ids)} positive tile_ids in GeoJSON")
+
+    negatives = sample_random_negatives(
+        duckdb_path=duckdb_path,
+        positive_tile_ids=positive_tile_ids,
+        num_samples=num_samples,
+        buffer_meters=buffer_meters,
+        seed=seed,
+    )
+
+    if output_path:
+        if output_path.endswith(".parquet"):
+            negatives.to_parquet(output_path)
+        else:
+            negatives.to_file(output_path, driver="GeoJSON")
+        logging.info(f"Saved {len(negatives)} negatives to {output_path}")
 
     return negatives
 

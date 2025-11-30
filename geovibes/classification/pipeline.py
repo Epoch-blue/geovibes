@@ -565,6 +565,19 @@ def main():
         default=500.0,
         help="Buffer distance in meters for spatial clustering in CV (default: 500)",
     )
+    parser.add_argument(
+        "--random-negatives",
+        action="store_true",
+        help="Sample random negatives from DuckDB instead of using a negatives file. "
+        "Samples the same number of negatives as positives, excluding positive tile_ids.",
+    )
+    parser.add_argument(
+        "--neg-buffer",
+        type=float,
+        default=0.0,
+        help="Buffer distance in meters around positives when sampling random negatives. "
+        "Points within this distance of positives will be excluded. Default: 0 (no buffer).",
+    )
 
     args = parser.parse_args()
 
@@ -575,9 +588,41 @@ def main():
     if not args.geojson and not args.positives:
         parser.error("Must provide either --geojson OR --positives")
 
+    if args.random_negatives and args.negatives:
+        parser.error("Cannot use both --random-negatives and --negatives")
+
     # Determine input path
     if args.geojson:
         geojson_path = args.geojson
+    elif args.random_negatives:
+        # Sample random negatives from DuckDB
+        from geovibes.classification.sample_negatives import (
+            sample_random_negatives_from_geojson,
+        )
+
+        # Combine positive files first if multiple
+        if len(args.positives) == 1:
+            positives_path = args.positives[0]
+        else:
+            positives_path = combine_datasets(args.positives)
+
+        print(f"Sampling random negatives from {args.db}...")
+        random_negs_gdf = sample_random_negatives_from_geojson(
+            duckdb_path=args.db,
+            positives_geojson_path=positives_path,
+            buffer_meters=args.neg_buffer,
+            seed=42,
+        )
+
+        # Save random negatives to temp file
+        random_negs_path = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".geojson", delete=False
+        ).name
+        random_negs_gdf.to_file(random_negs_path, driver="GeoJSON")
+        print(f"Sampled {len(random_negs_gdf)} random negatives")
+
+        # Combine positives with random negatives
+        geojson_path = combine_datasets([positives_path, random_negs_path])
     else:
         # Collect all input files
         input_files = list(args.positives)
