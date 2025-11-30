@@ -88,6 +88,43 @@ When I say **"run this yourself and debug issues"** or **"fix issues until it wo
     - Deploy multiple Explore agents to investigate different subsystems simultaneously
     - Read multiple test files in parallel when understanding test coverage
 
+## UI/UX Design Guidelines
+
+### Color Palette (Tailwind-inspired)
+- **Primary blue**: `#3b82f6` (buttons, focus states, hover borders)
+- **Primary blue dark**: `#2563eb`, `#1d4ed8` (gradients, hover)
+- **Success green**: `#22c55e` (positive labels)
+- **Danger red**: `#ef4444` (negative labels)
+- **Gray scale**: `#f8fafc`, `#f1f5f9`, `#e2e8f0`, `#cbd5e1`, `#94a3b8`, `#64748b`, `#374151`
+- **Borders**: `rgba(0,0,0,0.06)`, `#e2e8f0`, `#d1d5db`
+
+### ipywidgets Styling Patterns
+- **CSS injection**: Use `HTML` widget with `<style>` tags for custom CSS
+- **Class-based styling**: Use `widget.add_class("class-name")` for CSS targeting
+- **Layout constraints**: Always set explicit `overflow: hidden` to prevent unwanted scrollbars
+- **Gradients**: Use `linear-gradient()` for subtle depth on containers
+
+### Card Design
+- **Border radius**: 6-8px for cards, 12px for containers
+- **Shadows**: `0 1px 3px rgba(0,0,0,0.08)` (subtle), `0 4px 20px rgba(0,0,0,0.15)` (elevated)
+- **Hover states**: Lift with `transform: translateY(-2px)` and enhanced shadow
+- **Border feedback**: 2px transparent border, colored on hover/active states
+
+### Typography
+- **Font sizes**: 10px (badges), 11px (small labels), 12px (body), 13px (buttons)
+- **Font weights**: 500 (medium), 600 (semibold for emphasis)
+- **Number formatting**: Use `:,` format specifier for thousands separators
+
+### Layout Principles
+- **Image-first**: Show visual content before actions (natural reading order)
+- **Rank indicators**: Display position (#1, #2...) for ranked results
+- **Fixed headers/footers**: Keep controls accessible, only scroll content
+- **Match heights**: Panel components should align with adjacent UI elements
+
+### Alternative Layouts Considered
+- **Horizontal carousel**: Better for ranked results, preserves map width, familiar pattern (Netflix/YouTube)
+- **Vertical sidebar** (current): Familiar pattern, doesn't take vertical space
+
 ## Project Overview
 
 GeoVibes is an interactive geospatial similarity search tool that lets users "vibe check" satellite foundation model embeddings through an intuitive Jupyter notebook interface. Instead of relying solely on academic benchmarks, it enables hands-on exploration to assess which embedding models suit specific use cases.
