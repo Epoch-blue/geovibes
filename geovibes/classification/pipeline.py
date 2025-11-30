@@ -171,6 +171,7 @@ class ClassificationPipeline:
         xgb_params: Optional[Dict[str, Any]] = None,
         batch_size: int = 100_000,
         progress_callback: Optional[Callable[[str, float], None]] = None,
+        correction_weight: float = 1.0,
     ) -> PipelineResult:
         """
         Run the full classification pipeline.
@@ -183,6 +184,7 @@ class ClassificationPipeline:
             xgb_params: Optional XGBoost hyperparameters
             batch_size: Batch size for inference (default 100K)
             progress_callback: Optional callback for progress updates
+            correction_weight: Weight multiplier for relabel_pos/relabel_neg samples (default 1.0)
 
         Returns:
             PipelineResult with metrics, detections, output paths, and timing
@@ -215,6 +217,19 @@ class ClassificationPipeline:
         X_test = np.vstack(test_df["embedding"].values).astype(np.float32)
         y_test = test_df["label"].values.astype(np.int32)
 
+        # Compute sample weights for corrections
+        sample_weights = None
+        if correction_weight != 1.0:
+            correction_classes = {"relabel_pos", "relabel_neg"}
+            is_correction = train_df["class"].isin(correction_classes)
+            num_corrections = is_correction.sum()
+            if num_corrections > 0:
+                sample_weights = np.ones(len(train_df), dtype=np.float32)
+                sample_weights[is_correction] = correction_weight
+                print(
+                    f"Applying {correction_weight}x weight to {num_corrections} correction samples"
+                )
+
         self._report_progress(progress_callback, "Training data loaded", 0.1)
         print(f"Train samples: {len(train_df)}, Test samples: {len(test_df)}")
 
@@ -224,7 +239,7 @@ class ClassificationPipeline:
         self._report_progress(progress_callback, "Training classifier", 0.15)
 
         classifier = EmbeddingClassifier(**default_params)
-        training_time = classifier.fit(X_train, y_train)
+        training_time = classifier.fit(X_train, y_train, sample_weight=sample_weights)
 
         self._report_progress(progress_callback, "Classifier trained", 0.25)
         print(f"Training time: {training_time:.2f}s")
@@ -446,6 +461,13 @@ def main():
         default="8GB",
         help="DuckDB memory limit (default: 8GB)",
     )
+    parser.add_argument(
+        "--correction-weight",
+        type=float,
+        default=1.0,
+        help="Weight multiplier for correction samples (relabel_pos/relabel_neg). "
+        "Default: 1.0 (no extra weight). Use 2.0-3.0 to emphasize corrections.",
+    )
 
     args = parser.parse_args()
 
@@ -483,6 +505,7 @@ def main():
             output_dir=args.output,
             probability_threshold=args.threshold,
             test_fraction=args.test_fraction,
+            correction_weight=args.correction_weight,
         )
 
     print(f"\nDetections: {result.num_detections}")

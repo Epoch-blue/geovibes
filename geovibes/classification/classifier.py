@@ -78,18 +78,24 @@ class EmbeddingClassifier:
         )
         self.fit_time: Optional[float] = None
 
-    def fit(self, X_train: np.ndarray, y_train: np.ndarray) -> float:
+    def fit(
+        self,
+        X_train: np.ndarray,
+        y_train: np.ndarray,
+        sample_weight: Optional[np.ndarray] = None,
+    ) -> float:
         """Train the classifier.
 
         Args:
             X_train: Training features, shape (n_samples, n_features)
             y_train: Training labels, shape (n_samples,)
+            sample_weight: Optional sample weights, shape (n_samples,)
 
         Returns:
             Training time in seconds
         """
         start_time = time.perf_counter()
-        self.model.fit(X_train, y_train)
+        self.model.fit(X_train, y_train, sample_weight=sample_weight)
         fit_time = time.perf_counter() - start_time
         self.fit_time = fit_time
         return fit_time
