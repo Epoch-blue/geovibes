@@ -1,12 +1,13 @@
 """Tests for classification module."""
 
 import json
+from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
 import geopandas as gpd
 import pytest
-from shapely.geometry import Point
+from shapely.geometry import Point, box
 
 from geovibes.classification.pipeline import combine_datasets
 from geovibes.classification.classifier import EmbeddingClassifier, EvaluationMetrics
@@ -15,6 +16,8 @@ from geovibes.classification.cross_validation import (
     cross_validate,
     CVResult,
 )
+from geovibes.classification.inference import BatchInference, InferenceTiming
+from geovibes.classification.output import OutputGenerator, OutputTiming
 
 
 class TestCombineDatasets:
@@ -454,3 +457,236 @@ class TestSpatialCrossValidation:
 
         assert isinstance(result, CVResult)
         assert len(result.fold_metrics) > 0
+
+
+class TestBatchInference:
+    """Tests for BatchInference class."""
+
+    @pytest.fixture
+    def mock_classifier(self):
+        """Create a mock classifier."""
+        classifier = MagicMock()
+        classifier.predict_proba = MagicMock(
+            return_value=np.array([0.9, 0.8, 0.3, 0.1, 0.95])
+        )
+        return classifier
+
+    @pytest.fixture
+    def mock_connection(self):
+        """Create a mock DuckDB connection."""
+        conn = MagicMock()
+        conn.execute = MagicMock(return_value=MagicMock())
+        return conn
+
+    def test_inference_timing_throughput(self):
+        """InferenceTiming computes throughput correctly."""
+        timing = InferenceTiming(
+            total_sec=10.0,
+            batches_processed=5,
+            embeddings_scored=10000,
+            detections_found=100,
+        )
+        assert timing.throughput_per_sec == 1000.0
+
+    def test_inference_timing_zero_time(self):
+        """InferenceTiming handles zero time gracefully."""
+        timing = InferenceTiming(
+            total_sec=0.0,
+            batches_processed=0,
+            embeddings_scored=0,
+            detections_found=0,
+        )
+        assert timing.throughput_per_sec == 0.0
+
+    def test_batch_inference_init(self, mock_classifier, mock_connection):
+        """BatchInference initializes with correct parameters."""
+        inference = BatchInference(
+            classifier=mock_classifier,
+            duckdb_connection=mock_connection,
+            batch_size=50000,
+            max_memory_gb=8.0,
+        )
+        assert inference._batch_size == 50000
+        assert inference.max_memory_gb == 8.0
+
+    def test_score_batch_returns_probabilities(self, mock_classifier, mock_connection):
+        """_score_batch returns probability array."""
+        inference = BatchInference(
+            classifier=mock_classifier,
+            duckdb_connection=mock_connection,
+        )
+        embeddings = np.random.randn(5, 64).astype(np.float32)
+
+        probs = inference._score_batch(embeddings)
+
+        assert len(probs) == 5
+        mock_classifier.predict_proba.assert_called_once()
+
+
+class TestOutputGenerator:
+    """Tests for OutputGenerator class."""
+
+    @pytest.fixture
+    def mock_connection(self):
+        """Create mock DuckDB connection."""
+        conn = MagicMock()
+        return conn
+
+    def test_output_timing_dataclass(self):
+        """OutputTiming stores timing values."""
+        timing = OutputTiming(
+            fetch_metadata_sec=1.0,
+            generate_tiles_sec=2.0,
+            union_tiles_sec=0.5,
+            export_sec=0.3,
+            total_sec=3.8,
+        )
+        assert timing.total_sec == 3.8
+        assert timing.fetch_metadata_sec == 1.0
+
+    def test_output_generator_init(self, mock_connection):
+        """OutputGenerator initializes with tile parameters."""
+        generator = OutputGenerator(
+            duckdb_connection=mock_connection,
+            tile_size_px=32,
+            tile_overlap_px=16,
+            resolution_m=10.0,
+        )
+        assert generator.tile_size_m == 320.0  # 32 * 10
+        assert generator.half_tile_m == 160.0
+
+    def test_get_utm_crs_northern(self, mock_connection):
+        """_get_utm_crs returns correct EPSG for northern hemisphere."""
+        generator = OutputGenerator(mock_connection)
+
+        crs = generator._get_utm_crs("16SBH")  # UTM zone 16, band S (northern)
+
+        assert crs.to_epsg() == 32616
+
+    def test_get_utm_crs_southern(self, mock_connection):
+        """_get_utm_crs returns correct EPSG for southern hemisphere."""
+        generator = OutputGenerator(mock_connection)
+
+        crs = generator._get_utm_crs("32KPB")  # UTM zone 32, band K (southern)
+
+        assert crs.to_epsg() == 32732
+
+    def test_union_tiles_single_polygon(self, mock_connection):
+        """union_tiles handles single polygon result."""
+        generator = OutputGenerator(mock_connection)
+
+        # Create overlapping tiles that will union into one polygon
+        tiles_gdf = gpd.GeoDataFrame(
+            {
+                "id": [1, 2],
+                "tile_id": ["A", "B"],
+                "probability": [0.9, 0.8],
+                "geometry": [
+                    box(0, 0, 1, 1),
+                    box(0.5, 0, 1.5, 1),  # Overlapping
+                ],
+            },
+            crs="EPSG:4326",
+        )
+
+        union_gdf, elapsed = generator.union_tiles(tiles_gdf)
+
+        assert len(union_gdf) == 1  # Single unioned polygon
+        assert elapsed > 0
+
+    def test_union_tiles_multiple_polygons(self, mock_connection):
+        """union_tiles handles multiple disjoint polygons."""
+        generator = OutputGenerator(mock_connection)
+
+        # Create non-overlapping tiles
+        tiles_gdf = gpd.GeoDataFrame(
+            {
+                "id": [1, 2],
+                "tile_id": ["A", "B"],
+                "probability": [0.9, 0.8],
+                "geometry": [
+                    box(0, 0, 1, 1),
+                    box(10, 10, 11, 11),  # Far away, no overlap
+                ],
+            },
+            crs="EPSG:4326",
+        )
+
+        union_gdf, elapsed = generator.union_tiles(tiles_gdf)
+
+        assert len(union_gdf) == 2  # Two separate polygons
+        assert elapsed > 0
+
+    def test_export_geojson_creates_files(self, mock_connection, tmp_path):
+        """export_geojson creates detection and union files."""
+        generator = OutputGenerator(mock_connection)
+
+        tiles_gdf = gpd.GeoDataFrame(
+            {
+                "id": [1],
+                "tile_id": ["A"],
+                "probability": [0.9],
+                "geometry": [box(0, 0, 1, 1)],
+            },
+            crs="EPSG:4326",
+        )
+        union_gdf = gpd.GeoDataFrame({"geometry": [box(0, 0, 1, 1)]}, crs="EPSG:4326")
+
+        paths, elapsed = generator.export_geojson(
+            tiles_gdf, union_gdf, str(tmp_path), name="test"
+        )
+
+        assert "detections" in paths
+        assert "union" in paths
+        assert (tmp_path / "test_detections.geojson").exists()
+        assert (tmp_path / "test_union.geojson").exists()
+
+
+class TestDataLoaderHelpers:
+    """Tests for data loader helper functionality."""
+
+    def test_geojson_missing_class_gets_unknown(self, tmp_path):
+        """Features without class field get class='unknown' via combine_datasets."""
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [0, 0]},
+                    "properties": {"label": 1},  # No class
+                },
+            ],
+        }
+        path = tmp_path / "no_class.geojson"
+        path.write_text(json.dumps(geojson))
+
+        result_path = combine_datasets([str(path)])
+
+        with open(result_path) as f:
+            result = json.load(f)
+
+        assert result["features"][0]["properties"]["class"] == "unknown"
+
+    def test_geojson_invalid_label_values(self, tmp_path):
+        """combine_datasets passes through invalid labels (validation happens in loader)."""
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [0, 0]},
+                    "properties": {"label": 2, "class": "invalid"},  # Invalid label
+                },
+            ],
+        }
+        path = tmp_path / "invalid.geojson"
+        path.write_text(json.dumps(geojson))
+
+        # combine_datasets doesn't validate labels, just preserves them
+        result_path = combine_datasets([str(path)])
+
+        with open(result_path) as f:
+            result = json.load(f)
+
+        # Label is preserved as-is (validation happens in ClassificationDataLoader)
+        assert result["features"][0]["properties"]["label"] == 2

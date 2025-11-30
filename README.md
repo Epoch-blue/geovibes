@@ -212,6 +212,46 @@ When you load a GeoJSON file with a `probability` field (classifier output), Geo
 - **Interactive labeling**: Click or polygon-select to mark false positives/negatives
 - **Export corrections**: Save as augmented dataset for retraining
 
+### Spatial Cross-Validation
+
+For robust model evaluation, use 5-fold spatial cross-validation instead of a single train/test split:
+
+```bash
+uv run python -m geovibes.classification.pipeline \
+    --positives labeled_data.geojson corrections.geojson \
+    --negatives sampled_negatives.geojson \
+    --db path/to/embeddings.duckdb \
+    --output results/ \
+    --cv \
+    --cv-buffer 500
+```
+
+The spatial CV algorithm:
+1. Buffers positive points (default 500m) and unions into contiguous clusters
+2. Explodes union into separate polygon regions
+3. Distributes clusters across 5 folds with greedy sample balancing
+4. Assigns negatives to the fold of their nearest positive cluster
+5. Reports mean ± std for all metrics
+
+Example output:
+```
+=================================================================
+SPATIAL 5-FOLD CROSS-VALIDATION RESULTS
+=================================================================
+Metric       Mean ± Std
+-----------------------------------------------------------------
+Accuracy:    0.9734 ± 0.0297
+Precision:   0.9387 ± 0.0988
+Recall:      0.9805 ± 0.0115
+F1:          0.9566 ± 0.0590
+AUC-ROC:     0.9970 ± 0.0034
+-----------------------------------------------------------------
+Spatial clusters: 59 (distributed across 5 folds)
+=================================================================
+```
+
+This tests generalization to **new geographic areas**, not just new samples from areas the model has seen.
+
 ### CLI Options
 
 | Argument | Description |
@@ -224,6 +264,8 @@ When you load a GeoJSON file with a `probability` field (classifier output), Geo
 | `--correction-weight` | Weight multiplier for correction samples (default: 1.0) |
 | `--batch-size` | Batch size for inference (default: 100000) |
 | `--test-fraction` | Fraction of data for test set (default: 0.2) |
+| `--cv` | Run 5-fold spatial cross-validation (skips inference) |
+| `--cv-buffer` | Buffer distance in meters for spatial clustering (default: 500) |
 
 ### Output Files
 
