@@ -201,9 +201,6 @@ class ClassificationPipeline:
         }
         default_params.update(xgb_params)
 
-        # =========================================================
-        # STEP 1: Load and split training data
-        # =========================================================
         self._report_progress(progress_callback, "Loading training data", 0.0)
 
         loader = ClassificationDataLoader(self.conn, geojson_path)
@@ -233,9 +230,6 @@ class ClassificationPipeline:
         self._report_progress(progress_callback, "Training data loaded", 0.1)
         print(f"Train samples: {len(train_df)}, Test samples: {len(test_df)}")
 
-        # =========================================================
-        # STEP 2: Train XGBoost classifier
-        # =========================================================
         self._report_progress(progress_callback, "Training classifier", 0.15)
 
         classifier = EmbeddingClassifier(**default_params)
@@ -244,9 +238,6 @@ class ClassificationPipeline:
         self._report_progress(progress_callback, "Classifier trained", 0.25)
         print(f"Training time: {training_time:.2f}s")
 
-        # =========================================================
-        # STEP 3: Evaluate on test set
-        # =========================================================
         self._report_progress(progress_callback, "Evaluating model", 0.3)
 
         metrics, eval_time = classifier.evaluate(X_test, y_test)
@@ -254,9 +245,6 @@ class ClassificationPipeline:
         self._report_progress(progress_callback, "Evaluation complete", 0.35)
         print(f"Test metrics: F1={metrics.f1:.3f}, AUC={metrics.auc_roc:.3f}")
 
-        # =========================================================
-        # STEP 4: Run inference on all embeddings
-        # =========================================================
         self._report_progress(progress_callback, "Running inference", 0.4)
 
         inference = BatchInference(
@@ -284,9 +272,6 @@ class ClassificationPipeline:
             f"Found {len(detections):,} detections above threshold {probability_threshold}"
         )
 
-        # =========================================================
-        # STEP 5: Generate output GeoJSON
-        # =========================================================
         self._report_progress(progress_callback, "Generating output", 0.85)
 
         output_generator = OutputGenerator(
@@ -309,9 +294,6 @@ class ClassificationPipeline:
 
         self._report_progress(progress_callback, "Pipeline complete", 1.0)
 
-        # =========================================================
-        # Compile results
-        # =========================================================
         total_time = time.perf_counter() - total_start
 
         timing = PipelineTiming(
@@ -468,6 +450,12 @@ def main():
         help="Weight multiplier for correction samples (relabel_pos/relabel_neg). "
         "Default: 1.0 (no extra weight). Use 2.0-3.0 to emphasize corrections.",
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=100_000,
+        help="Batch size for inference (default: 100000)",
+    )
 
     args = parser.parse_args()
 
@@ -506,6 +494,7 @@ def main():
             probability_threshold=args.threshold,
             test_fraction=args.test_fraction,
             correction_weight=args.correction_weight,
+            batch_size=args.batch_size,
         )
 
     print(f"\nDetections: {result.num_detections}")

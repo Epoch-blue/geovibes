@@ -99,8 +99,7 @@ class TilePanel:
         self._pending_batches: Dict[object, Dict[str, Any]] = {}
         self._loader_token: Optional[object] = None
         try:
-            loop = asyncio.get_event_loop()
-            self._async_loop = loop if loop.is_running() else None
+            self._async_loop = asyncio.get_running_loop()
         except RuntimeError:
             self._async_loop = None
 

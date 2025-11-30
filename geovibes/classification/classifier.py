@@ -18,14 +18,6 @@ from sklearn.metrics import (
 
 
 @dataclass
-class ClassifierTiming:
-    """Timing information for training and evaluation."""
-
-    fit_sec: float
-    evaluate_sec: float
-
-
-@dataclass
 class EvaluationMetrics:
     """Evaluation metrics for binary classification."""
 
