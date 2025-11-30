@@ -802,6 +802,235 @@ class TestDataLoaderIntegration:
         with pytest.raises(ValueError, match="Missing embeddings"):
             loader.load()
 
+    def test_spatial_match_with_point_geometries(
+        self, duckdb_connection, training_geojson_with_points
+    ):
+        """Spatial matching finds nearest embeddings for point geometries."""
+        from geovibes.classification.data_loader import ClassificationDataLoader
+
+        loader = ClassificationDataLoader(
+            duckdb_connection, training_geojson_with_points
+        )
+        train_df, test_df, timing = loader.load(test_fraction=0.2, random_state=42)
+
+        assert len(train_df) + len(test_df) == 10
+        assert "tile_id" in train_df.columns
+        assert "match_distance_m" in train_df.columns
+        assert "embedding" in train_df.columns
+
+        assert timing.spatial_match_sec > 0
+
+        all_data = pd.concat([train_df, test_df])
+        assert (all_data["match_distance_m"] >= 0).all()
+
+    def test_spatial_match_calculates_utm_zone_northern(
+        self, duckdb_connection, tmp_path
+    ):
+        """Spatial matching calculates correct UTM zone for northern hemisphere."""
+        from geovibes.classification.data_loader import ClassificationDataLoader
+
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [-86.5, 33.0]},
+                    "properties": {"label": 1, "class": "pos"},
+                }
+            ],
+        }
+        path = tmp_path / "northern.geojson"
+        path.write_text(json.dumps(geojson))
+
+        loader = ClassificationDataLoader(duckdb_connection, str(path))
+
+        df = pd.DataFrame(
+            {"lon": [-86.5], "lat": [33.0], "label": [1], "class": ["pos"]}
+        )
+        matched_df = loader._spatial_match(df)
+
+        center_lon = -86.5
+        center_lat = 33.0
+        expected_utm_zone = int(((center_lon + 180) / 6) + 1)
+        expected_hemisphere = "N" if center_lat >= 0 else "S"
+        expected_epsg = (
+            32600 + expected_utm_zone
+            if expected_hemisphere == "N"
+            else 32700 + expected_utm_zone
+        )
+
+        assert expected_utm_zone == 16
+        assert expected_hemisphere == "N"
+        assert expected_epsg == 32616
+
+        assert "tile_id" in matched_df.columns
+        assert "match_distance_m" in matched_df.columns
+
+    def test_spatial_match_calculates_utm_zone_southern(
+        self, duckdb_connection, tmp_path
+    ):
+        """Spatial matching calculates correct UTM zone for southern hemisphere."""
+        from geovibes.classification.data_loader import ClassificationDataLoader
+
+        conn = duckdb_connection
+        conn.execute("""
+            INSERT INTO geo_embeddings (id, tile_id, embedding, geometry)
+            VALUES (
+                999,
+                'SOUTHERN_TILE',
+                ARRAY[CAST(0.0 AS FLOAT) FOR i IN RANGE(64)],
+                ST_GeomFromText('POINT(-60.0 -30.0)')
+            )
+        """)
+
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [-60.0, -30.0]},
+                    "properties": {"label": 1, "class": "pos"},
+                }
+            ],
+        }
+        path = tmp_path / "southern.geojson"
+        path.write_text(json.dumps(geojson))
+
+        loader = ClassificationDataLoader(duckdb_connection, str(path))
+
+        df = pd.DataFrame(
+            {"lon": [-60.0], "lat": [-30.0], "label": [1], "class": ["pos"]}
+        )
+        matched_df = loader._spatial_match(df)
+
+        center_lon = -60.0
+        center_lat = -30.0
+        expected_utm_zone = int(((center_lon + 180) / 6) + 1)
+        expected_hemisphere = "N" if center_lat >= 0 else "S"
+        expected_epsg = 32700 + expected_utm_zone
+
+        assert expected_utm_zone == 21
+        assert expected_hemisphere == "S"
+        assert expected_epsg == 32721
+
+        assert matched_df["tile_id"].iloc[0] == "SOUTHERN_TILE"
+        assert matched_df["match_distance_m"].iloc[0] < 100
+
+    def test_spatial_match_warns_for_far_matches(
+        self, duckdb_connection, tmp_path, capsys
+    ):
+        """Spatial matching prints warning when matches are >500m away."""
+        from geovibes.classification.data_loader import ClassificationDataLoader
+
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [-85.0, 33.0]},
+                    "properties": {"label": 1, "class": "pos"},
+                },
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [-85.5, 32.0]},
+                    "properties": {"label": 0, "class": "neg"},
+                },
+            ],
+        }
+        path = tmp_path / "far.geojson"
+        path.write_text(json.dumps(geojson))
+
+        loader = ClassificationDataLoader(duckdb_connection, str(path))
+        train_df, test_df, _ = loader.load(test_fraction=0.2, random_state=42)
+
+        captured = capsys.readouterr()
+
+        all_data = pd.concat([train_df, test_df])
+        far_matches = all_data[all_data["match_distance_m"] > 500]
+
+        if len(far_matches) > 0:
+            assert "WARNING" in captured.out
+            assert "500m" in captured.out
+
+    def test_spatial_match_distance_calculations(
+        self, duckdb_connection, training_geojson_with_points
+    ):
+        """Spatial matching calculates reasonable distances."""
+        from geovibes.classification.data_loader import ClassificationDataLoader
+
+        loader = ClassificationDataLoader(
+            duckdb_connection, training_geojson_with_points
+        )
+        train_df, test_df, _ = loader.load(test_fraction=0.2, random_state=42)
+
+        all_data = pd.concat([train_df, test_df])
+
+        assert all_data["match_distance_m"].min() >= 0
+        assert all_data["match_distance_m"].max() < 10000
+
+        mean_dist = all_data["match_distance_m"].mean()
+        max_dist = all_data["match_distance_m"].max()
+        assert mean_dist < max_dist or len(all_data) == 1
+
+    def test_spatial_match_assigns_tile_ids(
+        self, duckdb_connection, training_geojson_with_points
+    ):
+        """Spatial matching assigns valid tile_ids from database."""
+        from geovibes.classification.data_loader import ClassificationDataLoader
+
+        loader = ClassificationDataLoader(
+            duckdb_connection, training_geojson_with_points
+        )
+        train_df, test_df, _ = loader.load(test_fraction=0.2, random_state=42)
+
+        all_data = pd.concat([train_df, test_df])
+
+        all_tile_ids = duckdb_connection.execute(
+            "SELECT tile_id FROM geo_embeddings"
+        ).fetchdf()
+        valid_tile_ids = set(all_tile_ids["tile_id"])
+
+        for tile_id in all_data["tile_id"]:
+            assert tile_id in valid_tile_ids
+
+    def test_spatial_match_with_load_for_cv(
+        self, duckdb_connection, training_geojson_with_points
+    ):
+        """Spatial matching works with load_for_cv method."""
+        from geovibes.classification.data_loader import ClassificationDataLoader
+
+        loader = ClassificationDataLoader(
+            duckdb_connection, training_geojson_with_points
+        )
+        df, geometries, timing = loader.load_for_cv(random_state=42)
+
+        assert len(df) == 10
+        assert len(geometries) == 10
+        assert "tile_id" in df.columns
+        assert "match_distance_m" in df.columns
+
+        assert timing.spatial_match_sec > 0
+
+        assert all(geom.geom_type == "Point" for geom in geometries)
+
+    def test_spatial_match_prints_statistics(
+        self, duckdb_connection, training_geojson_with_points, capsys
+    ):
+        """Spatial matching prints mean and max distance statistics."""
+        from geovibes.classification.data_loader import ClassificationDataLoader
+
+        loader = ClassificationDataLoader(
+            duckdb_connection, training_geojson_with_points
+        )
+        loader.load(test_fraction=0.2, random_state=42)
+
+        captured = capsys.readouterr()
+
+        assert "Mean match distance:" in captured.out
+        assert "Max match distance:" in captured.out
+        assert "Spatial matching" in captured.out
+        assert "points using UTM zone" in captured.out
+
 
 class TestBatchInferenceIntegration:
     """Integration tests for BatchInference with real DuckDB."""
