@@ -479,9 +479,12 @@ class LayerStyles:
             "fillOpacity": 0.3,
         }
 
-    @staticmethod
-    def probability_to_color(probability: float) -> str:
-        """Convert probability (0-1) to hex color (red→yellow→green).
+    @classmethod
+    def probability_to_color(cls, probability: float) -> str:
+        """Convert probability (0-1) to hex color using the configured colormap.
+
+        Uses the same colormap as distance_to_color for visual consistency.
+        Higher probability = brighter/warmer color (like lower distance).
 
         Args:
             probability: Value between 0 and 1
@@ -489,17 +492,4 @@ class LayerStyles:
         Returns:
             Hex color string
         """
-        import numpy as np
-
-        prob = np.clip(probability, 0.0, 1.0)
-
-        if prob < 0.5:
-            r = 255
-            g = int(510 * prob)
-            b = 0
-        else:
-            r = int(255 * (2 - 2 * prob))
-            g = 255
-            b = 0
-
-        return f"#{r:02x}{g:02x}{b:02x}"
+        return UIConstants._color_from_fraction(probability)

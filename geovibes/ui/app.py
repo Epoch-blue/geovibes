@@ -23,6 +23,7 @@ from ipywidgets import (
     Dropdown,
     FileUpload,
     FloatSlider,
+    FloatText,
     HBox,
     IntSlider,
     Label,
@@ -242,13 +243,37 @@ class GeoVibes:
             description="🌍 Google Maps ↗",
             layout=Layout(width="100%"),
         )
+        # Detection controls - threshold slider with text input
         self.detection_threshold_slider = FloatSlider(
             value=0.5,
             min=0.0,
             max=1.0,
             step=0.01,
-            description="Threshold:",
-            layout=Layout(width="100%", display="none"),
+            description="",
+            readout=False,
+            layout=Layout(width="100%", margin="0"),
+        )
+        self.detection_threshold_text = FloatText(
+            value=0.5,
+            min=0.0,
+            max=1.0,
+            step=0.01,
+            layout=Layout(width="60px"),
+        )
+        self.detection_status_label = Label(
+            value="",
+            layout=Layout(width="100%"),
+        )
+        self.detection_controls = VBox(
+            [
+                Label("Probability Threshold:"),
+                HBox(
+                    [self.detection_threshold_slider, self.detection_threshold_text],
+                    layout=Layout(align_items="center", width="100%"),
+                ),
+                self.detection_status_label,
+            ],
+            layout=Layout(display="none", padding="5px", width="100%"),
         )
 
         # Database dropdown
@@ -298,7 +323,6 @@ class GeoVibes:
                         self.file_upload,
                         self.add_vector_btn,
                         self.vector_file_upload,
-                        self.detection_threshold_slider,
                         self.google_maps_btn,
                     ],
                     layout=Layout(padding="5px"),
@@ -306,6 +330,12 @@ class GeoVibes:
             ]
         )
         accordion_titles.extend(["Label Mode", "Basemaps", "Export & Tools"])
+
+        # Detection controls accordion section (added dynamically when in detection mode)
+        self.detection_accordion_section = VBox(
+            [self.detection_controls],
+            layout=Layout(padding="5px"),
+        )
 
         accordion = Accordion(children=accordion_children)
         for idx, title in enumerate(accordion_titles):
@@ -329,7 +359,12 @@ class GeoVibes:
         self.accordion_container = VBox([accordion], layout=Layout(width="100%"))
 
         panel = VBox(
-            [panel_header, search_section, self.accordion_container],
+            [
+                panel_header,
+                search_section,
+                self.detection_controls,
+                self.accordion_container,
+            ],
             layout=Layout(width=UIConstants.PANEL_WIDTH, padding="5px"),
         )
 
@@ -384,6 +419,9 @@ class GeoVibes:
         self.vector_file_upload.observe(self._on_vector_upload, names="value")
         self.detection_threshold_slider.observe(
             self._on_detection_threshold_change, names="value"
+        )
+        self.detection_threshold_text.observe(
+            self._on_detection_threshold_text_change, names="value"
         )
         self.google_maps_btn.on_click(self._on_google_maps_click)
 
@@ -448,7 +486,19 @@ class GeoVibes:
         if not self.state.detection_mode or not self.state.detection_data:
             return
         threshold = change["new"]
+        # Sync text input with slider
+        if self.detection_threshold_text.value != threshold:
+            self.detection_threshold_text.value = threshold
         self._filter_detection_layer(threshold)
+        self._update_detection_tiles()
+
+    def _on_detection_threshold_text_change(self, change) -> None:
+        if not self.state.detection_mode or not self.state.detection_data:
+            return
+        threshold = max(0.0, min(1.0, change["new"]))
+        # Sync slider with text input
+        if self.detection_threshold_slider.value != threshold:
+            self.detection_threshold_slider.value = threshold
 
     def _on_google_maps_click(self, _button) -> None:
         lat, lon = self.map_manager.map.center
@@ -463,14 +513,18 @@ class GeoVibes:
         try:
             self.dataset_manager.load_from_content(content, file_info["name"])
             if self.state.detection_mode:
-                self.detection_threshold_slider.layout.display = "flex"
+                # Show detection controls
+                self.detection_controls.layout.display = "flex"
                 num_detections = len(self.state.detection_data.get("features", []))
                 self._show_operation_status(
                     f"🔍 Detection mode: {num_detections} detections loaded. "
                     "Click to label as negative/positive."
                 )
+                # Apply initial filtering and populate tile panel
+                self._filter_detection_layer(self.detection_threshold_slider.value)
+                self._update_detection_tiles()
             else:
-                self.detection_threshold_slider.layout.display = "none"
+                self.detection_controls.layout.display = "none"
                 self._update_layers()
                 self._update_query_vector()
                 self._show_operation_status("✅ Dataset loaded")
@@ -620,6 +674,7 @@ class GeoVibes:
                         f"✅ Marked as {label_name} (P={probability:.2f}) | "
                         f"Total labeled: {num_labeled}"
                     )
+                self._refresh_detection_layer()
                 return
 
         self._show_operation_status("⚠️ No detection at click location")
@@ -628,6 +683,14 @@ class GeoVibes:
         if action == "created" and geo_json["geometry"]["type"] == "Polygon":
             polygon_coords = geo_json["geometry"]["coordinates"][0]
             polygon = shapely.geometry.Polygon(polygon_coords)
+
+            # Detection mode: label detections within polygon
+            if self.state.detection_mode and self.state.detection_data:
+                self._label_detections_in_polygon(polygon)
+                self.map_manager.draw_control.clear()
+                return
+
+            # Normal mode: label points within polygon
             point_ids: list[str] = []
 
             if self.state.detections_with_embeddings is not None:
@@ -673,6 +736,49 @@ class GeoVibes:
         elif action == "deleted":
             self.state.polygon_drawing = False
             self._update_status()
+
+    def _label_detections_in_polygon(self, polygon: shapely.geometry.Polygon) -> None:
+        """Label all detections within the given polygon."""
+        features = self.state.detection_data.get("features", [])
+        labeled_count = 0
+
+        # Determine label based on current mode
+        if self.state.select_val == UIConstants.POSITIVE_LABEL:
+            new_label = 1
+            label_name = "positive"
+        elif self.state.select_val == UIConstants.NEGATIVE_LABEL:
+            new_label = 0
+            label_name = "negative"
+        else:
+            # Erase mode: remove labels from detections in polygon
+            for feature in features:
+                geom = shapely.geometry.shape(feature["geometry"])
+                if polygon.contains(geom.centroid) or polygon.intersects(geom):
+                    props = feature.get("properties", {})
+                    tile_id = props.get("tile_id", props.get("id", "unknown"))
+                    if tile_id in self.state.detection_labels:
+                        del self.state.detection_labels[tile_id]
+                        labeled_count += 1
+            self._show_operation_status(
+                f"✅ Removed labels from {labeled_count} detections"
+            )
+            self._refresh_detection_layer()
+            return
+
+        for feature in features:
+            geom = shapely.geometry.shape(feature["geometry"])
+            # Check if detection centroid is within polygon or polygon intersects detection
+            if polygon.contains(geom.centroid) or polygon.intersects(geom):
+                props = feature.get("properties", {})
+                tile_id = props.get("tile_id", props.get("id", "unknown"))
+                self.state.label_detection(tile_id, new_label)
+                labeled_count += 1
+
+        total_labeled = len(self.state.detection_labels)
+        self._show_operation_status(
+            f"✅ Labeled {labeled_count} detections as {label_name} | Total: {total_labeled}"
+        )
+        self._refresh_detection_layer()
 
     # ------------------------------------------------------------------
     # Search pipeline
@@ -949,12 +1055,101 @@ class GeoVibes:
             if f.get("properties", {}).get("probability", 0.0) >= threshold
         ]
         filtered_geojson = {"type": "FeatureCollection", "features": filtered_features}
-        self.map_manager.update_detection_layer(filtered_geojson)
+        self.map_manager.update_detection_layer(
+            filtered_geojson, style_callback=self._detection_style_callback
+        )
         num_shown = len(filtered_features)
         num_total = len(features)
+        num_labeled = len(self.state.detection_labels)
         self._show_operation_status(
-            f"🔍 Showing {num_shown}/{num_total} detections (threshold: {threshold:.2f})"
+            f"🔍 {num_shown}/{num_total} detections | {num_labeled} labeled"
         )
+
+    def _refresh_detection_layer(self) -> None:
+        """Refresh detection layer with current threshold and labels."""
+        threshold = self.detection_threshold_slider.value
+        self._filter_detection_layer(threshold)
+
+    def _update_detection_tiles(self) -> None:
+        """Update the tile panel with current detections, sorted by lowest probability first."""
+        if not self.state.detection_mode or not self.state.detection_data:
+            return
+
+        threshold = self.detection_threshold_slider.value
+        features = self.state.detection_data.get("features", [])
+
+        # Filter by threshold
+        filtered = [
+            f
+            for f in features
+            if f.get("properties", {}).get("probability", 0.0) >= threshold
+        ]
+
+        if not filtered:
+            self.tile_panel.clear()
+            self.detection_status_label.value = "No detections above threshold"
+            return
+
+        # Build DataFrame for tile panel (sorted by lowest probability first)
+        records = []
+        for feature in filtered:
+            props = feature.get("properties", {})
+            geom = feature.get("geometry", {})
+            tile_id = props.get("tile_id", props.get("id", "unknown"))
+            probability = props.get("probability", 0.5)
+
+            # Convert geometry to WKT
+            geom_shape = shapely.geometry.shape(geom)
+            centroid = geom_shape.centroid
+
+            records.append(
+                {
+                    "id": str(tile_id),
+                    "probability": probability,
+                    "geometry_wkt": centroid.wkt,
+                    "geometry_json": json.dumps(shapely.geometry.mapping(centroid)),
+                }
+            )
+
+        df = pd.DataFrame(records)
+        # Sort by probability ascending (lowest first = hardest cases)
+        df = df.sort_values("probability", ascending=True).reset_index(drop=True)
+
+        # Update status
+        num_labeled = len(self.state.detection_labels)
+        self.detection_status_label.value = f"{len(df)} shown | {num_labeled} labeled"
+
+        # Update tile panel
+        self.tile_panel.update_results(df, auto_show=False)
+
+    def _detection_style_callback(self, feature):
+        """Style callback for detection layer that shows labeled detections in pos/neg colors."""
+        from geovibes.ui_config import LayerStyles
+
+        props = feature.get("properties", {})
+        tile_id = props.get("tile_id", props.get("id", "unknown"))
+        probability = props.get("probability", 0.5)
+
+        # Check if this detection has been labeled
+        label = self.state.detection_labels.get(tile_id)
+
+        if label == 1:
+            # Labeled as positive - use blue
+            color = UIConstants.POS_COLOR
+        elif label == 0:
+            # Labeled as negative - use orange
+            color = UIConstants.NEG_COLOR
+        else:
+            # Not labeled - use probability colormap
+            color = LayerStyles.probability_to_color(probability)
+
+        return {
+            "color": color,
+            "weight": 3 if label is not None else 2,
+            "opacity": 0.9 if label is not None else 0.8,
+            "fillColor": color,
+            "fillOpacity": 0.5 if label is not None else 0.3,
+        }
 
     def _handle_save_dataset(self) -> None:
         if self.state.detection_mode:
@@ -988,7 +1183,8 @@ class GeoVibes:
         self.map_manager.clear_detection_layer()
         self.map_manager.clear_vector_layer()
         self.map_manager.clear_highlight()
-        self.detection_threshold_slider.layout.display = "none"
+        self.detection_controls.layout.display = "none"
+        self.detection_status_label.value = ""
         self.tile_panel.clear()
         self.tile_panel.hide()
         self.tiles_button.button_style = ""
