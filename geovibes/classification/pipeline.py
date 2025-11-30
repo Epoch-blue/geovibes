@@ -45,10 +45,10 @@ from typing import Dict, Any, Optional, Callable, List
 from pathlib import Path
 import argparse
 import json
+import os
 import tempfile
 import numpy as np
 import time
-import os
 import duckdb
 
 from geovibes.classification.data_loader import ClassificationDataLoader, LoaderTiming
