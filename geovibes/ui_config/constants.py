@@ -468,3 +468,38 @@ class LayerStyles:
     def get_draw_options(cls):
         """Get draw control options."""
         return {"shapeOptions": {"color": UIConstants.DRAW_COLOR, "fillOpacity": 0.5}}
+
+    @classmethod
+    def get_detection_style(cls):
+        """Get base detection layer style."""
+        return {
+            "color": "#00FF00",
+            "weight": 2,
+            "opacity": 0.8,
+            "fillOpacity": 0.3,
+        }
+
+    @staticmethod
+    def probability_to_color(probability: float) -> str:
+        """Convert probability (0-1) to hex color (red→yellow→green).
+
+        Args:
+            probability: Value between 0 and 1
+
+        Returns:
+            Hex color string
+        """
+        import numpy as np
+
+        prob = np.clip(probability, 0.0, 1.0)
+
+        if prob < 0.5:
+            r = 255
+            g = int(510 * prob)
+            b = 0
+        else:
+            r = int(255 * (2 - 2 * prob))
+            g = 255
+            b = 0
+
+        return f"#{r:02x}{g:02x}{b:02x}"
