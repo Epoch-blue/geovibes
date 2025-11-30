@@ -549,6 +549,25 @@ class TilePanel:
         tick_button: Button,
         cross_button: Button,
     ) -> None:
+        # Detection mode: check detection_labels
+        if self.state.detection_mode:
+            detection_label = self.state.detection_labels.get(point_id)
+            if detection_label == 1:
+                tick_button.button_style = "success"
+                tick_button.layout.opacity = "1.0"
+            else:
+                tick_button.button_style = ""
+                tick_button.layout.opacity = "0.3"
+
+            if detection_label == 0:
+                cross_button.button_style = "danger"
+                cross_button.layout.opacity = "1.0"
+            else:
+                cross_button.button_style = ""
+                cross_button.layout.opacity = "0.3"
+            return
+
+        # Normal mode: check pos_ids and neg_ids
         if point_id in self.state.pos_ids:
             tick_button.button_style = "success"
             tick_button.layout.opacity = "1.0"

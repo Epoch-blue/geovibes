@@ -997,6 +997,32 @@ class GeoVibes:
         return str(row["id"])
 
     def _handle_tile_label(self, point_id: str, row, label: str) -> None:
+        # Detection mode: label detections differently
+        if self.state.detection_mode:
+            tile_id = point_id  # In detection mode, point_id is the tile_id
+
+            if label == UIConstants.POSITIVE_LABEL:
+                new_label = 1
+                label_name = "positive"
+            else:
+                new_label = 0
+                label_name = "negative"
+
+            current_label = self.state.detection_labels.get(tile_id)
+            if current_label == new_label:
+                # Toggle off
+                del self.state.detection_labels[tile_id]
+                self._show_operation_status("✅ Removed label from detection")
+            else:
+                self.state.label_detection(tile_id, new_label)
+                num_labeled = len(self.state.detection_labels)
+                self._show_operation_status(
+                    f"✅ Labeled as {label_name} | Total: {num_labeled}"
+                )
+            self._refresh_detection_layer()
+            return
+
+        # Normal mode: fetch embeddings and apply label
         if point_id not in self.state.cached_embeddings:
             self._fetch_embeddings([point_id])
         result = self.state.apply_label(point_id, label)
