@@ -3,10 +3,18 @@
 import json
 
 import numpy as np
+import pandas as pd
+import geopandas as gpd
 import pytest
+from shapely.geometry import Point
 
 from geovibes.classification.pipeline import combine_datasets
 from geovibes.classification.classifier import EmbeddingClassifier, EvaluationMetrics
+from geovibes.classification.cross_validation import (
+    create_spatial_folds,
+    cross_validate,
+    CVResult,
+)
 
 
 class TestCombineDatasets:
@@ -295,3 +303,154 @@ class TestDetectionModeLabeling:
         # Change label
         state.label_detection("tile_A", 0)
         assert state.detection_labels["tile_A"] == 0
+
+
+class TestSpatialCrossValidation:
+    """Tests for spatial cross-validation."""
+
+    @pytest.fixture
+    def spatial_data(self):
+        """Create test data with spatial clusters."""
+        np.random.seed(42)
+
+        # Create 3 spatial clusters of positives
+        cluster1_pos = [(0.0, 0.0), (0.001, 0.001), (0.002, 0.0)]  # 3 points
+        cluster2_pos = [(1.0, 1.0), (1.001, 1.001)]  # 2 points
+        cluster3_pos = [(2.0, 0.0), (2.001, 0.001), (2.002, 0.0), (2.003, 0.001)]  # 4
+
+        # Negatives scattered near clusters
+        negatives = [
+            (0.01, 0.01),
+            (0.02, 0.0),
+            (1.01, 1.01),
+            (1.02, 1.0),
+            (2.01, 0.01),
+            (2.02, 0.0),
+        ]
+
+        all_points = cluster1_pos + cluster2_pos + cluster3_pos + negatives
+        labels = [1] * 9 + [0] * 6  # 9 positives, 6 negatives
+
+        df = pd.DataFrame(
+            {
+                "label": labels,
+                "class": ["pos"] * 9 + ["neg"] * 6,
+            }
+        )
+        geometries = gpd.GeoSeries(
+            [Point(lon, lat) for lon, lat in all_points], crs="EPSG:4326"
+        )
+
+        # Create embeddings (linearly separable)
+        n_features = 32
+        X_pos = np.random.randn(9, n_features) + 2
+        X_neg = np.random.randn(6, n_features) - 2
+        embeddings = np.vstack([X_pos, X_neg]).astype(np.float32)
+
+        return df, geometries, embeddings
+
+    def test_create_spatial_folds_returns_valid_assignments(self, spatial_data):
+        """Fold assignments are valid integers in range [0, n_folds)."""
+        df, geometries, _ = spatial_data
+
+        fold_assignments, n_clusters, cluster_dist = create_spatial_folds(
+            df, geometries, n_folds=3, buffer_m=500.0
+        )
+
+        assert len(fold_assignments) == len(df)
+        assert fold_assignments.min() >= 0
+        assert fold_assignments.max() < 3
+        assert n_clusters >= 1
+
+    def test_create_spatial_folds_groups_nearby_positives(self, spatial_data):
+        """Nearby positives should be in the same fold."""
+        df, geometries, _ = spatial_data
+
+        fold_assignments, _, _ = create_spatial_folds(
+            df, geometries, n_folds=3, buffer_m=1000.0
+        )
+
+        # First 3 positives (cluster 1) should be in same fold
+        cluster1_folds = fold_assignments[:3]
+        assert len(set(cluster1_folds)) == 1
+
+    def test_cross_validate_returns_cv_result(self, spatial_data):
+        """Cross-validation returns CVResult with metrics."""
+        df, geometries, embeddings = spatial_data
+
+        fold_assignments, n_clusters, cluster_dist = create_spatial_folds(
+            df, geometries, n_folds=3, buffer_m=500.0
+        )
+
+        y = df["label"].values.astype(np.int32)
+
+        result = cross_validate(
+            X=embeddings,
+            y=y,
+            fold_assignments=fold_assignments,
+            n_folds=3,
+            n_clusters=n_clusters,
+            cluster_distribution=cluster_dist,
+            n_estimators=10,
+            max_depth=3,
+        )
+
+        assert isinstance(result, CVResult)
+        assert 0 <= result.f1_mean <= 1
+        assert 0 <= result.auc_roc_mean <= 1
+        assert result.f1_std >= 0
+        assert len(result.fold_metrics) > 0
+
+    def test_cv_result_summary_format(self, spatial_data):
+        """CVResult.summary() returns formatted string."""
+        df, geometries, embeddings = spatial_data
+
+        fold_assignments, n_clusters, cluster_dist = create_spatial_folds(
+            df, geometries, n_folds=3, buffer_m=500.0
+        )
+
+        y = df["label"].values.astype(np.int32)
+
+        result = cross_validate(
+            X=embeddings,
+            y=y,
+            fold_assignments=fold_assignments,
+            n_folds=3,
+            n_clusters=n_clusters,
+            cluster_distribution=cluster_dist,
+            n_estimators=10,
+            max_depth=3,
+        )
+
+        summary = result.summary()
+        assert "CROSS-VALIDATION" in summary
+        assert "F1:" in summary
+        assert "AUC-ROC:" in summary
+        assert "±" in summary  # std deviation
+
+    def test_cross_validate_with_sample_weights(self, spatial_data):
+        """Cross-validation accepts sample weights."""
+        df, geometries, embeddings = spatial_data
+
+        fold_assignments, n_clusters, cluster_dist = create_spatial_folds(
+            df, geometries, n_folds=3, buffer_m=500.0
+        )
+
+        y = df["label"].values.astype(np.int32)
+        weights = np.ones(len(df), dtype=np.float32)
+        weights[:3] = 2.0  # Weight first 3 samples more
+
+        result = cross_validate(
+            X=embeddings,
+            y=y,
+            fold_assignments=fold_assignments,
+            sample_weights=weights,
+            n_folds=3,
+            n_clusters=n_clusters,
+            cluster_distribution=cluster_dist,
+            n_estimators=10,
+            max_depth=3,
+        )
+
+        assert isinstance(result, CVResult)
+        assert len(result.fold_metrics) > 0

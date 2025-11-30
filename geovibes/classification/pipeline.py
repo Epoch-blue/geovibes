@@ -58,6 +58,11 @@ from geovibes.classification.classifier import (
 )
 from geovibes.classification.inference import BatchInference, InferenceTiming
 from geovibes.classification.output import OutputGenerator, OutputTiming
+from geovibes.classification.cross_validation import (
+    create_spatial_folds,
+    cross_validate,
+    CVResult,
+)
 
 
 @dataclass
@@ -394,6 +399,98 @@ def combine_datasets(geojson_paths: List[str]) -> str:
     return temp_file.name
 
 
+def run_cross_validation(
+    geojson_path: str,
+    duckdb_path: str,
+    memory_limit: str = "8GB",
+    correction_weight: float = 1.0,
+    buffer_m: float = 500.0,
+    n_folds: int = 5,
+) -> CVResult:
+    """
+    Run spatial 5-fold cross-validation.
+
+    Parameters
+    ----------
+    geojson_path : str
+        Path to training GeoJSON
+    duckdb_path : str
+        Path to DuckDB database
+    memory_limit : str
+        DuckDB memory limit
+    correction_weight : float
+        Weight for correction samples
+    buffer_m : float
+        Buffer distance for spatial clustering
+    n_folds : int
+        Number of folds
+
+    Returns
+    -------
+    CVResult
+        Cross-validation results
+    """
+    print("=" * 65)
+    print("SPATIAL CROSS-VALIDATION MODE")
+    print("=" * 65)
+
+    conn = duckdb.connect(duckdb_path, read_only=True)
+    conn.execute(f"SET memory_limit='{memory_limit}'")
+    conn.execute("SET temp_directory='/tmp'")
+    conn.execute("LOAD spatial;")
+
+    try:
+        print(f"\nLoading data from {geojson_path}...")
+        loader = ClassificationDataLoader(conn, geojson_path)
+        df, geometries, timing = loader.load_for_cv()
+
+        n_pos = (df["label"] == 1).sum()
+        n_neg = (df["label"] == 0).sum()
+        print(f"Loaded {len(df)} samples: {n_pos} positives, {n_neg} negatives")
+        print(f"Loading time: {timing.total_sec:.2f}s")
+
+        print(f"\nCreating spatial folds (buffer={buffer_m}m)...")
+        fold_assignments, n_clusters, cluster_dist = create_spatial_folds(
+            df, geometries, n_folds=n_folds, buffer_m=buffer_m
+        )
+
+        X = np.vstack(df["embedding"].values).astype(np.float32)
+        y = df["label"].values.astype(np.int32)
+
+        sample_weights = None
+        if correction_weight != 1.0:
+            correction_classes = {"relabel_pos", "relabel_neg"}
+            is_correction = df["class"].isin(correction_classes)
+            num_corrections = is_correction.sum()
+            if num_corrections > 0:
+                sample_weights = np.ones(len(df), dtype=np.float32)
+                sample_weights[is_correction] = correction_weight
+                print(
+                    f"Applying {correction_weight}x weight to {num_corrections} corrections"
+                )
+
+        print(f"\nRunning {n_folds}-fold cross-validation...")
+        cv_result = cross_validate(
+            X=X,
+            y=y,
+            fold_assignments=fold_assignments,
+            sample_weights=sample_weights,
+            n_folds=n_folds,
+            n_clusters=n_clusters,
+            cluster_distribution=cluster_dist,
+            n_estimators=100,
+            max_depth=6,
+            learning_rate=0.1,
+            random_state=42,
+        )
+
+        print("\n" + cv_result.summary())
+        return cv_result
+
+    finally:
+        conn.close()
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Run classification pipeline on satellite embeddings"
@@ -456,6 +553,18 @@ def main():
         default=100_000,
         help="Batch size for inference (default: 100000)",
     )
+    parser.add_argument(
+        "--cv",
+        action="store_true",
+        help="Run 5-fold spatial cross-validation instead of train/test split. "
+        "Reports mean ± std for all metrics. Does not run inference.",
+    )
+    parser.add_argument(
+        "--cv-buffer",
+        type=float,
+        default=500.0,
+        help="Buffer distance in meters for spatial clustering in CV (default: 500)",
+    )
 
     args = parser.parse_args()
 
@@ -484,22 +593,33 @@ def main():
 
     Path(args.output).mkdir(parents=True, exist_ok=True)
 
-    with ClassificationPipeline(
-        duckdb_path=args.db,
-        memory_limit=args.memory_limit,
-    ) as pipeline:
-        result = pipeline.run(
+    if args.cv:
+        # Run spatial cross-validation
+        run_cross_validation(
             geojson_path=geojson_path,
-            output_dir=args.output,
-            probability_threshold=args.threshold,
-            test_fraction=args.test_fraction,
+            duckdb_path=args.db,
+            memory_limit=args.memory_limit,
             correction_weight=args.correction_weight,
-            batch_size=args.batch_size,
+            buffer_m=args.cv_buffer,
         )
+    else:
+        # Run full pipeline with inference
+        with ClassificationPipeline(
+            duckdb_path=args.db,
+            memory_limit=args.memory_limit,
+        ) as pipeline:
+            result = pipeline.run(
+                geojson_path=geojson_path,
+                output_dir=args.output,
+                probability_threshold=args.threshold,
+                test_fraction=args.test_fraction,
+                correction_weight=args.correction_weight,
+                batch_size=args.batch_size,
+            )
 
-    print(f"\nDetections: {result.num_detections}")
-    print(f"F1: {result.metrics.f1:.3f}, AUC: {result.metrics.auc_roc:.3f}")
-    print(f"Output files: {result.output_files}")
+        print(f"\nDetections: {result.num_detections}")
+        print(f"F1: {result.metrics.f1:.3f}, AUC: {result.metrics.auc_roc:.3f}")
+        print(f"Output files: {result.output_files}")
 
 
 if __name__ == "__main__":

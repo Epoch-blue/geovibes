@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Tuple, Dict, List
 import pandas as pd
+import geopandas as gpd
 import numpy as np
 import json
 import time
@@ -247,6 +248,83 @@ class ClassificationDataLoader:
             embeddings_dict[tile_id] = embedding_array
 
         return embeddings_dict
+
+    def _fetch_geometries(self, tile_ids: List[str]) -> gpd.GeoSeries:
+        """Fetch point geometries from DuckDB for given tile_ids."""
+        escaped_ids = ",".join(f"'{tid}'" for tid in tile_ids)
+        query = f"""
+            SELECT tile_id, ST_AsText(geometry) as geometry_wkt
+            FROM geo_embeddings
+            WHERE tile_id IN ({escaped_ids})
+        """
+        result = self.conn.execute(query).fetchdf()
+        result["geometry"] = gpd.GeoSeries.from_wkt(result["geometry_wkt"])
+        tile_to_geom = dict(zip(result["tile_id"], result["geometry"]))
+        return gpd.GeoSeries(
+            [tile_to_geom.get(tid) for tid in tile_ids], crs="EPSG:4326"
+        )
+
+    def load_for_cv(
+        self, random_state: int = 42
+    ) -> Tuple[pd.DataFrame, gpd.GeoSeries, LoaderTiming]:
+        """
+        Load all training data without split, with geometries for spatial CV.
+
+        Parameters
+        ----------
+        random_state : int
+            Random seed for reproducibility
+
+        Returns
+        -------
+        Tuple[pd.DataFrame, gpd.GeoSeries, LoaderTiming]
+            df with columns: tile_id, embedding, label, class
+            geometries: Point geometries aligned with df rows
+            timing: Loading timing info
+        """
+        total_start = time.perf_counter()
+
+        parse_start = time.perf_counter()
+        df, has_tile_id = self._parse_geojson()
+        parse_time = time.perf_counter() - parse_start
+
+        spatial_time = 0.0
+        if not has_tile_id:
+            spatial_start = time.perf_counter()
+            df = self._spatial_match(df)
+            spatial_time = time.perf_counter() - spatial_start
+
+        fetch_start = time.perf_counter()
+        tile_ids = df["tile_id"].tolist()
+        embeddings_dict = self._fetch_embeddings(tile_ids)
+        geometries = self._fetch_geometries(tile_ids)
+        fetch_time = time.perf_counter() - fetch_start
+
+        df["embedding"] = df["tile_id"].map(embeddings_dict)
+
+        missing_embeddings = df["embedding"].isna()
+        if missing_embeddings.any():
+            missing_count = missing_embeddings.sum()
+            missing_ids = df.loc[missing_embeddings, "tile_id"].tolist()
+            raise ValueError(
+                f"Missing embeddings for {missing_count} tiles: {missing_ids[:10]}..."
+            )
+
+        shuffle_idx = df.sample(frac=1, random_state=random_state).index
+        df = df.loc[shuffle_idx].reset_index(drop=True)
+        geometries = geometries.iloc[shuffle_idx].reset_index(drop=True)
+
+        total_time = time.perf_counter() - total_start
+
+        timing = LoaderTiming(
+            parse_geojson_sec=parse_time,
+            spatial_match_sec=spatial_time,
+            fetch_embeddings_sec=fetch_time,
+            stratified_split_sec=0.0,
+            total_sec=total_time,
+        )
+
+        return df, geometries, timing
 
     def _stratified_split(
         self, df: pd.DataFrame, test_fraction: float, random_state: int
