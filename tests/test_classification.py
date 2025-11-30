@@ -3,6 +3,7 @@
 import json
 from unittest.mock import MagicMock
 
+import duckdb
 import numpy as np
 import pandas as pd
 import geopandas as gpd
@@ -690,3 +691,431 @@ class TestDataLoaderHelpers:
 
         # Label is preserved as-is (validation happens in ClassificationDataLoader)
         assert result["features"][0]["properties"]["label"] == 2
+
+
+# =============================================================================
+# INTEGRATION TESTS - Using real DuckDB with spatial extension
+# =============================================================================
+
+
+class TestDataLoaderIntegration:
+    """Integration tests for ClassificationDataLoader with real DuckDB."""
+
+    def test_load_with_tile_id_match(
+        self, duckdb_connection, training_geojson_with_tile_ids
+    ):
+        """Load training data matching by tile_id property."""
+        from geovibes.classification.data_loader import ClassificationDataLoader
+
+        loader = ClassificationDataLoader(
+            duckdb_connection, training_geojson_with_tile_ids
+        )
+        train_df, test_df, timing = loader.load(test_fraction=0.2, random_state=42)
+
+        # Should have loaded embeddings
+        assert len(train_df) + len(test_df) == 20  # 10 pos + 10 neg
+        assert "embedding" in train_df.columns
+        assert "tile_id" in train_df.columns
+        assert "label" in train_df.columns
+
+        # Embeddings should be numpy arrays of correct dimension
+        assert train_df["embedding"].iloc[0].shape == (64,)
+
+        # Timing should be populated
+        assert timing.parse_geojson_sec > 0
+        assert timing.fetch_embeddings_sec > 0
+        assert timing.spatial_match_sec == 0.0  # No spatial match needed
+
+    def test_load_with_db_id_lookup(
+        self, duckdb_connection, training_geojson_with_db_ids
+    ):
+        """Load training data using database row IDs to look up tile_ids."""
+        from geovibes.classification.data_loader import ClassificationDataLoader
+
+        loader = ClassificationDataLoader(
+            duckdb_connection, training_geojson_with_db_ids
+        )
+        train_df, test_df, timing = loader.load(test_fraction=0.2, random_state=42)
+
+        # Should have resolved db_ids to tile_ids
+        assert len(train_df) + len(test_df) == 20
+        assert "tile_id" in train_df.columns
+        assert "db_id" not in train_df.columns  # Should be dropped after lookup
+
+    def test_load_for_cv_returns_geometries(
+        self, duckdb_connection, training_geojson_with_tile_ids
+    ):
+        """load_for_cv returns point geometries for spatial fold creation."""
+        from geovibes.classification.data_loader import ClassificationDataLoader
+
+        loader = ClassificationDataLoader(
+            duckdb_connection, training_geojson_with_tile_ids
+        )
+        df, geometries, timing = loader.load_for_cv(random_state=42)
+
+        assert len(df) == 20
+        assert len(geometries) == 20
+        assert geometries.crs.to_epsg() == 4326
+
+        # All geometries should be Points
+        assert all(geom.geom_type == "Point" for geom in geometries)
+
+    def test_stratified_split_preserves_class_distribution(
+        self, duckdb_connection, training_geojson_with_tile_ids
+    ):
+        """Stratified split maintains class proportions in train/test."""
+        from geovibes.classification.data_loader import ClassificationDataLoader
+
+        loader = ClassificationDataLoader(
+            duckdb_connection, training_geojson_with_tile_ids
+        )
+        train_df, test_df, _ = loader.load(test_fraction=0.2, random_state=42)
+
+        # Both train and test should have positives and negatives
+        assert (train_df["label"] == 1).sum() > 0
+        assert (train_df["label"] == 0).sum() > 0
+        assert (test_df["label"] == 1).sum() > 0
+        assert (test_df["label"] == 0).sum() > 0
+
+    def test_missing_tile_id_raises_error(self, duckdb_connection, tmp_path):
+        """Missing embeddings for tile_ids raises ValueError."""
+        from geovibes.classification.data_loader import ClassificationDataLoader
+
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [0, 0]},
+                    "properties": {
+                        "tile_id": "NONEXISTENT_TILE",
+                        "label": 1,
+                        "class": "pos",
+                    },
+                }
+            ],
+        }
+        path = tmp_path / "missing.geojson"
+        path.write_text(json.dumps(geojson))
+
+        loader = ClassificationDataLoader(duckdb_connection, str(path))
+        with pytest.raises(ValueError, match="Missing embeddings"):
+            loader.load()
+
+
+class TestBatchInferenceIntegration:
+    """Integration tests for BatchInference with real DuckDB."""
+
+    def test_run_inference_detects_positives(
+        self, duckdb_connection, trained_classifier, duckdb_metadata
+    ):
+        """Inference finds positive embeddings above threshold."""
+        from geovibes.classification.inference import BatchInference
+
+        inference = BatchInference(
+            classifier=trained_classifier,
+            duckdb_connection=duckdb_connection,
+            batch_size=50,  # Small batches for test
+        )
+
+        detections, timing = inference.run(probability_threshold=0.5)
+
+        # Should detect most positives (30 in database, centered at +2)
+        n_pos = duckdb_metadata["n_positives"]
+        assert len(detections) > n_pos * 0.5  # At least half detected
+        assert len(detections) < duckdb_metadata["n_samples"]  # Not everything
+
+        # All detections should have prob >= threshold
+        for id_, prob in detections:
+            assert prob >= 0.5
+
+        # Timing should be populated
+        assert timing.embeddings_scored == duckdb_metadata["n_samples"]
+        assert timing.batches_processed >= 2  # 100 samples / 50 batch size
+
+    def test_batch_iteration_covers_all_embeddings(
+        self, duckdb_connection, trained_classifier, duckdb_metadata
+    ):
+        """_iterate_batches_fast yields all embeddings exactly once."""
+        from geovibes.classification.inference import BatchInference
+
+        inference = BatchInference(
+            classifier=trained_classifier,
+            duckdb_connection=duckdb_connection,
+            batch_size=30,
+        )
+
+        all_ids = []
+        all_embeddings = []
+        for ids, embeddings in inference._iterate_batches_fast():
+            all_ids.extend(ids.tolist())
+            all_embeddings.append(embeddings)
+
+        # Should have all embeddings
+        assert len(all_ids) == duckdb_metadata["n_samples"]
+        # IDs should be unique
+        assert len(set(all_ids)) == duckdb_metadata["n_samples"]
+
+    def test_threshold_filtering(
+        self, duckdb_connection, trained_classifier, duckdb_metadata
+    ):
+        """Higher threshold returns fewer detections."""
+        from geovibes.classification.inference import BatchInference
+
+        inference = BatchInference(
+            classifier=trained_classifier,
+            duckdb_connection=duckdb_connection,
+        )
+
+        detections_50, _ = inference.run(probability_threshold=0.5)
+        detections_90, _ = inference.run(probability_threshold=0.9)
+
+        # Higher threshold should return fewer or equal detections
+        assert len(detections_90) <= len(detections_50)
+
+    def test_auto_batch_size_detection(
+        self, duckdb_connection, trained_classifier, duckdb_metadata
+    ):
+        """batch_size=0 auto-detects based on memory and data size."""
+        from geovibes.classification.inference import BatchInference
+
+        inference = BatchInference(
+            classifier=trained_classifier,
+            duckdb_connection=duckdb_connection,
+            batch_size=0,  # Auto-detect
+            max_memory_gb=12.0,
+        )
+
+        # For small test data, should use full dataset
+        assert inference.batch_size == duckdb_metadata["n_samples"]
+
+
+class TestOutputGeneratorIntegration:
+    """Integration tests for OutputGenerator with real DuckDB."""
+
+    def test_fetch_detection_metadata(self, duckdb_connection, duckdb_metadata):
+        """fetch_detection_metadata retrieves tile_ids and geometries."""
+        from geovibes.classification.output import OutputGenerator
+
+        generator = OutputGenerator(duckdb_connection)
+
+        # Create mock detections (id, probability)
+        detections = [(1, 0.95), (2, 0.88), (3, 0.72)]
+
+        gdf, elapsed = generator.fetch_detection_metadata(detections)
+
+        assert len(gdf) == 3
+        assert "tile_id" in gdf.columns
+        assert "probability" in gdf.columns
+        assert gdf.crs.to_epsg() == 4326
+        assert all(gdf.geometry.geom_type == "Point")
+        assert elapsed > 0
+
+    def test_generate_tile_geometries(self, duckdb_connection, duckdb_metadata):
+        """generate_tile_geometries creates square polygons from points."""
+        from geovibes.classification.output import OutputGenerator
+
+        generator = OutputGenerator(
+            duckdb_connection,
+            tile_size_px=32,
+            tile_overlap_px=16,
+            resolution_m=10.0,  # 320m tiles
+        )
+
+        detections = [(1, 0.95), (2, 0.88)]
+        points_gdf, _ = generator.fetch_detection_metadata(detections)
+
+        tiles_gdf, elapsed = generator.generate_tile_geometries(points_gdf)
+
+        assert len(tiles_gdf) == 2
+        assert all(tiles_gdf.geometry.geom_type == "Polygon")
+        assert elapsed > 0
+
+        # Tiles should be approximately square
+        for geom in tiles_gdf.geometry:
+            bounds = geom.bounds
+            width = bounds[2] - bounds[0]
+            height = bounds[3] - bounds[1]
+            # In WGS84, width/height ratio depends on latitude
+            assert 0.5 < width / height < 2.0
+
+    def test_full_output_pipeline(self, duckdb_connection, duckdb_metadata, tmp_path):
+        """generate_output creates detection and union GeoJSON files."""
+        from geovibes.classification.output import OutputGenerator
+
+        generator = OutputGenerator(duckdb_connection)
+
+        # Multiple detections, some overlapping
+        detections = [(1, 0.95), (2, 0.88), (3, 0.72), (4, 0.65)]
+
+        paths, timing = generator.generate_output(
+            detections=detections,
+            output_dir=str(tmp_path),
+            name="test_output",
+        )
+
+        assert "detections" in paths
+        assert "union" in paths
+        assert (tmp_path / "test_output_detections.geojson").exists()
+        assert (tmp_path / "test_output_union.geojson").exists()
+
+        # Timing should be complete
+        assert timing.fetch_metadata_sec > 0
+        assert timing.generate_tiles_sec > 0
+        assert timing.total_sec > 0
+
+    def test_utm_crs_parsing(self, duckdb_connection):
+        """_get_utm_crs correctly parses MGRS tile_ids to UTM zones."""
+        from geovibes.classification.output import OutputGenerator
+
+        generator = OutputGenerator(duckdb_connection)
+
+        # Northern hemisphere tiles
+        assert generator._get_utm_crs("16SBH0001000010").to_epsg() == 32616
+        assert generator._get_utm_crs("32TNS1234567890").to_epsg() == 32632
+
+        # Southern hemisphere tiles (bands A-M)
+        assert generator._get_utm_crs("32KPB0001000010").to_epsg() == 32732
+        assert generator._get_utm_crs("16LBH0001000010").to_epsg() == 32716
+
+
+class TestPipelineIntegration:
+    """Integration tests for end-to-end classification pipeline."""
+
+    @pytest.fixture
+    def duckdb_file(self, duckdb_with_embeddings, tmp_path):
+        """Create a file-based DuckDB for pipeline tests."""
+        conn, metadata = duckdb_with_embeddings
+        db_path = tmp_path / "test_embeddings.duckdb"
+
+        # Create a new file-based database with same data
+        file_conn = duckdb.connect(str(db_path))
+        file_conn.execute("INSTALL spatial; LOAD spatial;")
+        file_conn.execute("""
+            CREATE TABLE geo_embeddings (
+                id BIGINT PRIMARY KEY,
+                tile_id VARCHAR,
+                embedding FLOAT[64],
+                geometry GEOMETRY
+            )
+        """)
+
+        # Copy data from in-memory to file
+        result = conn.execute("""
+            SELECT id, tile_id, CAST(embedding AS FLOAT[]) as embedding,
+                   ST_AsText(geometry) as geom_wkt
+            FROM geo_embeddings
+        """).fetchall()
+
+        for row in result:
+            file_conn.execute(
+                """
+                INSERT INTO geo_embeddings (id, tile_id, embedding, geometry)
+                VALUES (?, ?, ?, ST_GeomFromText(?))
+                """,
+                [row[0], row[1], list(row[2]), row[3]],
+            )
+
+        file_conn.close()
+
+        return str(db_path), metadata
+
+    def test_full_pipeline_run(
+        self, duckdb_file, training_geojson_with_tile_ids, tmp_path
+    ):
+        """Full pipeline: load, train, evaluate, infer, output."""
+        from geovibes.classification.pipeline import ClassificationPipeline
+
+        db_path, metadata = duckdb_file
+        output_dir = tmp_path / "pipeline_output"
+
+        with ClassificationPipeline(db_path, memory_limit="1GB") as pipeline:
+            result = pipeline.run(
+                geojson_path=training_geojson_with_tile_ids,
+                output_dir=str(output_dir),
+                test_fraction=0.2,
+                probability_threshold=0.5,
+                batch_size=50,
+            )
+
+        # Metrics should be reasonable for linearly separable data
+        assert result.metrics.f1 > 0.5
+        assert result.metrics.auc_roc > 0.5
+
+        # Should have some detections
+        assert result.num_detections > 0
+
+        # Output files should exist
+        assert (output_dir / "classification_detections.geojson").exists()
+        assert (output_dir / "classification_union.geojson").exists()
+        assert (output_dir / "model.json").exists()
+
+        # Timing should be complete
+        assert result.timing.total_sec > 0
+
+    def test_cv_mode(self, duckdb_file, training_geojson_with_tile_ids):
+        """Cross-validation mode returns CVResult."""
+        from geovibes.classification.pipeline import run_cross_validation
+
+        db_path, _ = duckdb_file
+
+        # Use small buffer (100m) to create multiple clusters from test data
+        # Test positives are spaced ~1km apart, so 100m buffer creates separate clusters
+        cv_result = run_cross_validation(
+            geojson_path=training_geojson_with_tile_ids,
+            duckdb_path=db_path,
+            memory_limit="1GB",
+            buffer_m=100.0,  # Small buffer to create multiple clusters
+            n_folds=3,  # Fewer folds for small test data
+        )
+
+        assert 0 <= cv_result.f1_mean <= 1
+        assert 0 <= cv_result.auc_roc_mean <= 1
+        assert cv_result.f1_std >= 0
+        assert len(cv_result.fold_metrics) == 3
+
+    def test_combine_datasets_integration(self, tmp_path):
+        """combine_datasets merges multiple GeoJSON files correctly."""
+        from geovibes.classification.pipeline import combine_datasets
+
+        file1 = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [0, 0]},
+                    "properties": {"label": 1, "class": "original_pos"},
+                }
+            ],
+        }
+        file2 = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [1, 1]},
+                    "properties": {"label": 0, "class": "sampled_neg"},
+                },
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [2, 2]},
+                    "properties": {"label": 1, "class": "relabel_pos"},
+                },
+            ],
+        }
+
+        path1 = tmp_path / "file1.geojson"
+        path2 = tmp_path / "file2.geojson"
+        path1.write_text(json.dumps(file1))
+        path2.write_text(json.dumps(file2))
+
+        combined_path = combine_datasets([str(path1), str(path2)])
+
+        with open(combined_path) as f:
+            combined = json.load(f)
+
+        assert len(combined["features"]) == 3
+        assert combined["metadata"]["positive_count"] == 2
+        assert combined["metadata"]["negative_count"] == 1
+        assert combined["metadata"]["sources"][str(path1)] == 1
+        assert combined["metadata"]["sources"][str(path2)] == 2
