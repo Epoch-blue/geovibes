@@ -185,3 +185,4 @@ cython_debug/
 notebooks/*.ipynb
 labeled_dataset_*.geojson
 labeled_dataset_*_labels.csv
+alabama_aquaculture/
