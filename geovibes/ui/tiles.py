@@ -9,12 +9,60 @@ from typing import Any, Callable, Dict, List, Optional
 
 import ipywidgets as ipyw
 import shapely.wkt
-from ipywidgets import Button, GridBox, HBox, Image, Label, Layout, VBox
+from ipywidgets import Button, GridBox, HBox, HTML, Image, Label, Layout, VBox
 
 from geovibes.ui_config import BasemapConfig, UIConstants
 from .xyz import get_map_image
 
 TILE_SOURCES = ("HUTCH_TILE", "MAPTILER", "GOOGLE_HYBRID")
+
+TILE_PANEL_CSS = """
+<style>
+.tile-panel-container {
+    background: #f8f9fa;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.tile-card {
+    background: white;
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    transition: all 0.2s ease;
+    overflow: hidden;
+}
+.tile-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    transform: translateY(-2px);
+}
+.tile-header {
+    background: white;
+    border-bottom: 1px solid #e9ecef;
+    padding: 8px;
+    border-radius: 8px 8px 0 0;
+}
+.tile-footer {
+    background: white;
+    border-top: 1px solid #e9ecef;
+    padding: 8px;
+    border-radius: 0 0 8px 8px;
+}
+.load-more-btn {
+    background: #4a90d9 !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 4px !important;
+    font-weight: 500 !important;
+    transition: background 0.2s ease !important;
+}
+.load-more-btn:hover {
+    background: #357abd !important;
+}
+.page-info {
+    color: #6c757d;
+    font-size: 12px;
+}
+</style>
+"""
 
 
 class TilePanel:
@@ -44,48 +92,95 @@ class TilePanel:
         if self.state.tile_basemap not in self.allowed_sources:
             self.state.tile_basemap = self.allowed_sources[0]
 
+        self._css_widget = HTML(TILE_PANEL_CSS)
+
         self.tile_basemap_dropdown = ipyw.Dropdown(
             options=self.allowed_sources,
             value=self.state.tile_basemap,
             description="",
-            layout=Layout(width="180px"),
+            layout=Layout(width="140px"),
             style={"description_width": "initial"},
         )
         self.tile_basemap_dropdown.observe(self._on_tile_basemap_change, names="value")
 
-        self.next_tiles_btn = Button(
-            description="Next",
-            layout=Layout(width="60px", margin="0 0 0 5px", display="none"),
+        self.page_info_label = Label(
+            value="",
+            layout=Layout(width="70px", margin="0 0 0 8px"),
         )
-        self.next_tiles_btn.on_click(self._on_next_tiles_click)
+        self.page_info_label.add_class("page-info")
 
-        controls = HBox(
-            [self.tile_basemap_dropdown, self.next_tiles_btn],
-            layout=Layout(align_items="center", margin="0 0 10px 0"),
+        self.load_more_btn = Button(
+            description="Load More",
+            layout=Layout(
+                width="100%",
+                height="32px",
+                display="none",
+                justify_content="center",
+            ),
         )
+        self.load_more_btn.add_class("load-more-btn")
+        self.load_more_btn.on_click(self._on_next_tiles_click)
+
+        self.next_tiles_btn = self.load_more_btn
+
+        header = HBox(
+            [self.tile_basemap_dropdown, self.page_info_label],
+            layout=Layout(
+                align_items="center",
+                padding="8px",
+                width="100%",
+            ),
+        )
+        header.add_class("tile-header")
 
         self.results_grid = GridBox(
             [],
             layout=Layout(
                 width="100%",
                 grid_template_columns="1fr 1fr",
-                grid_gap="3px",
-                overflow_y="visible",
-                flex="1 1 auto",
-                height="auto",
+                grid_gap="6px",
+                padding="4px",
             ),
         )
 
-        self.container = VBox(
-            [controls, self.results_grid],
+        tile_height = 155
+        grid_gap = 6
+        visible_rows = 3
+        scroll_height = (tile_height + grid_gap) * visible_rows
+
+        self.scroll_area = VBox(
+            [self.results_grid],
             layout=Layout(
-                display="none",
-                width="265px",
-                padding="5px",
-                height=UIConstants.DEFAULT_HEIGHT,
-                overflow="auto",
+                width="100%",
+                height=f"{scroll_height}px",
+                min_height=f"{scroll_height}px",
+                max_height=f"{scroll_height}px",
+                overflow_y="auto",
+                overflow_x="hidden",
+                flex="0 0 auto",
             ),
         )
+
+        footer = HBox(
+            [self.load_more_btn],
+            layout=Layout(
+                padding="8px",
+                width="100%",
+                flex="0 0 auto",
+            ),
+        )
+        footer.add_class("tile-footer")
+
+        self.container = VBox(
+            [self._css_widget, header, self.scroll_area, footer],
+            layout=Layout(
+                display="none",
+                width="270px",
+                padding="0px",
+                border_radius="8px",
+            ),
+        )
+        self.container.add_class("tile-panel-container")
 
         self.control = self.map_manager.add_widget_control(
             self.container, position="topright"
@@ -137,6 +232,7 @@ class TilePanel:
         self._pending_batches.clear()
         self.results_grid.children = []
         self.next_tiles_btn.layout.display = "none"
+        self.page_info_label.value = ""
         self.state.last_search_results_df = None
         self.state.tile_page = 0
         self._update_operation(None)
@@ -309,6 +405,8 @@ class TilePanel:
         else:
             self.next_tiles_btn.layout.display = "none"
 
+        self._update_page_info(end_index, len(df))
+
     def _handle_tiles_ready(self) -> None:
         if self.results_ready:
             return
@@ -413,32 +511,30 @@ class TilePanel:
         if display_value is None or display_value != display_value:
             display_value = row["id"]
         display_id = str(display_value)
-        base_image_layout = {
-            "width": "115px",
-            "height": "115px",
-            "overflow": "hidden",
-        }
+        img_size = 118
         if image_bytes:
             image_layout = Layout(
-                width=base_image_layout["width"],
-                height=base_image_layout["height"],
-                overflow=base_image_layout["overflow"],
+                width=f"{img_size}px",
+                height=f"{img_size}px",
+                overflow="hidden",
+                border_radius="4px",
             )
             tile_image = Image(
                 value=image_bytes,
                 format="png",
-                width=115,
-                height=115,
+                width=img_size,
+                height=img_size,
                 layout=image_layout,
             )
         else:
             tile_image = Label(
                 value="Image unavailable",
                 layout=Layout(
-                    width=base_image_layout["width"],
-                    height=base_image_layout["height"],
-                    overflow=base_image_layout["overflow"],
-                    border="1px solid #ccc",
+                    width=f"{img_size}px",
+                    height=f"{img_size}px",
+                    overflow="hidden",
+                    border="1px solid #e9ecef",
+                    border_radius="4px",
                     display="flex",
                     align_items="center",
                     justify_content="center",
@@ -482,47 +578,51 @@ class TilePanel:
             [map_button, tick_button, cross_button],
             layout=Layout(
                 justify_content="center",
-                width="120px",
+                width="124px",
                 height="32px",
                 overflow="hidden",
+                padding="2px 0",
             ),
         )
 
-        return VBox(
+        tile_widget = VBox(
             [button_row, tile_image],
             layout=Layout(
-                border="1px solid #ccc",
                 padding="2px",
-                width="120px",
+                width="124px",
                 height="155px",
                 overflow="hidden",
             ),
         )
+        tile_widget.add_class("tile-card")
+        return tile_widget
 
     def _make_placeholder_tile(self) -> VBox:
         message = Label(
             value="Loading...",
             layout=Layout(
-                width="115px",
+                width="118px",
                 height="115px",
-                border="1px solid #ccc",
+                border="1px solid #e9ecef",
                 display="flex",
                 align_items="center",
                 justify_content="center",
                 overflow="hidden",
+                border_radius="4px",
             ),
         )
-        spacer = HBox(layout=Layout(height="32px", width="120px", overflow="hidden"))
-        return VBox(
+        spacer = HBox(layout=Layout(height="32px", width="124px", overflow="hidden"))
+        placeholder = VBox(
             [spacer, message],
             layout=Layout(
-                border="1px solid #ccc",
                 padding="2px",
-                width="120px",
+                width="124px",
                 height="155px",
                 overflow="hidden",
             ),
         )
+        placeholder.add_class("tile-card")
+        return placeholder
 
     def _update_operation(self, message: Optional[str]) -> None:
         if message:
@@ -531,6 +631,9 @@ class TilePanel:
         else:
             if hasattr(self.map_manager, "clear_operation"):
                 self.map_manager.clear_operation()
+
+    def _update_page_info(self, loaded: int, total: int) -> None:
+        self.page_info_label.value = f"{loaded} / {total}"
 
     def _handle_label_click(
         self,
