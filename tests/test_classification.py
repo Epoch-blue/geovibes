@@ -889,6 +889,189 @@ class TestBatchInferenceIntegration:
         # For small test data, should use full dataset
         assert inference.batch_size == duckdb_metadata["n_samples"]
 
+    def test_auto_batch_size_limited_by_memory(
+        self, duckdb_connection, trained_classifier, duckdb_metadata
+    ):
+        """batch_size=0 with low memory limit returns calculated batch size."""
+        from geovibes.classification.inference import BatchInference
+
+        inference = BatchInference(
+            classifier=trained_classifier,
+            duckdb_connection=duckdb_connection,
+            batch_size=0,
+            max_memory_gb=0.00001,  # Very low memory limit
+        )
+
+        # Should calculate batch size based on memory constraint (line 72)
+        batch_size = inference.batch_size
+        assert batch_size < duckdb_metadata["n_samples"]
+        assert batch_size > 0
+
+    def test_progress_callback_called(
+        self, duckdb_connection, trained_classifier, duckdb_metadata
+    ):
+        """Progress callback is called after each batch with correct counts."""
+        from geovibes.classification.inference import BatchInference
+
+        progress_calls = []
+
+        def progress_callback(processed, total):
+            progress_calls.append((processed, total))
+
+        inference = BatchInference(
+            classifier=trained_classifier,
+            duckdb_connection=duckdb_connection,
+            batch_size=30,  # Multiple batches for 100 samples
+        )
+
+        inference.run(probability_threshold=0.5, progress_callback=progress_callback)
+
+        # Should have been called at least 3 times (100 samples / 30 batch size)
+        assert len(progress_calls) >= 3
+
+        # Each call should have correct total
+        for processed, total in progress_calls:
+            assert total == duckdb_metadata["n_samples"]
+            assert 0 < processed <= total
+
+        # Final call should have processed all samples
+        assert progress_calls[-1][0] == duckdb_metadata["n_samples"]
+
+    def test_get_total_count(
+        self, duckdb_connection, trained_classifier, duckdb_metadata
+    ):
+        """get_total_count returns correct number of embeddings."""
+        from geovibes.classification.inference import BatchInference
+
+        inference = BatchInference(
+            classifier=trained_classifier,
+            duckdb_connection=duckdb_connection,
+        )
+
+        count = inference.get_total_count()
+        assert count == duckdb_metadata["n_samples"]
+
+    def test_detect_embedding_dim_with_empty_table(self):
+        """_detect_embedding_dim returns default 384 for empty table."""
+        from geovibes.classification.inference import BatchInference
+
+        # Create empty connection
+        empty_conn = duckdb.connect(":memory:")
+        empty_conn.execute("INSTALL spatial; LOAD spatial;")
+        empty_conn.execute("""
+            CREATE TABLE geo_embeddings (
+                id BIGINT PRIMARY KEY,
+                tile_id VARCHAR,
+                embedding FLOAT[64],
+                geometry GEOMETRY
+            )
+        """)
+
+        mock_classifier = MagicMock()
+        inference = BatchInference(
+            classifier=mock_classifier,
+            duckdb_connection=empty_conn,
+        )
+
+        # Should return default 384 (line 81)
+        dim = inference._detect_embedding_dim()
+        assert dim == 384
+
+        empty_conn.close()
+
+    def test_score_batch_1d_probabilities(self, mock_classifier, mock_connection):
+        """_score_batch handles 1D probability array correctly."""
+        from geovibes.classification.inference import BatchInference
+
+        # Configure classifier to return 1D array (single class probability)
+        mock_classifier.predict_proba = MagicMock(
+            return_value=np.array([0.9, 0.8, 0.3])
+        )
+
+        inference = BatchInference(
+            classifier=mock_classifier,
+            duckdb_connection=mock_connection,
+        )
+
+        embeddings = np.random.randn(3, 64).astype(np.float32)
+        probs = inference._score_batch(embeddings)
+
+        # Should return the 1D array as-is (line 195)
+        assert probs.ndim == 1
+        assert len(probs) == 3
+        np.testing.assert_array_equal(probs, np.array([0.9, 0.8, 0.3]))
+
+    def test_score_batch_2d_probabilities(self, mock_classifier, mock_connection):
+        """_score_batch extracts positive class from 2D array."""
+        from geovibes.classification.inference import BatchInference
+
+        # Configure classifier to return 2D array (neg and pos class probabilities)
+        mock_classifier.predict_proba = MagicMock(
+            return_value=np.array([[0.1, 0.9], [0.2, 0.8], [0.7, 0.3]])
+        )
+
+        inference = BatchInference(
+            classifier=mock_classifier,
+            duckdb_connection=mock_connection,
+        )
+
+        embeddings = np.random.randn(3, 64).astype(np.float32)
+        probs = inference._score_batch(embeddings)
+
+        # Should extract second column (line 194)
+        assert probs.ndim == 1
+        assert len(probs) == 3
+        np.testing.assert_array_equal(probs, np.array([0.9, 0.8, 0.3]))
+
+    def test_legacy_iterate_batches(
+        self, duckdb_connection, trained_classifier, duckdb_metadata
+    ):
+        """_iterate_batches (legacy fetchall method) yields all embeddings."""
+        from geovibes.classification.inference import BatchInference
+
+        inference = BatchInference(
+            classifier=trained_classifier,
+            duckdb_connection=duckdb_connection,
+            batch_size=25,
+        )
+
+        all_ids = []
+        all_embeddings = []
+
+        # Test legacy method (lines 199-219)
+        for ids, embeddings in inference._iterate_batches():
+            all_ids.extend(ids.tolist())
+            all_embeddings.append(embeddings)
+
+            # Verify batch structure
+            assert ids.dtype == np.int64
+            assert embeddings.dtype == np.float32
+            assert embeddings.shape[1] == duckdb_metadata["embedding_dim"]
+
+        # Should have all embeddings
+        assert len(all_ids) == duckdb_metadata["n_samples"]
+        assert len(set(all_ids)) == duckdb_metadata["n_samples"]
+
+    def test_empty_results_no_detections(self, duckdb_connection, trained_classifier):
+        """Run with very high threshold returns empty detections list."""
+        from geovibes.classification.inference import BatchInference
+
+        inference = BatchInference(
+            classifier=trained_classifier,
+            duckdb_connection=duckdb_connection,
+            batch_size=50,
+        )
+
+        # Use impossible threshold
+        detections, timing = inference.run(probability_threshold=1.0)
+
+        # Should have no detections
+        assert len(detections) == 0
+        assert timing.detections_found == 0
+        # But should have scored all embeddings
+        assert timing.embeddings_scored > 0
+        assert timing.batches_processed > 0
+
 
 class TestOutputGeneratorIntegration:
     """Integration tests for OutputGenerator with real DuckDB."""
