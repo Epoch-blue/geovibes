@@ -1163,7 +1163,7 @@ class GeoVibes:
             "weight": 3 if label is not None else 2,
             "opacity": 0.9 if label is not None else 0.8,
             "fillColor": color,
-            "fillOpacity": 0.5 if label is not None else 0.3,
+            "fillOpacity": 0.2 if label is not None else 0.1,
         }
 
     def _handle_save_dataset(self) -> None:
