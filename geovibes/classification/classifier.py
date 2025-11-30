@@ -1,7 +1,4 @@
-"""Binary classifier for embeddings using XGBoost.
-
-Optimized for M1 Mac with histogram-based tree method and parallel processing.
-"""
+"""Binary classifier for embeddings using XGBoost."""
 
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -29,15 +26,7 @@ class EvaluationMetrics:
 
 
 class EmbeddingClassifier:
-    """XGBoost binary classifier wrapper for embeddings.
-
-    Optimized for M1 Mac using histogram-based tree method and parallel processing.
-    No try-except blocks - fails fast on errors.
-
-    Attributes:
-        model: XGBClassifier instance
-        fit_time: Training time in seconds (None until fit() is called)
-    """
+    """XGBoost binary classifier for embeddings."""
 
     def __init__(
         self,
@@ -48,15 +37,23 @@ class EmbeddingClassifier:
         n_jobs: int = -1,
         tree_method: str = "hist",
     ):
-        """Initialize classifier with XGBoost parameters.
+        """
+        Initialize classifier.
 
-        Args:
-            n_estimators: Number of boosting rounds
-            max_depth: Maximum tree depth
-            learning_rate: Boosting learning rate
-            random_state: Random seed for reproducibility
-            n_jobs: Number of parallel threads (-1 = use all cores)
-            tree_method: Tree construction algorithm ("hist" for M1 optimization)
+        Parameters
+        ----------
+        n_estimators : int
+            Number of boosting rounds
+        max_depth : int
+            Maximum tree depth
+        learning_rate : float
+            Boosting learning rate
+        random_state : int
+            Random seed for reproducibility
+        n_jobs : int
+            Number of parallel threads (-1 = all cores)
+        tree_method : str
+            Tree construction algorithm
         """
         self.model = XGBClassifier(
             n_estimators=n_estimators,
@@ -76,14 +73,21 @@ class EmbeddingClassifier:
         y_train: np.ndarray,
         sample_weight: Optional[np.ndarray] = None,
     ) -> float:
-        """Train the classifier.
+        """
+        Train the classifier.
 
-        Args:
-            X_train: Training features, shape (n_samples, n_features)
-            y_train: Training labels, shape (n_samples,)
-            sample_weight: Optional sample weights, shape (n_samples,)
+        Parameters
+        ----------
+        X_train : np.ndarray
+            Training features, shape (n_samples, n_features)
+        y_train : np.ndarray
+            Training labels, shape (n_samples,)
+        sample_weight : np.ndarray, optional
+            Sample weights, shape (n_samples,)
 
-        Returns:
+        Returns
+        -------
+        float
             Training time in seconds
         """
         start_time = time.perf_counter()
@@ -95,14 +99,20 @@ class EmbeddingClassifier:
     def evaluate(
         self, X_test: np.ndarray, y_test: np.ndarray
     ) -> Tuple[EvaluationMetrics, float]:
-        """Evaluate the classifier on test data.
+        """
+        Evaluate the classifier on test data.
 
-        Args:
-            X_test: Test features, shape (n_samples, n_features)
-            y_test: Test labels, shape (n_samples,)
+        Parameters
+        ----------
+        X_test : np.ndarray
+            Test features, shape (n_samples, n_features)
+        y_test : np.ndarray
+            Test labels, shape (n_samples,)
 
-        Returns:
-            Tuple of (EvaluationMetrics, evaluation_time_sec)
+        Returns
+        -------
+        Tuple[EvaluationMetrics, float]
+            Metrics and evaluation time in seconds
         """
         start_time = time.perf_counter()
 
@@ -122,34 +132,28 @@ class EmbeddingClassifier:
         return metrics, eval_time
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        """Predict probability of positive class.
+        """
+        Predict probability of positive class.
 
-        Args:
-            X: Features, shape (n_samples, n_features)
+        Parameters
+        ----------
+        X : np.ndarray
+            Features, shape (n_samples, n_features)
 
-        Returns:
+        Returns
+        -------
+        np.ndarray
             Probabilities of positive class, shape (n_samples,)
         """
         return self.model.predict_proba(X)[:, 1]
 
     def save(self, path: str) -> None:
-        """Save model to JSON format.
-
-        Args:
-            path: File path to save model (should end with .json)
-        """
+        """Save model to JSON format."""
         self.model.save_model(path)
 
     @classmethod
     def load(cls, path: str) -> "EmbeddingClassifier":
-        """Load model from JSON file.
-
-        Args:
-            path: File path to load model from
-
-        Returns:
-            EmbeddingClassifier instance with loaded model
-        """
+        """Load model from JSON file."""
         classifier = cls()
         classifier.model.load_model(path)
         return classifier
