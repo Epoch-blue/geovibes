@@ -19,14 +19,20 @@ Usage:
             probability_threshold=0.7,
         )
 
-    # From command line
+    # From command line - single file
     uv run python -m geovibes.classification.pipeline \\
-        --geojson full_dataset.geojson \\
+        --positives training_data.geojson \\
         --output output/ \\
         --db path/to/embeddings.db \\
         --threshold 0.5
 
-    # Or with separate files
+    # Multiple training files (e.g., original + corrections from GeoVibes)
+    uv run python -m geovibes.classification.pipeline \\
+        --positives original.geojson corrections.geojson \\
+        --output output/ \\
+        --db path/to/embeddings.db
+
+    # Or with separate positives and negatives
     uv run python -m geovibes.classification.pipeline \\
         --positives geovibes_labeled.geojson \\
         --negatives sampled_negatives.geojson \\
@@ -403,11 +409,13 @@ def main():
     )
     input_group.add_argument(
         "--positives",
-        help="GeoJSON with positive examples (from GeoVibes). Labels are respected, not overwritten.",
+        nargs="+",
+        help="One or more GeoJSON files with training examples. Labels are respected from each file. "
+        "Example: --positives original.geojson corrections.geojson",
     )
     input_group.add_argument(
         "--negatives",
-        help="GeoJSON with negative examples (from sample_negatives). Labels are respected, not overwritten.",
+        help="GeoJSON with negative examples (optional, can also be included in --positives)",
     )
 
     parser.add_argument(
@@ -443,18 +451,26 @@ def main():
 
     # Validate input arguments
     if args.geojson and (args.positives or args.negatives):
-        parser.error("Use either --geojson OR (--positives and --negatives), not both")
+        parser.error("Use either --geojson OR --positives, not both")
 
-    if not args.geojson and not (args.positives and args.negatives):
-        parser.error(
-            "Must provide either --geojson OR both --positives and --negatives"
-        )
+    if not args.geojson and not args.positives:
+        parser.error("Must provide either --geojson OR --positives")
 
     # Determine input path
     if args.geojson:
         geojson_path = args.geojson
     else:
-        geojson_path = combine_datasets([args.positives, args.negatives])
+        # Collect all input files
+        input_files = list(args.positives)
+        if args.negatives:
+            input_files.append(args.negatives)
+
+        if len(input_files) == 1:
+            # Single file, use directly
+            geojson_path = input_files[0]
+        else:
+            # Multiple files, combine them
+            geojson_path = combine_datasets(input_files)
 
     Path(args.output).mkdir(parents=True, exist_ok=True)
 
