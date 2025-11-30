@@ -515,7 +515,22 @@ class GeoVibes:
             if self.state.detection_mode:
                 # Show detection controls
                 self.detection_controls.layout.display = "flex"
-                num_detections = len(self.state.detection_data.get("features", []))
+                features = self.state.detection_data.get("features", [])
+                num_detections = len(features)
+
+                # Set slider min/max based on dataset probability range
+                if features:
+                    probs = [
+                        f.get("properties", {}).get("probability", 0.5)
+                        for f in features
+                    ]
+                    min_prob = min(probs)
+                    max_prob = max(probs)
+                    self.detection_threshold_slider.min = min_prob
+                    self.detection_threshold_slider.max = max_prob
+                    self.detection_threshold_slider.value = min_prob
+                    self.detection_threshold_text.value = min_prob
+
                 self._show_operation_status(
                     f"🔍 Detection mode: {num_detections} detections loaded. "
                     "Click to label as negative/positive."
@@ -1185,6 +1200,11 @@ class GeoVibes:
         self.map_manager.clear_highlight()
         self.detection_controls.layout.display = "none"
         self.detection_status_label.value = ""
+        # Reset slider to default range
+        self.detection_threshold_slider.min = 0.0
+        self.detection_threshold_slider.max = 1.0
+        self.detection_threshold_slider.value = 0.5
+        self.detection_threshold_text.value = 0.5
         self.tile_panel.clear()
         self.tile_panel.hide()
         self.tiles_button.button_style = ""
