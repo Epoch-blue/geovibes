@@ -173,6 +173,65 @@ python geovibes/database/faiss_db.py \
 
 This script processes parquet files from an input directory, builds a FAISS index, and creates a separate DuckDB file containing the metadata for the embeddings.
 
+## Classification Pipeline
+
+GeoVibes includes a classification pipeline for training binary classifiers on labeled embeddings. This enables workflows like: label examples → train classifier → review detections → refine with corrections.
+
+### Basic Usage
+
+```bash
+# Train classifier on labeled data
+uv run python -m geovibes.classification.pipeline \
+    --positives labeled_dataset.geojson \
+    --output results/ \
+    --db path/to/embeddings.duckdb \
+    --threshold 0.5
+```
+
+### Iterative Retraining with Corrections
+
+After reviewing detection results in the GeoVibes UI, export corrections and retrain:
+
+```bash
+# Combine original labels with corrections from detection review
+uv run python -m geovibes.classification.pipeline \
+    --positives original_labels.geojson corrections.geojson \
+    --output results_v2/ \
+    --db path/to/embeddings.duckdb \
+    --correction-weight 2.5
+```
+
+The `--correction-weight` parameter emphasizes correction samples (class `relabel_pos`/`relabel_neg`) during training, helping the model learn from its mistakes.
+
+### Detection Review Mode
+
+When you load a GeoJSON file with a `probability` field (classifier output), GeoVibes automatically enters detection review mode:
+
+- **Threshold slider**: Filter detections by probability, with min/max set from your dataset
+- **Colormap visualization**: Probability-scaled colors (plasma colormap)
+- **Interactive labeling**: Click or polygon-select to mark false positives/negatives
+- **Export corrections**: Save as augmented dataset for retraining
+
+### CLI Options
+
+| Argument | Description |
+|----------|-------------|
+| `--positives` | One or more GeoJSON files with training examples |
+| `--negatives` | Optional separate file for negative examples |
+| `--output` | Output directory for results |
+| `--db` | Path to DuckDB database with embeddings |
+| `--threshold` | Probability threshold for detection (default: 0.5) |
+| `--correction-weight` | Weight multiplier for correction samples (default: 1.0) |
+| `--batch-size` | Batch size for inference (default: 100000) |
+| `--test-fraction` | Fraction of data for test set (default: 0.2) |
+
+### Output Files
+
+The pipeline generates:
+- `classification_detections.geojson` - All detections above threshold
+- `classification_union.geojson` - Merged detection polygons
+- `model.json` - Trained XGBoost model (can be reloaded)
+
 ## Performance & Limitations
 
 - **Database scaling**: Tested up to 5M embeddings
