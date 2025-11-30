@@ -459,6 +459,272 @@ class TestSpatialCrossValidation:
         assert isinstance(result, CVResult)
         assert len(result.fold_metrics) > 0
 
+    def test_create_spatial_folds_no_positives_raises(self):
+        """Raises ValueError when there are no positive samples (line 107)."""
+        df = pd.DataFrame(
+            {
+                "label": [0, 0, 0],
+                "class": ["neg", "neg", "neg"],
+            }
+        )
+        geometries = gpd.GeoSeries(
+            [Point(0, 0), Point(1, 1), Point(2, 2)], crs="EPSG:4326"
+        )
+
+        with pytest.raises(ValueError, match="No positive samples"):
+            create_spatial_folds(df, geometries, n_folds=3)
+
+    def test_create_spatial_folds_single_cluster(self):
+        """Single cluster when all positives are nearby (Polygon case, line 126)."""
+        np.random.seed(42)
+
+        # All positives within 100m of each other
+        positives = [(0.0, 0.0), (0.0001, 0.0001), (0.0002, 0.0)]
+        negatives = [(0.01, 0.01), (0.02, 0.0)]
+
+        all_points = positives + negatives
+        labels = [1] * 3 + [0] * 2
+
+        df = pd.DataFrame(
+            {
+                "label": labels,
+                "class": ["pos"] * 3 + ["neg"] * 2,
+            }
+        )
+        geometries = gpd.GeoSeries(
+            [Point(lon, lat) for lon, lat in all_points], crs="EPSG:4326"
+        )
+
+        # Large buffer (1000m) to ensure single cluster
+        fold_assignments, n_clusters, cluster_dist = create_spatial_folds(
+            df, geometries, n_folds=3, buffer_m=1000.0
+        )
+
+        # Should create exactly 1 cluster (hits Polygon case on line 126)
+        assert n_clusters == 1
+        assert len(fold_assignments) == 5
+        # All positives in the same fold
+        assert len(set(fold_assignments[:3])) == 1
+
+    def test_create_spatial_folds_else_case_line_130(self):
+        """Test else case on line 130 for non-Polygon/MultiPolygon geometry types."""
+        np.random.seed(42)
+
+        # Create a minimal test case
+        positives = [(0.0, 0.0)]
+        negatives = [(0.01, 0.01)]
+
+        all_points = positives + negatives
+        labels = [1, 0]
+
+        df = pd.DataFrame(
+            {
+                "label": labels,
+                "class": ["pos", "neg"],
+            }
+        )
+        geometries = gpd.GeoSeries(
+            [Point(lon, lat) for lon, lat in all_points], crs="EPSG:4326"
+        )
+
+        # Single point with buffer creates a Polygon
+        fold_assignments, n_clusters, _ = create_spatial_folds(
+            df, geometries, n_folds=2, buffer_m=500.0
+        )
+
+        # Should still work, creating 1 cluster
+        assert n_clusters == 1
+        assert len(fold_assignments) == 2
+
+    def test_create_spatial_folds_unassigned_positives(self):
+        """Edge case where positives fall outside buffered clusters (lines 148-152)."""
+        np.random.seed(42)
+
+        # Create positives with small buffer to potentially miss some in join
+        positives = [(0.0, 0.0), (0.001, 0.001)]
+        negatives = [(0.01, 0.01)]
+
+        all_points = positives + negatives
+        labels = [1, 1, 0]
+
+        df = pd.DataFrame(
+            {
+                "label": labels,
+                "class": ["pos", "pos", "neg"],
+            }
+        )
+        geometries = gpd.GeoSeries(
+            [Point(lon, lat) for lon, lat in all_points], crs="EPSG:4326"
+        )
+
+        # Very small buffer (10m) might cause edge cases
+        fold_assignments, n_clusters, _ = create_spatial_folds(
+            df, geometries, n_folds=2, buffer_m=10.0
+        )
+
+        # All positives should still be assigned despite potential edge cases
+        assert len(fold_assignments) == 3
+        assert all(0 <= f < 2 for f in fold_assignments)
+
+    def test_cross_validate_empty_test_fold(self):
+        """Skip fold with empty test set (lines 250-251)."""
+        np.random.seed(42)
+
+        # Create tiny dataset where one fold might be empty
+        X = np.random.randn(4, 32).astype(np.float32)
+        y = np.array([1, 1, 0, 0], dtype=np.int32)
+
+        # Manually create fold assignments where fold 2 has no samples
+        fold_assignments = np.array([0, 0, 1, 1])  # Only folds 0 and 1 used
+
+        result = cross_validate(
+            X=X,
+            y=y,
+            fold_assignments=fold_assignments,
+            n_folds=3,  # Request 3 folds but only 2 have data
+            n_clusters=2,
+            n_estimators=5,
+            max_depth=2,
+        )
+
+        # Should only have 2 fold results (fold 2 skipped)
+        assert len(result.fold_metrics) == 2
+        assert result.f1_mean >= 0
+
+    def test_cross_validate_single_class_in_test(self):
+        """Skip fold with only one class in test set (lines 255-258)."""
+        np.random.seed(42)
+
+        X = np.random.randn(6, 32).astype(np.float32)
+        y = np.array([1, 1, 1, 0, 0, 0], dtype=np.int32)
+
+        # Mixed fold assignments where both folds have both classes
+        fold_assignments = np.array([0, 0, 1, 0, 1, 1])
+
+        result = cross_validate(
+            X=X,
+            y=y,
+            fold_assignments=fold_assignments,
+            n_folds=2,
+            n_clusters=2,
+            n_estimators=5,
+            max_depth=2,
+        )
+
+        assert len(result.fold_metrics) >= 1
+
+    def test_cross_validate_no_valid_folds_raises(self):
+        """Raises ValueError when no valid folds exist (line 283)."""
+        np.random.seed(42)
+
+        X = np.random.randn(4, 32).astype(np.float32)
+        y = np.array([1, 1, 0, 0], dtype=np.int32)
+
+        # Create fold assignments where each fold has only one class
+        fold_assignments = np.array([0, 0, 1, 1])
+
+        with pytest.raises(ValueError, match="No valid folds"):
+            cross_validate(
+                X=X,
+                y=y,
+                fold_assignments=fold_assignments,
+                n_folds=2,
+                n_clusters=2,
+                n_estimators=5,
+                max_depth=2,
+            )
+
+    def test_cv_result_summary_per_fold_details(self):
+        """CVResult.summary() includes per-fold details with cluster counts."""
+        np.random.seed(42)
+
+        # Create mock fold metrics
+        fold_metrics = [
+            EvaluationMetrics(
+                accuracy=0.85,
+                precision=0.80,
+                recall=0.90,
+                f1=0.85,
+                auc_roc=0.88,
+            ),
+            EvaluationMetrics(
+                accuracy=0.90,
+                precision=0.85,
+                recall=0.95,
+                f1=0.90,
+                auc_roc=0.92,
+            ),
+        ]
+
+        fold_train_counts = [(8, 12), (9, 11)]
+        fold_test_counts = [(2, 3), (1, 4)]
+        cluster_distribution = {0: 3, 1: 2}
+
+        result = CVResult(
+            accuracy_mean=0.875,
+            accuracy_std=0.025,
+            precision_mean=0.825,
+            precision_std=0.025,
+            recall_mean=0.925,
+            recall_std=0.025,
+            f1_mean=0.875,
+            f1_std=0.025,
+            auc_roc_mean=0.90,
+            auc_roc_std=0.02,
+            fold_metrics=fold_metrics,
+            fold_train_counts=fold_train_counts,
+            fold_test_counts=fold_test_counts,
+            n_clusters=5,
+            cluster_distribution=cluster_distribution,
+        )
+
+        summary = result.summary()
+
+        # Check all key components are present
+        assert "CROSS-VALIDATION" in summary
+        assert "0.875" in summary  # F1 mean
+        assert "0.025" in summary  # Std deviation
+        assert "Fold 1:" in summary
+        assert "Fold 2:" in summary
+        assert "train=8+/12-" in summary
+        assert "test=2+/3-" in summary
+        assert "clusters=3" in summary
+        assert "clusters=2" in summary
+        assert "Spatial clusters: 5" in summary
+
+    def test_cv_result_with_missing_cluster_in_fold(self):
+        """CVResult.summary() handles missing fold in cluster_distribution (line 54)."""
+        fold_metrics = [
+            EvaluationMetrics(
+                accuracy=0.85, precision=0.80, recall=0.90, f1=0.85, auc_roc=0.88
+            )
+        ]
+
+        # cluster_distribution missing fold 0 (defaults to 0 on line 54)
+        result = CVResult(
+            accuracy_mean=0.85,
+            accuracy_std=0.0,
+            precision_mean=0.80,
+            precision_std=0.0,
+            recall_mean=0.90,
+            recall_std=0.0,
+            f1_mean=0.85,
+            f1_std=0.0,
+            auc_roc_mean=0.88,
+            auc_roc_std=0.0,
+            fold_metrics=fold_metrics,
+            fold_train_counts=[(10, 10)],
+            fold_test_counts=[(5, 5)],
+            n_clusters=2,
+            cluster_distribution={},  # Empty dict
+        )
+
+        summary = result.summary()
+
+        # Should show clusters=0 for fold 0 (line 54: .get(i, 0))
+        assert "clusters=0" in summary
+        assert "Fold 1:" in summary
+
 
 class TestBatchInference:
     """Tests for BatchInference class."""
