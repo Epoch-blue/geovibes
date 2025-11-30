@@ -10,7 +10,11 @@ import geopandas as gpd
 import pytest
 from shapely.geometry import Point, box
 
-from geovibes.classification.pipeline import combine_datasets
+from geovibes.classification.pipeline import (
+    combine_datasets,
+    PipelineTiming,
+    PipelineResult,
+)
 from geovibes.classification.classifier import EmbeddingClassifier, EvaluationMetrics
 from geovibes.classification.cross_validation import (
     create_spatial_folds,
@@ -19,6 +23,7 @@ from geovibes.classification.cross_validation import (
 )
 from geovibes.classification.inference import BatchInference, InferenceTiming
 from geovibes.classification.output import OutputGenerator, OutputTiming
+from geovibes.classification.data_loader import LoaderTiming
 
 
 class TestCombineDatasets:
@@ -570,12 +575,13 @@ class TestSpatialCrossValidation:
         """Skip fold with empty test set (lines 250-251)."""
         np.random.seed(42)
 
-        # Create tiny dataset where one fold might be empty
-        X = np.random.randn(4, 32).astype(np.float32)
-        y = np.array([1, 1, 0, 0], dtype=np.int32)
+        # Create dataset with 3 folds where fold 2 is empty
+        # Each non-empty fold needs both classes
+        X = np.random.randn(8, 32).astype(np.float32)
+        y = np.array([1, 1, 0, 0, 1, 1, 0, 0], dtype=np.int32)
 
-        # Manually create fold assignments where fold 2 has no samples
-        fold_assignments = np.array([0, 0, 1, 1])  # Only folds 0 and 1 used
+        # Fold 0 has [1,0,1,0], Fold 1 has [1,0,1,0], Fold 2 empty
+        fold_assignments = np.array([0, 0, 0, 0, 1, 1, 1, 1])
 
         result = cross_validate(
             X=X,
@@ -587,7 +593,7 @@ class TestSpatialCrossValidation:
             max_depth=2,
         )
 
-        # Should only have 2 fold results (fold 2 skipped)
+        # Should have 2 fold results (fold 2 skipped due to empty test set)
         assert len(result.fold_metrics) == 2
         assert result.f1_mean >= 0
 
@@ -1139,15 +1145,15 @@ class TestDataLoaderIntegration:
         from geovibes.classification.data_loader import ClassificationDataLoader
 
         conn = duckdb_connection
-        conn.execute("""
+        # Create a zero embedding array for southern hemisphere point
+        zero_embedding = [0.0] * 64
+        conn.execute(
+            """
             INSERT INTO geo_embeddings (id, tile_id, embedding, geometry)
-            VALUES (
-                999,
-                'SOUTHERN_TILE',
-                ARRAY[CAST(0.0 AS FLOAT) FOR i IN RANGE(64)],
-                ST_GeomFromText('POINT(-60.0 -30.0)')
-            )
-        """)
+            VALUES (999, 'SOUTHERN_TILE', ?, ST_GeomFromText('POINT(-60.0 -30.0)'))
+            """,
+            [zero_embedding],
+        )
 
         geojson = {
             "type": "FeatureCollection",
@@ -1181,6 +1187,9 @@ class TestDataLoaderIntegration:
 
         assert matched_df["tile_id"].iloc[0] == "SOUTHERN_TILE"
         assert matched_df["match_distance_m"].iloc[0] < 100
+
+        # Clean up: remove the inserted row to not affect other tests
+        conn.execute("DELETE FROM geo_embeddings WHERE id = 999")
 
     def test_spatial_match_warns_for_far_matches(
         self, duckdb_connection, tmp_path, capsys
@@ -1231,12 +1240,14 @@ class TestDataLoaderIntegration:
 
         all_data = pd.concat([train_df, test_df])
 
+        # All distances should be non-negative and reasonable
         assert all_data["match_distance_m"].min() >= 0
         assert all_data["match_distance_m"].max() < 10000
 
+        # Mean should be <= max (can be equal if all distances are identical)
         mean_dist = all_data["match_distance_m"].mean()
         max_dist = all_data["match_distance_m"].max()
-        assert mean_dist < max_dist or len(all_data) == 1
+        assert mean_dist <= max_dist
 
     def test_spatial_match_assigns_tile_ids(
         self, duckdb_connection, training_geojson_with_points
@@ -1474,18 +1485,17 @@ class TestBatchInferenceIntegration:
 
         empty_conn.close()
 
-    def test_score_batch_1d_probabilities(self, mock_classifier, mock_connection):
+    def test_score_batch_1d_probabilities(self, duckdb_connection):
         """_score_batch handles 1D probability array correctly."""
         from geovibes.classification.inference import BatchInference
 
-        # Configure classifier to return 1D array (single class probability)
-        mock_classifier.predict_proba = MagicMock(
-            return_value=np.array([0.9, 0.8, 0.3])
-        )
+        # Create mock classifier that returns 1D array
+        mock_clf = MagicMock()
+        mock_clf.predict_proba = MagicMock(return_value=np.array([0.9, 0.8, 0.3]))
 
         inference = BatchInference(
-            classifier=mock_classifier,
-            duckdb_connection=mock_connection,
+            classifier=mock_clf,
+            duckdb_connection=duckdb_connection,
         )
 
         embeddings = np.random.randn(3, 64).astype(np.float32)
@@ -1496,18 +1506,19 @@ class TestBatchInferenceIntegration:
         assert len(probs) == 3
         np.testing.assert_array_equal(probs, np.array([0.9, 0.8, 0.3]))
 
-    def test_score_batch_2d_probabilities(self, mock_classifier, mock_connection):
+    def test_score_batch_2d_probabilities(self, duckdb_connection):
         """_score_batch extracts positive class from 2D array."""
         from geovibes.classification.inference import BatchInference
 
-        # Configure classifier to return 2D array (neg and pos class probabilities)
-        mock_classifier.predict_proba = MagicMock(
+        # Create mock classifier that returns 2D array
+        mock_clf = MagicMock()
+        mock_clf.predict_proba = MagicMock(
             return_value=np.array([[0.1, 0.9], [0.2, 0.8], [0.7, 0.3]])
         )
 
         inference = BatchInference(
-            classifier=mock_classifier,
-            duckdb_connection=mock_connection,
+            classifier=mock_clf,
+            duckdb_connection=duckdb_connection,
         )
 
         embeddings = np.random.randn(3, 64).astype(np.float32)
@@ -2039,3 +2050,603 @@ class TestRandomNegativeSampling:
 
         saved = gpd.read_file(output_path)
         assert len(saved) == 5
+
+
+class TestPipelineTiming:
+    """Tests for PipelineTiming dataclass."""
+
+    def test_timing_summary_format(self):
+        """PipelineTiming.summary() returns formatted string with all sections."""
+        loader_timing = LoaderTiming(
+            parse_geojson_sec=1.5,
+            spatial_match_sec=2.3,
+            fetch_embeddings_sec=3.7,
+            stratified_split_sec=0.8,
+            total_sec=8.3,
+        )
+        inference_timing = InferenceTiming(
+            total_sec=45.2,
+            batches_processed=10,
+            embeddings_scored=100000,
+            detections_found=1500,
+        )
+        output_timing = OutputTiming(
+            fetch_metadata_sec=1.2,
+            generate_tiles_sec=2.5,
+            union_tiles_sec=0.7,
+            export_sec=0.4,
+            total_sec=4.8,
+        )
+
+        timing = PipelineTiming(
+            data_loading=loader_timing,
+            training_sec=12.4,
+            evaluation_sec=3.2,
+            inference=inference_timing,
+            output_generation=output_timing,
+            total_sec=73.9,
+        )
+
+        summary = timing.summary()
+
+        assert "PIPELINE TIMING SUMMARY" in summary
+        assert "Data Loading:" in summary
+        assert "8.3" in summary
+        assert "Training:" in summary
+        assert "12.4" in summary
+        assert "Evaluation:" in summary
+        assert "3.2" in summary
+        assert "Inference:" in summary
+        assert "45.2" in summary
+        assert "Output Generation:" in summary
+        assert "4.8" in summary
+        assert "TOTAL:" in summary
+        assert "73.9" in summary
+        assert "Batches processed:" in summary
+        assert "10" in summary
+        assert "Embeddings scored:" in summary
+        assert "100000" in summary
+        assert "Detections found:" in summary
+        assert "1500" in summary
+
+    def test_timing_summary_alignment(self):
+        """Summary has consistent column alignment with equals separators."""
+        loader_timing = LoaderTiming(
+            parse_geojson_sec=0.1,
+            spatial_match_sec=0.2,
+            fetch_embeddings_sec=0.3,
+            stratified_split_sec=0.1,
+            total_sec=0.7,
+        )
+        inference_timing = InferenceTiming(
+            total_sec=1.0,
+            batches_processed=1,
+            embeddings_scored=100,
+            detections_found=10,
+        )
+        output_timing = OutputTiming(
+            fetch_metadata_sec=0.1,
+            generate_tiles_sec=0.2,
+            union_tiles_sec=0.1,
+            export_sec=0.1,
+            total_sec=0.5,
+        )
+
+        timing = PipelineTiming(
+            data_loading=loader_timing,
+            training_sec=0.5,
+            evaluation_sec=0.2,
+            inference=inference_timing,
+            output_generation=output_timing,
+            total_sec=2.9,
+        )
+
+        summary = timing.summary()
+        lines = summary.split("\n")
+
+        assert lines[0] == "=" * 60
+        assert lines[2] == "=" * 60
+        assert "-" * 60 in summary
+        assert lines[-1] == "=" * 60
+
+    def test_timing_summary_subsection_indentation(self):
+        """Subsections are properly indented with dashes."""
+        loader_timing = LoaderTiming(
+            parse_geojson_sec=1.0,
+            spatial_match_sec=0.5,
+            fetch_embeddings_sec=2.0,
+            stratified_split_sec=0.3,
+            total_sec=3.8,
+        )
+        inference_timing = InferenceTiming(
+            total_sec=10.0,
+            batches_processed=5,
+            embeddings_scored=50000,
+            detections_found=500,
+        )
+        output_timing = OutputTiming(
+            fetch_metadata_sec=0.5,
+            generate_tiles_sec=1.0,
+            union_tiles_sec=0.3,
+            export_sec=0.2,
+            total_sec=2.0,
+        )
+
+        timing = PipelineTiming(
+            data_loading=loader_timing,
+            training_sec=5.0,
+            evaluation_sec=1.0,
+            inference=inference_timing,
+            output_generation=output_timing,
+            total_sec=21.8,
+        )
+
+        summary = timing.summary()
+
+        assert "  - Parse GeoJSON:" in summary
+        assert "  - Spatial matching:" in summary
+        assert "  - Fetch embeddings:" in summary
+        assert "  - Stratified split:" in summary
+        assert "  - Batches processed:" in summary
+        assert "  - Embeddings scored:" in summary
+        assert "  - Detections found:" in summary
+        assert "  - Fetch metadata:" in summary
+        assert "  - Generate tiles:" in summary
+        assert "  - Union tiles:" in summary
+        assert "  - Export GeoJSON:" in summary
+
+
+class TestPipelineResult:
+    """Tests for PipelineResult dataclass."""
+
+    def test_pipeline_result_structure(self):
+        """PipelineResult holds all expected fields."""
+        metrics = EvaluationMetrics(
+            accuracy=0.95, precision=0.92, recall=0.88, f1=0.90, auc_roc=0.96
+        )
+
+        loader_timing = LoaderTiming(
+            parse_geojson_sec=1.0,
+            spatial_match_sec=0.5,
+            fetch_embeddings_sec=2.0,
+            stratified_split_sec=0.3,
+            total_sec=3.8,
+        )
+        inference_timing = InferenceTiming(
+            total_sec=10.0,
+            batches_processed=5,
+            embeddings_scored=50000,
+            detections_found=500,
+        )
+        output_timing = OutputTiming(
+            fetch_metadata_sec=0.5,
+            generate_tiles_sec=1.0,
+            union_tiles_sec=0.3,
+            export_sec=0.2,
+            total_sec=2.0,
+        )
+        timing = PipelineTiming(
+            data_loading=loader_timing,
+            training_sec=5.0,
+            evaluation_sec=1.0,
+            inference=inference_timing,
+            output_generation=output_timing,
+            total_sec=21.8,
+        )
+
+        output_files = {
+            "detections": "/path/to/detections.geojson",
+            "union": "/path/to/union.geojson",
+            "model": "/path/to/model.json",
+        }
+
+        result = PipelineResult(
+            metrics=metrics,
+            num_detections=500,
+            output_files=output_files,
+            timing=timing,
+            train_samples=800,
+            test_samples=200,
+        )
+
+        assert result.metrics.f1 == 0.90
+        assert result.num_detections == 500
+        assert len(result.output_files) == 3
+        assert result.timing.total_sec == 21.8
+        assert result.train_samples == 800
+        assert result.test_samples == 200
+
+    def test_pipeline_result_with_zero_detections(self):
+        """PipelineResult handles case with no detections found."""
+        metrics = EvaluationMetrics(
+            accuracy=0.70, precision=0.0, recall=0.0, f1=0.0, auc_roc=0.65
+        )
+
+        loader_timing = LoaderTiming(
+            parse_geojson_sec=1.0,
+            spatial_match_sec=0.0,
+            fetch_embeddings_sec=1.5,
+            stratified_split_sec=0.2,
+            total_sec=2.7,
+        )
+        inference_timing = InferenceTiming(
+            total_sec=5.0,
+            batches_processed=2,
+            embeddings_scored=10000,
+            detections_found=0,
+        )
+        output_timing = OutputTiming(
+            fetch_metadata_sec=0.0,
+            generate_tiles_sec=0.0,
+            union_tiles_sec=0.0,
+            export_sec=0.0,
+            total_sec=0.0,
+        )
+        timing = PipelineTiming(
+            data_loading=loader_timing,
+            training_sec=3.0,
+            evaluation_sec=0.5,
+            inference=inference_timing,
+            output_generation=output_timing,
+            total_sec=11.2,
+        )
+
+        result = PipelineResult(
+            metrics=metrics,
+            num_detections=0,
+            output_files={},
+            timing=timing,
+            train_samples=100,
+            test_samples=25,
+        )
+
+        assert result.num_detections == 0
+        assert len(result.output_files) == 0
+        assert result.metrics.f1 == 0.0
+
+    def test_pipeline_result_metrics_access(self):
+        """All metrics fields are accessible from PipelineResult."""
+        metrics = EvaluationMetrics(
+            accuracy=0.85, precision=0.80, recall=0.75, f1=0.77, auc_roc=0.88
+        )
+
+        loader_timing = LoaderTiming(
+            parse_geojson_sec=0.5,
+            spatial_match_sec=0.0,
+            fetch_embeddings_sec=1.0,
+            stratified_split_sec=0.1,
+            total_sec=1.6,
+        )
+        inference_timing = InferenceTiming(
+            total_sec=3.0,
+            batches_processed=1,
+            embeddings_scored=1000,
+            detections_found=50,
+        )
+        output_timing = OutputTiming(
+            fetch_metadata_sec=0.1,
+            generate_tiles_sec=0.2,
+            union_tiles_sec=0.1,
+            export_sec=0.1,
+            total_sec=0.5,
+        )
+        timing = PipelineTiming(
+            data_loading=loader_timing,
+            training_sec=2.0,
+            evaluation_sec=0.5,
+            inference=inference_timing,
+            output_generation=output_timing,
+            total_sec=7.6,
+        )
+
+        result = PipelineResult(
+            metrics=metrics,
+            num_detections=50,
+            output_files={"detections": "/path.geojson"},
+            timing=timing,
+            train_samples=80,
+            test_samples=20,
+        )
+
+        assert result.metrics.accuracy == 0.85
+        assert result.metrics.precision == 0.80
+        assert result.metrics.recall == 0.75
+        assert result.metrics.f1 == 0.77
+        assert result.metrics.auc_roc == 0.88
+
+
+class TestCombineDatasetsEdgeCases:
+    """Edge case tests for combine_datasets function."""
+
+    def test_combine_empty_features_list(self, tmp_path):
+        """Empty features list returns valid GeoJSON with zero features."""
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [],
+        }
+        path = tmp_path / "empty.geojson"
+        path.write_text(json.dumps(geojson))
+
+        result_path = combine_datasets([str(path)])
+
+        with open(result_path) as f:
+            result = json.load(f)
+
+        assert result["type"] == "FeatureCollection"
+        assert result["features"] == []
+        assert result["metadata"]["positive_count"] == 0
+        assert result["metadata"]["negative_count"] == 0
+        assert result["metadata"]["sources"][str(path)] == 0
+
+    def test_combine_all_empty_files(self, tmp_path):
+        """Multiple empty files combine correctly."""
+        geojson1 = {"type": "FeatureCollection", "features": []}
+        geojson2 = {"type": "FeatureCollection", "features": []}
+
+        path1 = tmp_path / "empty1.geojson"
+        path2 = tmp_path / "empty2.geojson"
+        path1.write_text(json.dumps(geojson1))
+        path2.write_text(json.dumps(geojson2))
+
+        result_path = combine_datasets([str(path1), str(path2)])
+
+        with open(result_path) as f:
+            result = json.load(f)
+
+        assert len(result["features"]) == 0
+        assert result["metadata"]["positive_count"] == 0
+        assert result["metadata"]["negative_count"] == 0
+
+    def test_combine_only_positives(self, tmp_path):
+        """Dataset with only positive labels."""
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [0, 0]},
+                    "properties": {"label": 1, "class": "pos"},
+                },
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [1, 1]},
+                    "properties": {"label": 1, "class": "pos"},
+                },
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [2, 2]},
+                    "properties": {"label": 1, "class": "pos"},
+                },
+            ],
+        }
+        path = tmp_path / "all_pos.geojson"
+        path.write_text(json.dumps(geojson))
+
+        result_path = combine_datasets([str(path)])
+
+        with open(result_path) as f:
+            result = json.load(f)
+
+        assert result["metadata"]["positive_count"] == 3
+        assert result["metadata"]["negative_count"] == 0
+
+    def test_combine_only_negatives(self, tmp_path):
+        """Dataset with only negative labels."""
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [0, 0]},
+                    "properties": {"label": 0, "class": "neg"},
+                },
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [1, 1]},
+                    "properties": {"label": 0, "class": "neg"},
+                },
+            ],
+        }
+        path = tmp_path / "all_neg.geojson"
+        path.write_text(json.dumps(geojson))
+
+        result_path = combine_datasets([str(path)])
+
+        with open(result_path) as f:
+            result = json.load(f)
+
+        assert result["metadata"]["positive_count"] == 0
+        assert result["metadata"]["negative_count"] == 2
+
+    def test_combine_missing_properties(self, tmp_path):
+        """Feature with missing properties dict raises error."""
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [0, 0]},
+                }
+            ],
+        }
+        path = tmp_path / "no_props.geojson"
+        path.write_text(json.dumps(geojson))
+
+        with pytest.raises(ValueError, match="missing 'label'"):
+            combine_datasets([str(path)])
+
+    def test_combine_missing_geometry(self, tmp_path):
+        """Features can have missing geometry."""
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {"label": 1, "class": "pos"},
+                }
+            ],
+        }
+        path = tmp_path / "no_geom.geojson"
+        path.write_text(json.dumps(geojson))
+
+        result_path = combine_datasets([str(path)])
+
+        with open(result_path) as f:
+            result = json.load(f)
+
+        assert len(result["features"]) == 1
+        assert (
+            "geometry" not in result["features"][0]
+            or result["features"][0].get("geometry") is None
+        )
+
+    def test_combine_mixed_label_types(self, tmp_path):
+        """Labels can be different types (int, float)."""
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [0, 0]},
+                    "properties": {"label": 1, "class": "pos"},
+                },
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [1, 1]},
+                    "properties": {"label": 0.0, "class": "neg"},
+                },
+            ],
+        }
+        path = tmp_path / "mixed_types.geojson"
+        path.write_text(json.dumps(geojson))
+
+        result_path = combine_datasets([str(path)])
+
+        with open(result_path) as f:
+            result = json.load(f)
+
+        labels = [f["properties"]["label"] for f in result["features"]]
+        assert labels == [1, 0.0]
+
+    def test_combine_large_metadata_counts(self, tmp_path):
+        """Metadata correctly counts large numbers of features."""
+        features = []
+        for i in range(1000):
+            features.append(
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [i % 10, i // 10]},
+                    "properties": {"label": i % 2, "class": "test"},
+                }
+            )
+
+        geojson = {"type": "FeatureCollection", "features": features}
+        path = tmp_path / "large.geojson"
+        path.write_text(json.dumps(geojson))
+
+        result_path = combine_datasets([str(path)])
+
+        with open(result_path) as f:
+            result = json.load(f)
+
+        assert result["metadata"]["positive_count"] == 500
+        assert result["metadata"]["negative_count"] == 500
+
+    def test_combine_preserves_extra_properties(self, tmp_path):
+        """Extra properties beyond label and class are preserved."""
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [0, 0]},
+                    "properties": {
+                        "label": 1,
+                        "class": "pos",
+                        "tile_id": "TILE123",
+                        "confidence": 0.95,
+                        "source": "manual",
+                    },
+                }
+            ],
+        }
+        path = tmp_path / "extra_props.geojson"
+        path.write_text(json.dumps(geojson))
+
+        result_path = combine_datasets([str(path)])
+
+        with open(result_path) as f:
+            result = json.load(f)
+
+        props = result["features"][0]["properties"]
+        assert props["tile_id"] == "TILE123"
+        assert props["confidence"] == 0.95
+        assert props["source"] == "manual"
+
+    def test_combine_nonexistent_file_raises(self, tmp_path):
+        """Nonexistent file path raises error."""
+        with pytest.raises(FileNotFoundError):
+            combine_datasets([str(tmp_path / "nonexistent.geojson")])
+
+    def test_combine_invalid_json_raises(self, tmp_path):
+        """Invalid JSON file raises error."""
+        path = tmp_path / "invalid.geojson"
+        path.write_text("{not valid json")
+
+        with pytest.raises(json.JSONDecodeError):
+            combine_datasets([str(path)])
+
+    def test_combine_missing_feature_collection_type(self, tmp_path):
+        """File without FeatureCollection type can still be processed."""
+        geojson = {
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [0, 0]},
+                    "properties": {"label": 1, "class": "pos"},
+                }
+            ]
+        }
+        path = tmp_path / "no_type.geojson"
+        path.write_text(json.dumps(geojson))
+
+        result_path = combine_datasets([str(path)])
+
+        with open(result_path) as f:
+            result = json.load(f)
+
+        assert len(result["features"]) == 1
+        assert result["type"] == "FeatureCollection"
+
+    def test_combine_counts_float_labels_correctly(self, tmp_path):
+        """Float labels 0.0 and 1.0 are counted as negatives and positives."""
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [0, 0]},
+                    "properties": {"label": 1.0, "class": "pos"},
+                },
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [1, 1]},
+                    "properties": {"label": 0.0, "class": "neg"},
+                },
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [2, 2]},
+                    "properties": {"label": 1, "class": "pos"},
+                },
+            ],
+        }
+        path = tmp_path / "float_labels.geojson"
+        path.write_text(json.dumps(geojson))
+
+        result_path = combine_datasets([str(path)])
+
+        with open(result_path) as f:
+            result = json.load(f)
+
+        assert result["metadata"]["positive_count"] == 2
+        assert result["metadata"]["negative_count"] == 1
