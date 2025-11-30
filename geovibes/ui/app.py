@@ -526,6 +526,8 @@ class GeoVibes:
                     ]
                     min_prob = min(probs)
                     max_prob = max(probs)
+                    self._detection_prob_min = min_prob
+                    self._detection_prob_max = max_prob
                     self.detection_threshold_slider.min = min_prob
                     self.detection_threshold_slider.max = max_prob
                     self.detection_threshold_slider.value = min_prob
@@ -1155,8 +1157,14 @@ class GeoVibes:
             # Labeled as negative - use orange
             color = UIConstants.NEG_COLOR
         else:
-            # Not labeled - use probability colormap
-            color = LayerStyles.probability_to_color(probability)
+            # Not labeled - normalize probability to dataset range for colormap
+            min_prob = getattr(self, "_detection_prob_min", 0.0)
+            max_prob = getattr(self, "_detection_prob_max", 1.0)
+            if max_prob > min_prob:
+                normalized = (probability - min_prob) / (max_prob - min_prob)
+            else:
+                normalized = 0.5
+            color = LayerStyles.probability_to_color(normalized)
 
         return {
             "color": color,
@@ -1200,11 +1208,13 @@ class GeoVibes:
         self.map_manager.clear_highlight()
         self.detection_controls.layout.display = "none"
         self.detection_status_label.value = ""
-        # Reset slider to default range
+        # Reset slider and colormap range to defaults
         self.detection_threshold_slider.min = 0.0
         self.detection_threshold_slider.max = 1.0
         self.detection_threshold_slider.value = 0.5
         self.detection_threshold_text.value = 0.5
+        self._detection_prob_min = 0.0
+        self._detection_prob_max = 1.0
         self.tile_panel.clear()
         self.tile_panel.hide()
         self.tiles_button.button_style = ""
