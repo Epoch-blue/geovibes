@@ -22,6 +22,7 @@ from ipywidgets import (
     Button,
     Dropdown,
     FileUpload,
+    FloatSlider,
     HBox,
     IntSlider,
     Label,
@@ -241,6 +242,14 @@ class GeoVibes:
             description="🌍 Google Maps ↗",
             layout=Layout(width="100%"),
         )
+        self.detection_threshold_slider = FloatSlider(
+            value=0.5,
+            min=0.0,
+            max=1.0,
+            step=0.01,
+            description="Threshold:",
+            layout=Layout(width="100%", display="none"),
+        )
 
         # Database dropdown
         database_section_widgets = []
@@ -289,6 +298,7 @@ class GeoVibes:
                         self.file_upload,
                         self.add_vector_btn,
                         self.vector_file_upload,
+                        self.detection_threshold_slider,
                         self.google_maps_btn,
                     ],
                     layout=Layout(padding="5px"),
@@ -335,6 +345,7 @@ class GeoVibes:
             "file_upload": self.file_upload,
             "add_vector_btn": self.add_vector_btn,
             "vector_file_upload": self.vector_file_upload,
+            "detection_threshold_slider": self.detection_threshold_slider,
             "google_maps_btn": self.google_maps_btn,
             "collapse_btn": self.collapse_btn,
             "tiles_button": self.tiles_button,
@@ -371,6 +382,9 @@ class GeoVibes:
             )
         )
         self.vector_file_upload.observe(self._on_vector_upload, names="value")
+        self.detection_threshold_slider.observe(
+            self._on_detection_threshold_change, names="value"
+        )
         self.google_maps_btn.on_click(self._on_google_maps_click)
 
         self.map_manager.register_draw_handler(self._handle_draw)
@@ -430,6 +444,12 @@ class GeoVibes:
         finally:
             self._update_status()
 
+    def _on_detection_threshold_change(self, change) -> None:
+        if not self.state.detection_mode or not self.state.detection_data:
+            return
+        threshold = change["new"]
+        self._filter_detection_layer(threshold)
+
     def _on_google_maps_click(self, _button) -> None:
         lat, lon = self.map_manager.map.center
         url = f"https://www.google.com/maps/@{lat},{lon},15z"
@@ -442,9 +462,18 @@ class GeoVibes:
         content = DatasetManager.read_upload_content(file_info["content"])
         try:
             self.dataset_manager.load_from_content(content, file_info["name"])
-            self._update_layers()
-            self._update_query_vector()
-            self._show_operation_status("✅ Dataset loaded")
+            if self.state.detection_mode:
+                self.detection_threshold_slider.layout.display = "flex"
+                num_detections = len(self.state.detection_data.get("features", []))
+                self._show_operation_status(
+                    f"🔍 Detection mode: {num_detections} detections loaded. "
+                    "Click to label as negative/positive."
+                )
+            else:
+                self.detection_threshold_slider.layout.display = "none"
+                self._update_layers()
+                self._update_query_vector()
+                self._show_operation_status("✅ Dataset loaded")
         except Exception as exc:
             self._show_operation_status(f"❌ Error loading file: {exc}")
             if self.verbose:
@@ -482,6 +511,10 @@ class GeoVibes:
         if modifiers.get("ctrlKey"):
             webbrowser.open(f"https://www.google.com/maps/@{lat},{lon},18z", new=2)
             log_to_file("Handled as Ctrl-Click for Google Maps. Returning.")
+            return
+
+        if self.state.detection_mode:
+            self._handle_detection_click(lon, lat)
             return
 
         if (
@@ -545,6 +578,51 @@ class GeoVibes:
 
         self._update_layers()
         self._update_query_vector()
+
+    def _handle_detection_click(self, lon: float, lat: float) -> None:
+        if not self.state.detection_data:
+            return
+
+        click_point = shapely.geometry.Point(lon, lat)
+        features = self.state.detection_data.get("features", [])
+
+        for feature in features:
+            geom = shapely.geometry.shape(feature["geometry"])
+            if geom.contains(click_point):
+                props = feature.get("properties", {})
+                tile_id = props.get("tile_id", props.get("id", "unknown"))
+                probability = props.get("probability", 0.0)
+
+                current_label = self.state.detection_labels.get(tile_id)
+                if self.state.select_val == UIConstants.POSITIVE_LABEL:
+                    new_label = 1
+                    label_name = "positive (confirmed)"
+                elif self.state.select_val == UIConstants.NEGATIVE_LABEL:
+                    new_label = 0
+                    label_name = "negative (hard negative)"
+                else:
+                    if tile_id in self.state.detection_labels:
+                        del self.state.detection_labels[tile_id]
+                        self._show_operation_status(
+                            f"✅ Removed label from detection (P={probability:.2f})"
+                        )
+                    return
+
+                if current_label == new_label:
+                    del self.state.detection_labels[tile_id]
+                    self._show_operation_status(
+                        f"✅ Toggled off {label_name} (P={probability:.2f})"
+                    )
+                else:
+                    self.state.label_detection(tile_id, new_label)
+                    num_labeled = len(self.state.detection_labels)
+                    self._show_operation_status(
+                        f"✅ Marked as {label_name} (P={probability:.2f}) | "
+                        f"Total labeled: {num_labeled}"
+                    )
+                return
+
+        self._show_operation_status("⚠️ No detection at click location")
 
     def _handle_draw(self, target, action, geo_json) -> None:
         if action == "created" and geo_json["geometry"]["type"] == "Polygon":
@@ -861,8 +939,29 @@ class GeoVibes:
         except Exception:
             return None
 
+    def _filter_detection_layer(self, threshold: float) -> None:
+        if not self.state.detection_data:
+            return
+        features = self.state.detection_data.get("features", [])
+        filtered_features = [
+            f
+            for f in features
+            if f.get("properties", {}).get("probability", 0.0) >= threshold
+        ]
+        filtered_geojson = {"type": "FeatureCollection", "features": filtered_features}
+        self.map_manager.update_detection_layer(filtered_geojson)
+        num_shown = len(filtered_features)
+        num_total = len(features)
+        self._show_operation_status(
+            f"🔍 Showing {num_shown}/{num_total} detections (threshold: {threshold:.2f})"
+        )
+
     def _handle_save_dataset(self) -> None:
-        result = self.dataset_manager.save_dataset()
+        if self.state.detection_mode:
+            result = self.dataset_manager.export_augmented_dataset()
+        else:
+            result = self.dataset_manager.save_dataset()
+
         if result:
             geojson_path = result.get("geojson")
             csv_path = result.get("csv")
@@ -886,8 +985,10 @@ class GeoVibes:
             erase_geojson=self._empty_collection(),
         )
         self.map_manager.update_search_layer(self._empty_collection())
+        self.map_manager.clear_detection_layer()
         self.map_manager.clear_vector_layer()
         self.map_manager.clear_highlight()
+        self.detection_threshold_slider.layout.display = "none"
         self.tile_panel.clear()
         self.tile_panel.hide()
         self.tiles_button.button_style = ""
