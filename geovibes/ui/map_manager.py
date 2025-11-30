@@ -169,7 +169,6 @@ class MapManager:
         )
         self.detection_layer = ipyl.GeoJSON(
             data=json.loads(gpd.GeoDataFrame(columns=["geometry"]).to_json()),
-            style=LayerStyles.get_detection_style(),
         )
 
         for layer in [
@@ -348,7 +347,9 @@ class MapManager:
         geojson_data: dict,
         style_callback: Optional[Callable] = None,
     ) -> None:
-        self.detection_layer.data = geojson_data
+        # Clear base style to let style_callback take full control
+        self.detection_layer.style = {}
+
         if style_callback:
             self.detection_layer.style_callback = style_callback
         else:
@@ -361,10 +362,13 @@ class MapManager:
                     "weight": 2,
                     "opacity": 0.8,
                     "fillColor": color,
-                    "fillOpacity": 0.3,
+                    "fillOpacity": 0.1,
                 }
 
             self.detection_layer.style_callback = default_style
+
+        # Set data after style to trigger re-render
+        self.detection_layer.data = geojson_data
 
     def clear_detection_layer(self) -> None:
         self.detection_layer.data = json.loads(
