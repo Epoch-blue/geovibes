@@ -167,12 +167,16 @@ class MapManager:
             point_style=LayerStyles.get_search_style(),
             hover_style=LayerStyles.get_search_hover_style(),
         )
+        self.detection_layer = ipyl.GeoJSON(
+            data=json.loads(gpd.GeoDataFrame(columns=["geometry"]).to_json()),
+        )
 
         for layer in [
             self.pos_layer,
             self.neg_layer,
             self.erase_layer,
             self.points_layer,
+            self.detection_layer,
         ]:
             self.map.add_layer(layer)
 
@@ -337,6 +341,39 @@ class MapManager:
         self.map.center = (lat, lon)
         if zoom is not None:
             self.map.zoom = zoom
+
+    def update_detection_layer(
+        self,
+        geojson_data: dict,
+        style_callback: Optional[Callable] = None,
+    ) -> None:
+        # Clear base style to let style_callback take full control
+        self.detection_layer.style = {}
+
+        if style_callback:
+            self.detection_layer.style_callback = style_callback
+        else:
+
+            def default_style(feature):
+                probability = feature.get("properties", {}).get("probability", 0.5)
+                color = LayerStyles.probability_to_color(probability)
+                return {
+                    "color": color,
+                    "weight": 2,
+                    "opacity": 0.8,
+                    "fillColor": color,
+                    "fillOpacity": 0.1,
+                }
+
+            self.detection_layer.style_callback = default_style
+
+        # Set data after style to trigger re-render
+        self.detection_layer.data = geojson_data
+
+    def clear_detection_layer(self) -> None:
+        self.detection_layer.data = json.loads(
+            gpd.GeoDataFrame(columns=["geometry"]).to_json()
+        )
 
 
 __all__ = ["MapManager"]

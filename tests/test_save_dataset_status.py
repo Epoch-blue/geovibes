@@ -1,4 +1,5 @@
 from geovibes.ui.app import GeoVibes
+from geovibes.ui.state import AppState
 
 
 class StubDatasetManager:
@@ -14,6 +15,7 @@ def test_handle_save_dataset_reports_geojson():
     captured = {}
 
     vibes = GeoVibes.__new__(GeoVibes)
+    vibes.state = AppState()
     vibes.dataset_manager = StubDatasetManager(payload)
     vibes._show_operation_status = lambda message: captured.setdefault(
         "message", message
@@ -29,6 +31,7 @@ def test_handle_save_dataset_handles_empty_payload():
     captured = {}
 
     vibes = GeoVibes.__new__(GeoVibes)
+    vibes.state = AppState()
     vibes.dataset_manager = StubDatasetManager(None)
     vibes._show_operation_status = lambda message: captured.setdefault(
         "message", message

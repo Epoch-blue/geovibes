@@ -468,3 +468,28 @@ class LayerStyles:
     def get_draw_options(cls):
         """Get draw control options."""
         return {"shapeOptions": {"color": UIConstants.DRAW_COLOR, "fillOpacity": 0.5}}
+
+    @classmethod
+    def get_detection_style(cls):
+        """Get base detection layer style."""
+        return {
+            "color": "#00FF00",
+            "weight": 2,
+            "opacity": 0.8,
+            "fillOpacity": 0.3,
+        }
+
+    @classmethod
+    def probability_to_color(cls, probability: float) -> str:
+        """Convert probability (0-1) to hex color using the configured colormap.
+
+        Uses the same colormap as distance_to_color for visual consistency.
+        Higher probability = brighter/warmer color (like lower distance).
+
+        Args:
+            probability: Value between 0 and 1
+
+        Returns:
+            Hex color string
+        """
+        return UIConstants._color_from_fraction(probability)
