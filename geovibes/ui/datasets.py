@@ -234,10 +234,10 @@ class DatasetManager:
 
                 if detection_label == 1:
                     label = UIConstants.POSITIVE_LABEL
-                    class_name = "geovibes_pos"
+                    class_name = "relabel_pos"
                 else:
                     label = UIConstants.NEGATIVE_LABEL
-                    class_name = "geovibes_neg"
+                    class_name = "relabel_neg"
 
                 embedding = np.array(row["embedding"])
                 features.append(
