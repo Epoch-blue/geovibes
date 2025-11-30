@@ -14,6 +14,24 @@ import numpy as np
 from geovibes.ui_config import UIConstants
 
 
+def detect_geojson_type(geojson_data: Dict) -> str:
+    features = geojson_data.get("features", [])
+    if not features:
+        return "vector_layer"
+
+    first_props = features[0].get("properties", {})
+
+    has_label = "label" in first_props
+    has_embedding = "embedding" in first_props
+    has_probability = "probability" in first_props
+
+    if has_label and has_embedding:
+        return "labeled"
+    if has_probability:
+        return "detections"
+    return "vector_layer"
+
+
 @dataclass
 class DatasetManager:
     data_manager: object
@@ -130,7 +148,14 @@ class DatasetManager:
     def load_from_content(self, content: bytes, filename: str) -> None:
         if filename.lower().endswith(".geojson"):
             geojson_data = json.loads(content.decode("utf-8"))
-            self._apply_geojson_payload(geojson_data)
+            geojson_type = detect_geojson_type(geojson_data)
+
+            if geojson_type == "labeled":
+                self._apply_geojson_payload(geojson_data)
+            elif geojson_type == "detections":
+                self._apply_detection_payload(geojson_data)
+            else:
+                self.add_vector_from_content(content, filename)
         elif filename.lower().endswith(".parquet"):
             gdf = gpd.read_parquet(io.BytesIO(content))
             self._apply_geodataframe(gdf)
@@ -169,6 +194,11 @@ class DatasetManager:
                 self.state.pos_ids.append(point_id)
             elif row["label"] == UIConstants.NEGATIVE_LABEL:
                 self.state.neg_ids.append(point_id)
+
+    def _apply_detection_payload(self, payload: Dict) -> None:
+        self.state.detection_mode = True
+        self.state.detection_data = payload
+        self.map_manager.update_detection_layer(payload)
 
     # ------------------------------------------------------------------
     # Vector layers
@@ -214,4 +244,4 @@ class DatasetManager:
         return bytes(payload)
 
 
-__all__ = ["DatasetManager"]
+__all__ = ["DatasetManager", "detect_geojson_type"]
