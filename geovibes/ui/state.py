@@ -31,7 +31,7 @@ class AppState:
     tile_basemap: str = "MAPTILER"
     tile_page: int = 0
     tiles_per_page: int = 50
-    initial_load_size: int = 8
+    initial_load_size: int = 20
     last_search_results_df: Optional["pd.DataFrame"] = None
     detections_with_embeddings: Optional["gpd.GeoDataFrame"] = None
     detection_mode: bool = False
