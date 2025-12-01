@@ -385,61 +385,22 @@ class MapManager:
     def _build_layer_manager(self) -> ipyl.WidgetControl:
         style_css = HTML(
             """<style>
-            .layer-manager {
-                background: #ffffff;
-                border: 1px solid #e2e8f0;
-                border-radius: 6px;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-                font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-                padding: 6px 8px;
-            }
-            .layer-manager-header {
-                font-size: 11px;
-                font-weight: 600;
-                color: #374151;
-                margin-bottom: 4px;
-            }
-            .layer-row {
-                display: flex;
-                align-items: center;
-                gap: 6px;
-                margin: 2px 0;
-            }
-            .layer-row .widget-label {
-                font-size: 10px;
-                color: #64748b;
-                flex: 1;
-                min-width: 0;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-            }
-            .layer-row .widget-button {
-                min-width: 18px !important;
-                width: 18px !important;
-                height: 18px !important;
-                padding: 0 !important;
+            .layer-btn {
                 border-radius: 4px !important;
                 display: flex !important;
                 align-items: center !important;
                 justify-content: center !important;
-                line-height: 1 !important;
-            }
-            .layer-row .widget-button i {
-                font-size: 10px;
             }
             </style>"""
         )
         self._layer_rows = VBox(
-            [],
-            layout=Layout(max_height="150px", overflow_y="auto", overflow_x="hidden"),
+            [], layout=Layout(max_height="200px", overflow_y="auto")
         )
-        header = HTML('<div class="layer-manager-header">Layers</div>')
+        header = Label("Layers", style={"font_weight": "bold", "font_size": "12px"})
         self._layer_manager_container = VBox(
             [style_css, header, self._layer_rows],
-            layout=Layout(padding="0", width="180px"),
+            layout=Layout(padding="8px", min_width="180px"),
         )
-        self._layer_manager_container.add_class("layer-manager")
         control = ipyl.WidgetControl(
             widget=self._layer_manager_container,
             position="topleft",
@@ -458,13 +419,18 @@ class MapManager:
         self._layer_manager_container.layout.display = "flex" if rows else "none"
 
     def _create_layer_row(self, name: str, opacity: float) -> HBox:
-        label = Label(name)
+        label = Label(
+            name,
+            layout=Layout(width="90px", overflow="hidden"),
+            style={"font_size": "11px"},
+        )
         slider = FloatSlider(
             value=opacity,
             min=0,
             max=1,
             step=0.05,
             readout=False,
+            layout=Layout(width="70px"),
         )
 
         def on_opacity_change(change, layer_name=name):
@@ -473,16 +439,21 @@ class MapManager:
 
         slider.observe(on_opacity_change, names="value")
         remove_btn = Button(
-            icon="times", button_style="danger", tooltip=f"Remove {name}"
+            icon="times",
+            layout=Layout(width="24px", height="24px", padding="0"),
+            button_style="danger",
+            tooltip=f"Remove {name}",
         )
+        remove_btn.add_class("layer-btn")
 
         def on_remove(_, layer_name=name):
             self.remove_layer(layer_name)
 
         remove_btn.on_click(on_remove)
-        row = HBox([label, slider, remove_btn])
-        row.add_class("layer-row")
-        return row
+        return HBox(
+            [label, slider, remove_btn],
+            layout=Layout(margin="2px 0", align_items="center"),
+        )
 
     # ------------------------------------------------------------------
     # Overlay tile layer management
