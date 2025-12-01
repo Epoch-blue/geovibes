@@ -179,6 +179,27 @@ def test_add_ee_layer_raises_when_ee_unavailable():
         manager.add_ee_layer(MagicMock(), {"min": 0, "max": 1}, "ee_layer")
 
 
+def test_add_ee_layer_success(monkeypatch):
+    manager = MapManager.__new__(MapManager)
+    manager._overlay_layers = {}
+    manager.data = SimpleNamespace(ee_available=True)
+    manager.basemap_layer = SimpleNamespace(name="basemap")
+    manager.map = SimpleNamespace(layers=(manager.basemap_layer,))
+    _setup_layer_manager_mocks(manager)
+    manager._insert_overlay_layer = lambda layer: None
+
+    monkeypatch.setattr(
+        "geovibes.ui.map_manager.get_ee_image_url",
+        lambda img, params: "https://earthengine.googleapis.com/tile",
+    )
+
+    manager.add_ee_layer(MagicMock(), {"min": 0, "max": 1}, "ndvi", 0.6)
+
+    assert "ndvi" in manager._overlay_layers
+    assert manager._overlay_layers["ndvi"].opacity == 0.6
+    assert "earthengine" in manager._overlay_layers["ndvi"].url
+
+
 def test_refresh_layer_manager_shows_widget_when_layers_exist():
     manager = MapManager.__new__(MapManager)
     manager._overlay_layers = {"test": SimpleNamespace(opacity=0.5)}
@@ -245,6 +266,89 @@ def test_remove_layer_refreshes_layer_manager():
     manager.remove_layer("test")
 
     assert len(refresh_calls) == 1
+
+
+def test_remove_layer_not_in_map_layers():
+    """Test remove_layer when layer exists in dict but not in map.layers."""
+    manager = MapManager.__new__(MapManager)
+    layer = SimpleNamespace(name="orphan")
+    manager._overlay_layers = {"orphan": layer}
+    _setup_layer_manager_mocks(manager)
+
+    remove_called = []
+    manager.map = SimpleNamespace(
+        layers=(),
+        remove_layer=lambda lyr: remove_called.append(lyr),
+    )
+
+    result = manager.remove_layer("orphan")
+
+    assert result is True
+    assert "orphan" not in manager._overlay_layers
+    assert len(remove_called) == 0
+
+
+def test_clear_overlay_layers_refreshes_layer_manager():
+    manager = MapManager.__new__(MapManager)
+    layer = SimpleNamespace(name="test")
+    manager._overlay_layers = {"test": layer}
+    manager.map = SimpleNamespace(
+        layers=(layer,),
+        remove_layer=lambda lyr: None,
+    )
+    _setup_layer_manager_mocks(manager)
+    manager._layer_manager_container._visible = True
+
+    refresh_calls = []
+
+    def mock_refresh():
+        refresh_calls.append(True)
+        manager._layer_manager_container._visible = False
+
+    manager._refresh_layer_manager = mock_refresh
+
+    manager.clear_overlay_layers()
+
+    assert len(refresh_calls) == 1
+    assert manager._layer_manager_container._visible is False
+
+
+def test_add_tile_layer_with_attribution():
+    manager = MapManager.__new__(MapManager)
+    manager._overlay_layers = {}
+    manager.basemap_layer = SimpleNamespace(name="basemap")
+    manager.map = SimpleNamespace(layers=(manager.basemap_layer,))
+    _setup_layer_manager_mocks(manager)
+    manager._insert_overlay_layer = lambda layer: None
+
+    manager.add_tile_layer(
+        "http://tiles/{z}/{x}/{y}.png",
+        "attributed",
+        opacity=1.0,
+        attribution="© OpenStreetMap",
+    )
+
+    assert manager._overlay_layers["attributed"].attribution == "© OpenStreetMap"
+
+
+def test_create_layer_row_truncates_long_names():
+    manager = MapManager.__new__(MapManager)
+    manager._overlay_layers = {}
+
+    row = manager._create_layer_row("VeryLongLayerName", 0.5)
+
+    label = row.children[0]
+    assert label.children[0] == "VeryLongL"
+
+
+def test_create_layer_row_preserves_short_names():
+    manager = MapManager.__new__(MapManager)
+    manager._overlay_layers = {}
+
+    row = manager._create_layer_row("LULC2024", 0.8)
+
+    label = row.children[0]
+    assert label.children[0] == "LULC2024"
 
 
 # ------------------------------------------------------------------
