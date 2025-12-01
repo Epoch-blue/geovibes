@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 import numpy as np
 
@@ -34,6 +34,9 @@ class AppState:
     initial_load_size: int = 8
     last_search_results_df: Optional["pd.DataFrame"] = None
     detections_with_embeddings: Optional["gpd.GeoDataFrame"] = None
+    detection_mode: bool = False
+    detection_data: Optional[Dict[str, Any]] = None
+    detection_labels: Dict[str, int] = field(default_factory=dict)
 
     def set_label_mode(self, label: str) -> None:
         """Update the active label mode."""
@@ -59,6 +62,9 @@ class AppState:
         self.set_label_mode("Positive")
         self.lasso_mode = False
         self.polygon_drawing = False
+        self.detection_mode = False
+        self.detection_data = None
+        self.detection_labels.clear()
 
     def toggle_label(self, point_id: str, label: str) -> None:
         """Toggle the label for a point_id, ensuring exclusivity."""
@@ -119,6 +125,26 @@ class AppState:
             self.neg_ids.append(point_id)
             return "negative"
         return "removed"
+
+    def enter_detection_mode(self, detection_geojson: Dict[str, Any]) -> None:
+        """Enter detection review mode with provided GeoJSON data."""
+        self.detection_mode = True
+        self.detection_data = detection_geojson
+        self.detection_labels.clear()
+
+    def exit_detection_mode(self) -> None:
+        """Exit detection review mode and clear detection state."""
+        self.detection_mode = False
+        self.detection_data = None
+        self.detection_labels.clear()
+
+    def label_detection(self, tile_id: str, label: int) -> None:
+        """Add or update label for a detection tile_id."""
+        self.detection_labels[tile_id] = label
+
+    def get_labeled_detections(self) -> List[Tuple[str, int]]:
+        """Return list of (tile_id, label) tuples for all labeled detections."""
+        return list(self.detection_labels.items())
 
 
 __all__ = ["AppState"]

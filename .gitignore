@@ -10,9 +10,6 @@ __pycache__/
 # C extensions
 *.so
 
-# UV
-uv.lock
-
 # Distribution / packaging
 .Python
 build/
@@ -192,3 +189,4 @@ screenshot_ui.py
 tile_panel_screenshot.png
 *.png
 preview_ui.sh
+alabama_aquaculture/

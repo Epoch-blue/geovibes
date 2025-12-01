@@ -14,6 +14,24 @@ import numpy as np
 from geovibes.ui_config import UIConstants
 
 
+def detect_geojson_type(geojson_data: Dict) -> str:
+    features = geojson_data.get("features", [])
+    if not features:
+        return "vector_layer"
+
+    first_props = features[0].get("properties", {})
+
+    has_label = "label" in first_props
+    has_embedding = "embedding" in first_props
+    has_probability = "probability" in first_props
+
+    if has_label and has_embedding:
+        return "labeled"
+    if has_probability:
+        return "detections"
+    return "vector_layer"
+
+
 @dataclass
 class DatasetManager:
     data_manager: object
@@ -41,6 +59,7 @@ class DatasetManager:
         placeholders = ",".join(["?" for _ in prepared_ids])
         query = f"""
         SELECT id,
+               tile_id,
                ST_AsGeoJSON(geometry) AS geometry_json,
                embedding
         FROM geo_embeddings
@@ -58,8 +77,10 @@ class DatasetManager:
             point_id = str(row["id"])
             if point_id in self.state.pos_ids:
                 label = UIConstants.POSITIVE_LABEL
+                class_name = "geovibes_pos"
             elif point_id in self.state.neg_ids:
                 label = UIConstants.NEGATIVE_LABEL
+                class_name = "geovibes_neg"
             else:
                 continue
 
@@ -68,15 +89,21 @@ class DatasetManager:
             else:
                 embedding = np.array(row["embedding"])
 
+            props = {
+                "id": point_id,
+                "label": label,
+                "class": class_name,
+                "embedding": embedding.tolist(),
+                "source": "manual",
+            }
+            if "tile_id" in row.index and row["tile_id"] is not None:
+                props["tile_id"] = row["tile_id"]
+
             features.append(
                 {
                     "type": "Feature",
                     "geometry": json.loads(row["geometry_json"]),
-                    "properties": {
-                        "id": point_id,
-                        "label": label,
-                        "embedding": embedding.tolist(),
-                    },
+                    "properties": props,
                 }
             )
 
@@ -122,10 +149,199 @@ class DatasetManager:
             "negative": str(len(self.state.neg_ids)),
         }
 
+    def export_augmented_dataset(self) -> Optional[Dict[str, str]]:
+        if (
+            not self.state.pos_ids
+            and not self.state.neg_ids
+            and not self.state.detection_labels
+        ):
+            if self.verbose:
+                print("⚠️ No labeled points to save.")
+            return None
+
+        features = []
+        manual_ids = list(set(self.state.pos_ids + self.state.neg_ids))
+
+        if manual_ids:
+            prepared_ids = [str(pid) for pid in manual_ids]
+            placeholders = ",".join(["?" for _ in prepared_ids])
+            query = f"""
+            SELECT id,
+                   tile_id,
+                   ST_AsGeoJSON(geometry) AS geometry_json,
+                   embedding
+            FROM geo_embeddings
+            WHERE id IN ({placeholders})
+            """
+            results = self.data_manager.duckdb_connection.execute(
+                query, prepared_ids
+            ).df()
+
+            for _, row in results.iterrows():
+                point_id = str(row["id"])
+                if point_id in self.state.pos_ids:
+                    label = UIConstants.POSITIVE_LABEL
+                    class_name = "geovibes_pos"
+                elif point_id in self.state.neg_ids:
+                    label = UIConstants.NEGATIVE_LABEL
+                    class_name = "geovibes_neg"
+                else:
+                    continue
+
+                if point_id in self.state.cached_embeddings:
+                    embedding = self.state.cached_embeddings[point_id]
+                else:
+                    embedding = np.array(row["embedding"])
+
+                props = {
+                    "id": point_id,
+                    "label": label,
+                    "class": class_name,
+                    "embedding": embedding.tolist(),
+                    "source": "manual",
+                }
+                if "tile_id" in row.index and row["tile_id"] is not None:
+                    props["tile_id"] = row["tile_id"]
+
+                features.append(
+                    {
+                        "type": "Feature",
+                        "geometry": json.loads(row["geometry_json"]),
+                        "properties": props,
+                    }
+                )
+
+        if self.state.detection_labels:
+            detection_tile_ids = list(self.state.detection_labels.keys())
+            detection_placeholders = ",".join(["?" for _ in detection_tile_ids])
+            detection_query = f"""
+            SELECT id,
+                   tile_id,
+                   ST_AsGeoJSON(geometry) AS geometry_json,
+                   embedding
+            FROM geo_embeddings
+            WHERE tile_id IN ({detection_placeholders})
+            """
+            detection_results = self.data_manager.duckdb_connection.execute(
+                detection_query, detection_tile_ids
+            ).df()
+
+            for _, row in detection_results.iterrows():
+                tile_id = row["tile_id"]
+                detection_label = self.state.detection_labels.get(tile_id)
+                if detection_label is None:
+                    continue
+
+                if detection_label == 1:
+                    label = UIConstants.POSITIVE_LABEL
+                    class_name = "relabel_pos"
+                else:
+                    label = UIConstants.NEGATIVE_LABEL
+                    class_name = "relabel_neg"
+
+                embedding = np.array(row["embedding"])
+                features.append(
+                    {
+                        "type": "Feature",
+                        "geometry": json.loads(row["geometry_json"]),
+                        "properties": {
+                            "id": str(row["id"]),
+                            "tile_id": tile_id,
+                            "label": label,
+                            "class": class_name,
+                            "embedding": embedding.tolist(),
+                            "source": "detection_review",
+                        },
+                    }
+                )
+
+        if not features:
+            if self.verbose:
+                print("⚠️ No features to export.")
+            return None
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        geojson_filename = f"augmented_dataset_{timestamp}.geojson"
+
+        manual_positives = len(
+            [
+                f
+                for f in features
+                if f["properties"]["source"] == "manual"
+                and f["properties"]["label"] == UIConstants.POSITIVE_LABEL
+            ]
+        )
+        manual_negatives = len(
+            [
+                f
+                for f in features
+                if f["properties"]["source"] == "manual"
+                and f["properties"]["label"] == UIConstants.NEGATIVE_LABEL
+            ]
+        )
+        detection_positives = len(
+            [
+                f
+                for f in features
+                if f["properties"]["source"] == "detection_review"
+                and f["properties"]["label"] == UIConstants.POSITIVE_LABEL
+            ]
+        )
+        detection_negatives = len(
+            [
+                f
+                for f in features
+                if f["properties"]["source"] == "detection_review"
+                and f["properties"]["label"] == UIConstants.NEGATIVE_LABEL
+            ]
+        )
+
+        geojson_payload = {
+            "type": "FeatureCollection",
+            "features": features,
+            "metadata": {
+                "timestamp": timestamp,
+                "total_points": len(features),
+                "manual_positives": manual_positives,
+                "manual_negatives": manual_negatives,
+                "detection_positives": detection_positives,
+                "detection_negatives": detection_negatives,
+                "embedding_dimension": getattr(
+                    self.data_manager, "embedding_dim", None
+                ),
+            },
+        }
+
+        with open(geojson_filename, "w", encoding="utf-8") as handle:
+            json.dump(geojson_payload, handle, indent=2)
+
+        if self.verbose:
+            print("✅ Augmented dataset saved successfully!")
+            print(f"📄 Filename: {geojson_filename}")
+            print(f"   Manual: {manual_positives} pos, {manual_negatives} neg")
+            print(
+                f"   Detection Review: {detection_positives} pos, {detection_negatives} neg"
+            )
+
+        return {
+            "geojson": geojson_filename,
+            "manual_positive": str(manual_positives),
+            "manual_negative": str(manual_negatives),
+            "detection_positive": str(detection_positives),
+            "detection_negative": str(detection_negatives),
+        }
+
     def load_from_content(self, content: bytes, filename: str) -> None:
         if filename.lower().endswith(".geojson"):
             geojson_data = json.loads(content.decode("utf-8"))
-            self._apply_geojson_payload(geojson_data)
+            geojson_type = detect_geojson_type(geojson_data)
+
+            if geojson_type == "labeled":
+                self._apply_geojson_payload(geojson_data)
+            elif geojson_type == "detections":
+                self._apply_detection_payload(geojson_data)
+            else:
+                self.add_vector_from_content(content, filename)
         elif filename.lower().endswith(".parquet"):
             gdf = gpd.read_parquet(io.BytesIO(content))
             self._apply_geodataframe(gdf)
@@ -164,6 +380,11 @@ class DatasetManager:
                 self.state.pos_ids.append(point_id)
             elif row["label"] == UIConstants.NEGATIVE_LABEL:
                 self.state.neg_ids.append(point_id)
+
+    def _apply_detection_payload(self, payload: Dict) -> None:
+        self.state.detection_mode = True
+        self.state.detection_data = payload
+        self.map_manager.update_detection_layer(payload)
 
     # ------------------------------------------------------------------
     # Vector layers
@@ -209,4 +430,4 @@ class DatasetManager:
         return bytes(payload)
 
 
-__all__ = ["DatasetManager"]
+__all__ = ["DatasetManager", "detect_geojson_type"]
