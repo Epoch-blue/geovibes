@@ -9,12 +9,191 @@ from typing import Any, Callable, Dict, List, Optional
 
 import ipywidgets as ipyw
 import shapely.wkt
-from ipywidgets import Button, GridBox, HBox, Image, Label, Layout, VBox
+from ipywidgets import Button, GridBox, HBox, HTML, Image, Label, Layout, VBox
 
 from geovibes.ui_config import BasemapConfig, UIConstants
 from .xyz import get_map_image
 
 TILE_SOURCES = ("HUTCH_TILE", "MAPTILER", "GOOGLE_HYBRID")
+
+TILE_PANEL_CSS = """
+<style>
+/* Container */
+.tile-panel-container {
+    background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.1);
+    border: 1px solid rgba(255,255,255,0.8);
+}
+
+/* Tile Cards */
+.tile-card {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden !important;
+    border: 2px solid transparent;
+}
+.tile-card:hover {
+    box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+    transform: translateY(-2px);
+    border-color: #3b82f6;
+}
+
+/* Labeled tile states */
+.tile-positive {
+    border-color: #22c55e !important;
+    box-shadow: 0 0 0 1px #22c55e, 0 2px 8px rgba(34,197,94,0.25) !important;
+}
+.tile-negative {
+    border-color: #ef4444 !important;
+    box-shadow: 0 0 0 1px #ef4444, 0 2px 8px rgba(239,68,68,0.25) !important;
+}
+
+/* Header */
+.tile-header {
+    background: linear-gradient(180deg, #ffffff 0%, #fafbfc 100%);
+    border-bottom: 1px solid #e2e8f0;
+    padding: 8px 10px;
+    border-radius: 12px 12px 0 0;
+}
+
+/* Styled dropdown */
+.styled-dropdown select,
+.styled-dropdown .widget-dropdown-input {
+    background: white !important;
+    border: 1px solid #d1d5db !important;
+    border-radius: 6px !important;
+    padding: 2px 24px 2px 8px !important;
+    font-size: 11px !important;
+    font-weight: 500 !important;
+    color: #374151 !important;
+    cursor: pointer !important;
+    transition: all 0.15s ease !important;
+    height: 26px !important;
+    line-height: 22px !important;
+}
+.styled-dropdown select:hover {
+    border-color: #3b82f6 !important;
+    background: #f8fafc !important;
+}
+.styled-dropdown select:focus {
+    outline: none !important;
+    border-color: #3b82f6 !important;
+    box-shadow: 0 0 0 2px rgba(59,130,246,0.15) !important;
+}
+
+/* Footer */
+.tile-footer {
+    background: linear-gradient(180deg, #fafbfc 0%, #ffffff 100%);
+    border-top: 1px solid #e2e8f0;
+    padding: 8px 10px;
+    border-radius: 0 0 12px 12px;
+}
+
+/* Load More Button */
+.load-more-btn {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 6px !important;
+    font-weight: 600 !important;
+    font-size: 12px !important;
+    letter-spacing: 0.3px !important;
+    transition: all 0.2s ease !important;
+    box-shadow: 0 2px 4px rgba(59,130,246,0.3) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    line-height: 1 !important;
+}
+.load-more-btn:hover {
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+    box-shadow: 0 4px 12px rgba(59,130,246,0.4) !important;
+    transform: translateY(-1px);
+}
+
+/* Page info */
+.page-info-text {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+/* Sort Toggle Buttons - active state (blue) */
+.sort-btn-active {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 6px !important;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    box-shadow: 0 2px 4px rgba(59,130,246,0.3) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+/* Sort Toggle Buttons - inactive state (white) */
+.sort-btn-inactive {
+    background: white !important;
+    color: #6b7280 !important;
+    border: 1px solid #d1d5db !important;
+    border-radius: 6px !important;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+.sort-btn-inactive:hover {
+    background: #f8fafc !important;
+    border-color: #3b82f6 !important;
+    color: #374151 !important;
+}
+
+/* Action buttons - no scrollbar */
+.tile-action-btn {
+    opacity: 0.5;
+    transition: all 0.15s ease !important;
+    border-radius: 4px !important;
+    border: none !important;
+    background: transparent !important;
+}
+.tile-action-btn:hover {
+    opacity: 1;
+    background: rgba(59,130,246,0.1) !important;
+}
+
+/* Scrollbar styling */
+.tile-scroll-area::-webkit-scrollbar {
+    width: 5px;
+}
+.tile-scroll-area::-webkit-scrollbar-track {
+    background: transparent;
+}
+.tile-scroll-area::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+}
+.tile-scroll-area::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+/* Hide any unwanted scrollbars */
+.tile-card * {
+    overflow: hidden !important;
+}
+.tile-panel-container {
+    overflow: hidden !important;
+}
+.tile-scroll-area {
+    overflow-x: hidden !important;
+}
+</style>
+"""
 
 
 class TilePanel:
@@ -44,48 +223,129 @@ class TilePanel:
         if self.state.tile_basemap not in self.allowed_sources:
             self.state.tile_basemap = self.allowed_sources[0]
 
+        self._css_widget = HTML(TILE_PANEL_CSS)
+
         self.tile_basemap_dropdown = ipyw.Dropdown(
             options=self.allowed_sources,
             value=self.state.tile_basemap,
             description="",
-            layout=Layout(width="180px"),
+            layout=Layout(width="120px", height="28px"),
             style={"description_width": "initial"},
         )
+        self.tile_basemap_dropdown.add_class("styled-dropdown")
         self.tile_basemap_dropdown.observe(self._on_tile_basemap_change, names="value")
 
-        self.next_tiles_btn = Button(
-            description="Next",
-            layout=Layout(width="60px", margin="0 0 0 5px", display="none"),
+        self.page_info_label = HTML(
+            value="",
+            layout=Layout(margin="0 8px 0 auto"),
         )
-        self.next_tiles_btn.on_click(self._on_next_tiles_click)
+        self.page_info_label.add_class("page-info-text")
 
-        controls = HBox(
-            [self.tile_basemap_dropdown, self.next_tiles_btn],
-            layout=Layout(align_items="center", margin="0 0 10px 0"),
+        self._sort_order = "Similar"
+
+        self.similar_btn = Button(
+            description="Similar",
+            layout=Layout(width="50%", height="28px"),
         )
+        self.similar_btn.add_class("sort-btn-active")
+        self.similar_btn.on_click(self._on_similar_click)
+
+        self.dissimilar_btn = Button(
+            description="Dissimilar",
+            layout=Layout(width="50%", height="28px"),
+        )
+        self.dissimilar_btn.add_class("sort-btn-inactive")
+        self.dissimilar_btn.on_click(self._on_dissimilar_click)
+
+        self.load_more_btn = Button(
+            description="Load More",
+            layout=Layout(
+                width="100%",
+                height="32px",
+                display="flex",
+                justify_content="center",
+            ),
+        )
+        self.load_more_btn.add_class("load-more-btn")
+        self.load_more_btn.on_click(self._on_next_tiles_click)
+
+        self.next_tiles_btn = self.load_more_btn
+
+        header_row = HBox(
+            [self.tile_basemap_dropdown, self.page_info_label],
+            layout=Layout(
+                align_items="center",
+                padding="8px 8px 4px 8px",
+                width="100%",
+            ),
+        )
+
+        # Sort toggle row: two buttons side by side
+        sort_row = HBox(
+            [self.similar_btn, self.dissimilar_btn],
+            layout=Layout(
+                padding="0 8px 8px 8px",
+                width="100%",
+                gap="6px",
+            ),
+        )
+
+        # Load More button row: full width prominent button
+        load_more_row = HBox(
+            [self.load_more_btn],
+            layout=Layout(
+                padding="0 8px 8px 8px",
+                width="100%",
+            ),
+        )
+
+        header = VBox(
+            [header_row, sort_row, load_more_row],
+            layout=Layout(width="100%"),
+        )
+        header.add_class("tile-header")
 
         self.results_grid = GridBox(
             [],
             layout=Layout(
                 width="100%",
                 grid_template_columns="1fr 1fr",
-                grid_gap="3px",
-                overflow_y="visible",
-                flex="1 1 auto",
-                height="auto",
+                grid_gap="8px",
+                padding="8px",
             ),
         )
 
-        self.container = VBox(
-            [controls, self.results_grid],
+        # Fixed height for scroll area: 4 rows of tiles
+        tile_height = 148
+        grid_gap = 8
+        visible_rows = 4
+        scroll_height = (tile_height + grid_gap) * visible_rows
+
+        self.scroll_area = VBox(
+            [self.results_grid],
             layout=Layout(
-                display="none",
-                width="265px",
-                padding="5px",
-                height=UIConstants.DEFAULT_HEIGHT,
-                overflow="auto",
+                width="100%",
+                height=f"{scroll_height}px",
+                min_height=f"{scroll_height}px",
+                max_height=f"{scroll_height}px",
+                overflow_y="auto",
+                overflow_x="hidden",
             ),
         )
+        self.scroll_area.add_class("tile-scroll-area")
+
+        self.container = VBox(
+            [self._css_widget, header, self.scroll_area],
+            layout=Layout(
+                display="none",
+                width="270px",
+                padding="0px",
+                border_radius="8px",
+                overflow_x="hidden",
+                overflow_y="hidden",
+            ),
+        )
+        self.container.add_class("tile-panel-container")
 
         self.control = self.map_manager.add_widget_control(
             self.container, position="topright"
@@ -109,7 +369,7 @@ class TilePanel:
 
     def toggle(self) -> None:
         if self.container.layout.display == "none":
-            self.container.layout.display = "block"
+            self.container.layout.display = "flex"
             if (
                 not self.results_ready
                 and self.state.last_search_results_df is not None
@@ -124,7 +384,7 @@ class TilePanel:
             self.container.layout.display = "none"
 
     def show(self) -> None:
-        self.container.layout.display = "block"
+        self.container.layout.display = "flex"
 
     def hide(self) -> None:
         self.container.layout.display = "none"
@@ -136,6 +396,7 @@ class TilePanel:
         self._pending_batches.clear()
         self.results_grid.children = []
         self.next_tiles_btn.layout.display = "none"
+        self.page_info_label.value = ""
         self.state.last_search_results_df = None
         self.state.tile_page = 0
         self._update_operation(None)
@@ -193,6 +454,42 @@ class TilePanel:
         self.state.tile_basemap = new_value
         self.reload_tiles_for_new_basemap()
 
+    def _on_similar_click(self, _button) -> None:
+        if self._sort_order == "Similar":
+            return
+        self._sort_order = "Similar"
+        self.similar_btn.remove_class("sort-btn-inactive")
+        self.similar_btn.add_class("sort-btn-active")
+        self.dissimilar_btn.remove_class("sort-btn-active")
+        self.dissimilar_btn.add_class("sort-btn-inactive")
+        self._trigger_sort_refresh()
+
+    def _on_dissimilar_click(self, _button) -> None:
+        if self._sort_order == "Dissimilar":
+            return
+        self._sort_order = "Dissimilar"
+        self.dissimilar_btn.remove_class("sort-btn-inactive")
+        self.dissimilar_btn.add_class("sort-btn-active")
+        self.similar_btn.remove_class("sort-btn-active")
+        self.similar_btn.add_class("sort-btn-inactive")
+        self._trigger_sort_refresh()
+
+    def _trigger_sort_refresh(self) -> None:
+        if self.state.last_search_results_df is None:
+            return
+        for future in list(self._pending_futures):
+            future.cancel()
+        self._pending_futures.clear()
+        self._pending_batches.clear()
+        self.state.tile_page = 0
+        self._page_sizes = []
+        self.results_grid.children = []
+        self._render_current_page(
+            append=False,
+            on_finish=self._handle_tiles_ready,
+            loader_token=self._loader_token,
+        )
+
     def _on_next_tiles_click(self, _button) -> None:
         next_size = 10
         self.state.tile_page += 1
@@ -228,6 +525,16 @@ class TilePanel:
             if on_finish:
                 on_finish()
             return
+
+        # Determine if we should reverse the order
+        # - Search mode: data is sorted by distance ascending (low = similar)
+        #   "Similar" = keep order, "Dissimilar" = reverse
+        # - Detection mode: data is sorted by probability ascending (low = dissimilar)
+        #   "Similar" = reverse (high prob first), "Dissimilar" = keep order
+        is_detection = getattr(self.state, "detection_mode", False)
+        should_reverse = (self._sort_order == "Dissimilar") != is_detection
+        if should_reverse:
+            df = df.iloc[::-1].reset_index(drop=True)
 
         refresh_only = limit is not None and not append
 
@@ -308,6 +615,8 @@ class TilePanel:
         else:
             self.next_tiles_btn.layout.display = "none"
 
+        self._update_page_info(end_index, len(df))
+
     def _handle_tiles_ready(self) -> None:
         if self.results_ready:
             return
@@ -368,7 +677,8 @@ class TilePanel:
             current_children = list(self.results_grid.children)
             if target_index < len(current_children):
                 try:
-                    widget = self._build_tile_widget(row, image_bytes)
+                    rank = target_index + 1
+                    widget = self._build_tile_widget(row, image_bytes, rank=rank)
                 except Exception:
                     widget = self._make_placeholder_tile()
                 current_children[target_index] = widget
@@ -405,64 +715,85 @@ class TilePanel:
                 print(f"Failed to fetch tile image for {row.get('id')}")
             return None
 
-    def _build_tile_widget(self, row, image_bytes: Optional[bytes]) -> VBox:
-        display_value = row.get("source_id")
-        if display_value is None or display_value != display_value:
-            display_value = row.get("tile_id")
-        if display_value is None or display_value != display_value:
-            display_value = row["id"]
-        display_id = str(display_value)
-        base_image_layout = {
-            "width": "115px",
-            "height": "115px",
-            "overflow": "hidden",
-        }
+    def _build_tile_widget(
+        self, row, image_bytes: Optional[bytes], rank: Optional[int] = None
+    ) -> VBox:
+        img_size = 116
+        point_id = str(row["id"])
+
         if image_bytes:
-            image_layout = Layout(
-                width=base_image_layout["width"],
-                height=base_image_layout["height"],
-                overflow=base_image_layout["overflow"],
-            )
             tile_image = Image(
                 value=image_bytes,
                 format="png",
-                width=115,
-                height=115,
-                layout=image_layout,
+                width=img_size,
+                height=img_size,
+                layout=Layout(
+                    width=f"{img_size}px",
+                    height=f"{img_size}px",
+                    overflow="hidden",
+                    border_radius="6px 6px 0 0",
+                ),
             )
         else:
             tile_image = Label(
-                value="Image unavailable",
+                value="No image",
                 layout=Layout(
-                    width=base_image_layout["width"],
-                    height=base_image_layout["height"],
-                    overflow=base_image_layout["overflow"],
-                    border="1px solid #ccc",
+                    width=f"{img_size}px",
+                    height=f"{img_size}px",
+                    overflow="hidden",
+                    background="#f1f5f9",
+                    border_radius="6px 6px 0 0",
                     display="flex",
                     align_items="center",
                     justify_content="center",
+                    color="#94a3b8",
+                    font_size="11px",
                 ),
             )
 
-        point_id = str(row["id"])
+        image_container = VBox(
+            [tile_image],
+            layout=Layout(
+                width=f"{img_size}px",
+                height=f"{img_size}px",
+                overflow="hidden",
+            ),
+        )
+
+        btn_size = "28px"
+        btn_height = "24px"
+
+        rank_label = HTML(
+            value=(
+                f'<span style="color:#64748b;font-size:10px;font-weight:600;">'
+                f"#{rank}</span>"
+                if rank
+                else ""
+            ),
+            layout=Layout(width="24px", margin="0"),
+        )
 
         map_button = Button(
-            icon="fa-map-marker",
-            layout=Layout(width="35px", height="28px", margin="0px 2px", padding="2px"),
-            tooltip=f"Center map ({display_id})",
+            icon="fa-crosshairs",
+            layout=Layout(width=btn_size, height=btn_height, margin="0", padding="0"),
+            tooltip="Center map on tile",
         )
+        map_button.add_class("tile-action-btn")
         map_button.on_click(lambda _b, r=row: self.on_center(r))
 
         tick_button = Button(
-            icon="fa-check",
-            layout=Layout(width="35px", height="28px", margin="0px 2px", padding="2px"),
-            tooltip=f"Label as positive ({display_id})",
+            icon="fa-thumbs-up",
+            layout=Layout(width=btn_size, height=btn_height, margin="0", padding="0"),
+            tooltip="Mark as similar",
         )
+        tick_button.add_class("tile-action-btn")
+
         cross_button = Button(
-            icon="fa-times",
-            layout=Layout(width="35px", height="28px", margin="0px 2px", padding="2px"),
-            tooltip=f"Label as negative ({display_id})",
+            icon="fa-thumbs-down",
+            layout=Layout(width=btn_size, height=btn_height, margin="0", padding="0"),
+            tooltip="Mark as different",
         )
+        cross_button.add_class("tile-action-btn")
 
         self._apply_label_style(point_id, tick_button, cross_button)
 
@@ -478,50 +809,70 @@ class TilePanel:
         )
 
         button_row = HBox(
-            [map_button, tick_button, cross_button],
+            [rank_label, map_button, tick_button, cross_button],
             layout=Layout(
-                justify_content="center",
-                width="120px",
-                height="32px",
-                overflow="hidden",
+                justify_content="space-between",
+                align_items="center",
+                width="100%",
+                height="28px",
+                padding="2px 6px",
+                background="#f8fafc",
+                border_radius="0 0 6px 6px",
             ),
         )
 
-        return VBox(
-            [button_row, tile_image],
+        tile_widget = VBox(
+            [image_container, button_row],
             layout=Layout(
-                border="1px solid #ccc",
-                padding="2px",
-                width="120px",
-                height="155px",
+                width=f"{img_size + 4}px",
+                height="148px",
                 overflow="hidden",
             ),
         )
+        tile_widget.add_class("tile-card")
+
+        if point_id in self.state.pos_ids:
+            tile_widget.add_class("tile-positive")
+        elif point_id in self.state.neg_ids:
+            tile_widget.add_class("tile-negative")
+
+        return tile_widget
 
     def _make_placeholder_tile(self) -> VBox:
-        message = Label(
+        img_size = 116
+        image_placeholder = Label(
             value="Loading...",
             layout=Layout(
-                width="115px",
-                height="115px",
-                border="1px solid #ccc",
+                width=f"{img_size}px",
+                height=f"{img_size}px",
+                background="linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%)",
                 display="flex",
                 align_items="center",
                 justify_content="center",
                 overflow="hidden",
+                border_radius="6px 6px 0 0",
+                color="#94a3b8",
+                font_size="11px",
             ),
         )
-        spacer = HBox(layout=Layout(height="32px", width="120px", overflow="hidden"))
-        return VBox(
-            [spacer, message],
+        button_placeholder = HBox(
             layout=Layout(
-                border="1px solid #ccc",
-                padding="2px",
-                width="120px",
-                height="155px",
+                height="28px",
+                width="100%",
+                background="#f8fafc",
+                border_radius="0 0 6px 6px",
+            )
+        )
+        placeholder = VBox(
+            [image_placeholder, button_placeholder],
+            layout=Layout(
+                width=f"{img_size + 4}px",
+                height="148px",
                 overflow="hidden",
             ),
         )
+        placeholder.add_class("tile-card")
+        return placeholder
 
     def _update_operation(self, message: Optional[str]) -> None:
         if message:
@@ -530,6 +881,13 @@ class TilePanel:
         else:
             if hasattr(self.map_manager, "clear_operation"):
                 self.map_manager.clear_operation()
+
+    def _update_page_info(self, loaded: int, total: int) -> None:
+        self.page_info_label.value = (
+            f'<span style="color:#64748b;font-size:12px;font-weight:500;">'
+            f'{loaded:,} <span style="color:#94a3b8;">of</span> {total:,}'
+            f"</span>"
+        )
 
     def _handle_label_click(
         self,

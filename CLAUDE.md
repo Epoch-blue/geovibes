@@ -1,9 +1,57 @@
 # CLAUDE.md - GeoVibes Project Guide
+
+## Notification
+
+- IMPORTANT: YOU MUST ALWAYS DO THIS: When you need to send me a notification because you need input or when you have finished a task, please use terminal-notifier tool like this: terminal-notifier -title "🔔 Claude Code: request" -message "Claude needs your permission to use ...", or terminal-notifier -title "✅ Claude Code: done" -message "The task has been completed"
+- Always customise the message using a short summary of the input needed or the task just completed
+
+
 After making changes, commit them with a useful commit message.
 Use `uv run` to run with the correct env strategy
 Do not leave comments unless explicitly asked to
 Do not implement classes unless explicitly necessary, where possible use functions and keep things simple.
 Be parsimonious with code.
+
+## Coding Preferences
+
+- **Fail Fast**: Do not use try-except statements. Let errors surface immediately for faster debugging.
+- **Time All Steps**: When implementing workflows/pipelines, add timing to each step to understand performance characteristics.
+- **Memory Constraints**: Target M1 Mac with 32GB RAM. Plan batch sizes and memory usage accordingly.
+- **Physical Units**: Use proper physical units (e.g., meters for distances, not degrees).
+- **CLI Scripts**: Use argparse for command-line interfaces.
+- **Config Files**: Use YAML/JSON config files for complex parameter sets rather than many CLI arguments.
+- **Docstrings**: Docstrings are acceptable when they add value; prefer them over inline comments.
+- **Integration Tests**: Prefer integration tests where possible over mocking everything.
+
+## Ultrathink Mode
+
+When I say **"ultrathink"**, use extended thinking/deep analysis mode. This means:
+- Thoroughly analyze the problem before proposing solutions
+- Consider multiple approaches and their trade-offs
+- Profile or benchmark when optimizing
+- Run experiments in parallel using subagents when comparing alternatives
+
+## Brainstorm Mode
+
+When I say **"brainstorm"** or **"don't generate any code"**, just discuss ideas without writing implementation code.
+
+## Autonomous Debugging
+
+When I say **"run this yourself and debug issues"** or **"fix issues until it works"**:
+- Execute the code
+- Identify errors
+- Fix them iteratively
+- Continue until the workflow completes successfully
+
+## Clarifying Questions
+
+**Ask clarifying questions when unsure** before proceeding with implementation. Better to clarify upfront than to implement the wrong thing.
+
+## Git Workflow
+
+- **Git Worktrees**: Use git worktrees for feature branches when requested.
+- **Clean Artifacts**: Do not commit generated files, output folders, benchmark scripts, or test data files. Add them to .gitignore instead.
+- **PR Summaries**: When asked, generate summary PR messages suitable for GitHub.
 
 ## Development Approach
 
@@ -39,6 +87,43 @@ Be parsimonious with code.
     - Run `pytest`, `black --check`, and `ruff check` in parallel
     - Deploy multiple Explore agents to investigate different subsystems simultaneously
     - Read multiple test files in parallel when understanding test coverage
+
+## UI/UX Design Guidelines
+
+### Color Palette (Tailwind-inspired)
+- **Primary blue**: `#3b82f6` (buttons, focus states, hover borders)
+- **Primary blue dark**: `#2563eb`, `#1d4ed8` (gradients, hover)
+- **Success green**: `#22c55e` (positive labels)
+- **Danger red**: `#ef4444` (negative labels)
+- **Gray scale**: `#f8fafc`, `#f1f5f9`, `#e2e8f0`, `#cbd5e1`, `#94a3b8`, `#64748b`, `#374151`
+- **Borders**: `rgba(0,0,0,0.06)`, `#e2e8f0`, `#d1d5db`
+
+### ipywidgets Styling Patterns
+- **CSS injection**: Use `HTML` widget with `<style>` tags for custom CSS
+- **Class-based styling**: Use `widget.add_class("class-name")` for CSS targeting
+- **Layout constraints**: Always set explicit `overflow: hidden` to prevent unwanted scrollbars
+- **Gradients**: Use `linear-gradient()` for subtle depth on containers
+
+### Card Design
+- **Border radius**: 6-8px for cards, 12px for containers
+- **Shadows**: `0 1px 3px rgba(0,0,0,0.08)` (subtle), `0 4px 20px rgba(0,0,0,0.15)` (elevated)
+- **Hover states**: Lift with `transform: translateY(-2px)` and enhanced shadow
+- **Border feedback**: 2px transparent border, colored on hover/active states
+
+### Typography
+- **Font sizes**: 10px (badges), 11px (small labels), 12px (body), 13px (buttons)
+- **Font weights**: 500 (medium), 600 (semibold for emphasis)
+- **Number formatting**: Use `:,` format specifier for thousands separators
+
+### Layout Principles
+- **Image-first**: Show visual content before actions (natural reading order)
+- **Rank indicators**: Display position (#1, #2...) for ranked results
+- **Fixed headers/footers**: Keep controls accessible, only scroll content
+- **Match heights**: Panel components should align with adjacent UI elements
+
+### Alternative Layouts Considered
+- **Horizontal carousel**: Better for ranked results, preserves map width, familiar pattern (Netflix/YouTube)
+- **Vertical sidebar** (current): Familiar pattern, doesn't take vertical space
 
 ## Project Overview
 

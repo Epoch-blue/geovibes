@@ -511,6 +511,7 @@ class GeoVibes:
         file_info = change["new"][0]
         content = DatasetManager.read_upload_content(file_info["content"])
         try:
+            self.reset_all()
             self.dataset_manager.load_from_content(content, file_info["name"])
             if self.state.detection_mode:
                 # Show detection controls
