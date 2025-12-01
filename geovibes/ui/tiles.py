@@ -209,7 +209,7 @@ class TilePanel:
             layout=Layout(
                 width="100%",
                 height="32px",
-                display="none",
+                display="flex",
                 justify_content="center",
             ),
         )
@@ -218,13 +218,27 @@ class TilePanel:
 
         self.next_tiles_btn = self.load_more_btn
 
-        header = HBox(
+        header_row = HBox(
             [self.tile_basemap_dropdown, self.page_info_label],
             layout=Layout(
                 align_items="center",
-                padding="8px",
+                padding="8px 8px 4px 8px",
                 width="100%",
             ),
+        )
+
+        # Load More button row - placed below header, always visible
+        load_more_row = HBox(
+            [self.load_more_btn],
+            layout=Layout(
+                padding="0 8px 8px 8px",
+                width="100%",
+            ),
+        )
+
+        header = VBox(
+            [header_row, load_more_row],
+            layout=Layout(width="100%"),
         )
         header.add_class("tile-header")
 
@@ -238,43 +252,25 @@ class TilePanel:
             ),
         )
 
-        tile_height = 148
-        grid_gap = 8
-        visible_rows = 4
-        scroll_height = (tile_height + grid_gap) * visible_rows
-
         self.scroll_area = VBox(
             [self.results_grid],
             layout=Layout(
                 width="100%",
-                height=f"{scroll_height}px",
-                min_height=f"{scroll_height}px",
-                max_height=f"{scroll_height}px",
                 overflow_y="auto",
                 overflow_x="hidden",
-                flex="0 0 auto",
+                flex="1 1 auto",
             ),
         )
         self.scroll_area.add_class("tile-scroll-area")
 
-        footer = HBox(
-            [self.load_more_btn],
-            layout=Layout(
-                padding="8px",
-                width="100%",
-                flex="0 0 auto",
-            ),
-        )
-        footer.add_class("tile-footer")
-
         self.container = VBox(
-            [self._css_widget, header, self.scroll_area, footer],
+            [self._css_widget, header, self.scroll_area],
             layout=Layout(
                 display="none",
                 width="270px",
                 padding="0px",
                 border_radius="8px",
-                overflow="hidden",
+                overflow_x="hidden",
             ),
         )
         self.container.add_class("tile-panel-container")
@@ -302,7 +298,7 @@ class TilePanel:
 
     def toggle(self) -> None:
         if self.container.layout.display == "none":
-            self.container.layout.display = "block"
+            self.container.layout.display = "flex"
             if (
                 not self.results_ready
                 and self.state.last_search_results_df is not None
@@ -317,7 +313,7 @@ class TilePanel:
             self.container.layout.display = "none"
 
     def show(self) -> None:
-        self.container.layout.display = "block"
+        self.container.layout.display = "flex"
 
     def hide(self) -> None:
         self.container.layout.display = "none"
