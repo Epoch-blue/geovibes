@@ -13,10 +13,13 @@ from geovibes.ui.map_manager import MapManager
 
 def _setup_layer_manager_mocks(manager):
     """Set up mock layer manager widget attributes for testing."""
-    manager._layer_rows = SimpleNamespace(children=())
-    manager._layer_manager_container = SimpleNamespace(
-        layout=SimpleNamespace(display="none")
+    manager._layer_rows = SimpleNamespace(children=[])
+    container = SimpleNamespace(
+        _visible=False,
+        show=lambda: setattr(container, "_visible", True),
+        hide=lambda: setattr(container, "_visible", False),
     )
+    manager._layer_manager_container = container
     manager._create_layer_row = lambda name, opacity: SimpleNamespace(name=name)
 
 
@@ -179,29 +182,23 @@ def test_add_ee_layer_raises_when_ee_unavailable():
 def test_refresh_layer_manager_shows_widget_when_layers_exist():
     manager = MapManager.__new__(MapManager)
     manager._overlay_layers = {"test": SimpleNamespace(opacity=0.5)}
-    manager._layer_rows = SimpleNamespace(children=())
-    manager._layer_manager_container = SimpleNamespace(
-        layout=SimpleNamespace(display="none")
-    )
-    manager._create_layer_row = lambda name, opacity: SimpleNamespace(name=name)
+    _setup_layer_manager_mocks(manager)
 
     manager._refresh_layer_manager()
 
-    assert manager._layer_manager_container.layout.display == "flex"
+    assert manager._layer_manager_container._visible is True
     assert len(manager._layer_rows.children) == 1
 
 
 def test_refresh_layer_manager_hides_widget_when_no_layers():
     manager = MapManager.__new__(MapManager)
     manager._overlay_layers = {}
-    manager._layer_rows = SimpleNamespace(children=())
-    manager._layer_manager_container = SimpleNamespace(
-        layout=SimpleNamespace(display="flex")
-    )
+    _setup_layer_manager_mocks(manager)
+    manager._layer_manager_container._visible = True
 
     manager._refresh_layer_manager()
 
-    assert manager._layer_manager_container.layout.display == "none"
+    assert manager._layer_manager_container._visible is False
     assert len(manager._layer_rows.children) == 0
 
 
@@ -210,18 +207,15 @@ def test_add_tile_layer_refreshes_layer_manager():
     manager._overlay_layers = {}
     manager.basemap_layer = SimpleNamespace(name="basemap")
     manager.map = SimpleNamespace(layers=(manager.basemap_layer,))
-    manager._layer_rows = SimpleNamespace(children=())
-    manager._layer_manager_container = SimpleNamespace(
-        layout=SimpleNamespace(display="none")
-    )
+    _setup_layer_manager_mocks(manager)
 
     refresh_calls = []
 
-    def mock_refresh(self):
+    def mock_refresh():
         refresh_calls.append(True)
-        manager._layer_manager_container.layout.display = "flex"
+        manager._layer_manager_container._visible = True
 
-    manager._refresh_layer_manager = lambda: mock_refresh(manager)
+    manager._refresh_layer_manager = mock_refresh
     manager._insert_overlay_layer = lambda layer: None
 
     manager.add_tile_layer("http://tiles/{z}/{x}/{y}.png", "test", 0.7)
@@ -237,16 +231,14 @@ def test_remove_layer_refreshes_layer_manager():
         layers=(layer,),
         remove_layer=lambda lyr: None,
     )
-    manager._layer_rows = SimpleNamespace(children=())
-    manager._layer_manager_container = SimpleNamespace(
-        layout=SimpleNamespace(display="flex")
-    )
+    _setup_layer_manager_mocks(manager)
+    manager._layer_manager_container._visible = True
 
     refresh_calls = []
 
     def mock_refresh():
         refresh_calls.append(True)
-        manager._layer_manager_container.layout.display = "none"
+        manager._layer_manager_container._visible = False
 
     manager._refresh_layer_manager = mock_refresh
 

@@ -74,6 +74,7 @@ dependencies = [
     "voila",
     "playwright>=1.56.0",
     "xgboost>=2.0.0",
+    "ipyvuetify>=1.11.3",
 ]
 
 

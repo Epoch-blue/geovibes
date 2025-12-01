@@ -11,7 +11,8 @@ import ipywidgets as ipyw
 import shapely.geometry
 import shapely.geometry.base
 from ipyleaflet import DrawControl, Map
-from ipywidgets import Button, FloatSlider, HTML, HBox, Label, Layout, VBox
+import ipyvuetify as v
+from ipywidgets import HTML, HBox, Layout, VBox
 from tqdm import tqdm
 
 from geovibes.ee_tools import (
@@ -383,29 +384,21 @@ class MapManager:
     # ------------------------------------------------------------------
 
     def _build_layer_manager(self) -> ipyl.WidgetControl:
-        style_css = HTML(
-            """<style>
-            .layer-btn {
-                border-radius: 4px !important;
-                display: flex !important;
-                align-items: center !important;
-                justify-content: center !important;
-            }
-            </style>"""
-        )
-        self._layer_rows = VBox(
-            [], layout=Layout(max_height="200px", overflow_y="auto")
-        )
-        header = Label("Layers", style={"font_weight": "bold", "font_size": "12px"})
-        self._layer_manager_container = VBox(
-            [style_css, header, self._layer_rows],
-            layout=Layout(padding="8px", min_width="180px"),
+        self._layer_rows = v.Col(children=[], class_="pa-0 ma-0")
+        self._layer_manager_container = v.Card(
+            children=[
+                v.CardTitle(children=["Layers"], class_="pa-2 text-subtitle-2"),
+                self._layer_rows,
+            ],
+            class_="ma-0",
+            style_="min-width: 160px; max-width: 160px;",
+            elevation=2,
         )
         control = ipyl.WidgetControl(
             widget=self._layer_manager_container,
             position="topleft",
         )
-        self._layer_manager_container.layout.display = "none"
+        self._layer_manager_container.hide()
         self.map.add_control(control)
         return control
 
@@ -415,44 +408,57 @@ class MapManager:
             layer = self._overlay_layers[name]
             row = self._create_layer_row(name, layer.opacity)
             rows.append(row)
-        self._layer_rows.children = tuple(rows)
-        self._layer_manager_container.layout.display = "flex" if rows else "none"
+        self._layer_rows.children = rows
+        if rows:
+            self._layer_manager_container.show()
+        else:
+            self._layer_manager_container.hide()
 
-    def _create_layer_row(self, name: str, opacity: float) -> HBox:
-        label = Label(
-            name,
-            layout=Layout(width="90px", overflow="hidden"),
-            style={"font_size": "11px"},
-        )
-        slider = FloatSlider(
-            value=opacity,
+    def _create_layer_row(self, name: str, opacity: float) -> v.Row:
+        slider = v.Slider(
+            v_model=opacity,
             min=0,
             max=1,
             step=0.05,
-            readout=False,
-            layout=Layout(width="70px"),
+            hide_details=True,
+            dense=True,
+            class_="ma-0 pa-0",
+            style_="max-width: 60px;",
         )
 
-        def on_opacity_change(change, layer_name=name):
+        def on_opacity_change(widget, event, data, layer_name=name):
             if layer_name in self._overlay_layers:
-                self._overlay_layers[layer_name].opacity = change["new"]
+                self._overlay_layers[layer_name].opacity = data
 
-        slider.observe(on_opacity_change, names="value")
-        remove_btn = Button(
-            icon="times",
-            layout=Layout(width="24px", height="24px", padding="0"),
-            button_style="danger",
-            tooltip=f"Remove {name}",
+        slider.on_event("input", on_opacity_change)
+
+        remove_btn = v.Btn(
+            icon=True,
+            x_small=True,
+            children=[v.Icon(children=["mdi-close"], x_small=True)],
+            color="error",
+            class_="ma-0",
         )
-        remove_btn.add_class("layer-btn")
 
-        def on_remove(_, layer_name=name):
+        def on_remove(widget, event, data, layer_name=name):
             self.remove_layer(layer_name)
 
-        remove_btn.on_click(on_remove)
-        return HBox(
-            [label, slider, remove_btn],
-            layout=Layout(margin="2px 0", align_items="center"),
+        remove_btn.on_event("click", on_remove)
+
+        return v.Row(
+            children=[
+                v.Html(
+                    tag="span",
+                    children=[name],
+                    class_="text-caption text-truncate",
+                    style_="max-width: 70px; flex-shrink: 0;",
+                ),
+                slider,
+                remove_btn,
+            ],
+            class_="ma-0 pa-1 align-center",
+            dense=True,
+            no_gutters=True,
         )
 
     # ------------------------------------------------------------------
