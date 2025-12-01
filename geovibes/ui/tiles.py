@@ -252,13 +252,21 @@ class TilePanel:
             ),
         )
 
+        # Fixed height for scroll area: 4 rows of tiles
+        tile_height = 148
+        grid_gap = 8
+        visible_rows = 4
+        scroll_height = (tile_height + grid_gap) * visible_rows
+
         self.scroll_area = VBox(
             [self.results_grid],
             layout=Layout(
                 width="100%",
+                height=f"{scroll_height}px",
+                min_height=f"{scroll_height}px",
+                max_height=f"{scroll_height}px",
                 overflow_y="auto",
                 overflow_x="hidden",
-                flex="1 1 auto",
             ),
         )
         self.scroll_area.add_class("tile-scroll-area")
@@ -271,6 +279,7 @@ class TilePanel:
                 padding="0px",
                 border_radius="8px",
                 overflow_x="hidden",
+                overflow_y="hidden",
             ),
         )
         self.container.add_class("tile-panel-container")
