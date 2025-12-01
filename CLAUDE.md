@@ -218,6 +218,50 @@ Pre-built indexes available for:
 - Google Satellite Embeddings v1 (AlphaEarth)
 - Clay v1.5 NAIP embeddings
 
+## UI Preview Workflow (Visual Testing)
+
+For iterating on UI changes, use Voila + Playwright to preview and capture screenshots.
+
+**Tools location:** `claude_ui_dev/`
+- `test_tile_panel.ipynb` - Test notebook that programmatically triggers UI state
+- `screenshot_ui.py` - Playwright-based headless screenshot capture
+- `preview_ui.sh` - Convenience wrapper script
+
+### Quick Start
+
+```bash
+# Install playwright (one-time)
+uv add playwright && uv run playwright install chromium
+
+# Start Voila in background (port 8866)
+cd claude_ui_dev
+uv run voila test_tile_panel.ipynb --port=8866 --no-browser &
+
+# Take screenshot after UI loads
+./preview_ui.sh my_screenshot.png 10
+
+# Or with full control
+uv run python screenshot_ui.py --output tile_panel_v2.png --wait 15 --width 1600 --height 900
+
+# Kill Voila when done
+pkill -f "voila test_tile_panel"
+```
+
+### Iterative Design Loop
+
+1. Make UI changes in `geovibes/ui/*.py`
+2. Restart Voila (or use `--autoreload=True`)
+3. Take screenshot: `./preview_ui.sh iteration_N.png 10`
+4. Review screenshot, iterate
+5. Compare versions side-by-side
+
+### Test Notebook Customization
+
+Edit `claude_ui_dev/test_tile_panel.ipynb` to:
+- Change coordinates to match your database coverage
+- Trigger specific UI states (detection mode, different basemaps, etc.)
+- Test specific workflows programmatically
+
 ## Troubleshooting
 
 ### "No downloaded models found"
