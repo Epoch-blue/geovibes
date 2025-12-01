@@ -18,19 +18,17 @@ import faiss
 import pyproj
 from IPython.display import display
 from ipywidgets import (
-    Accordion,
     Button,
-    Dropdown,
     FileUpload,
     FloatSlider,
     FloatText,
     HBox,
-    IntSlider,
+    HTML,
     Label,
     Layout,
-    ToggleButtons,
     VBox,
 )
+import ipyvuetify as v
 
 from geovibes.ui_config import BasemapConfig, UIConstants
 from geovibes.ui.data_manager import DataManager
@@ -42,6 +40,74 @@ from geovibes.ui.tiles import TilePanel
 from geovibes.ui.utils import log_to_file
 
 warnings.simplefilter("ignore", category=FutureWarning)
+
+SIDE_PANEL_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
+.geovibes-panel {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+}
+
+.geovibes-panel .v-btn {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    text-transform: none !important;
+    letter-spacing: 0.3px !important;
+}
+
+.geovibes-panel .v-btn__content {
+    font-weight: 500 !important;
+}
+
+.geovibes-panel .v-expansion-panel-header {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    min-height: 40px !important;
+    padding: 8px 16px !important;
+}
+
+.geovibes-panel .v-expansion-panel-content__wrap {
+    padding: 8px 16px 16px !important;
+}
+
+.geovibes-panel .section-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+    display: block;
+}
+
+.geovibes-panel .v-card {
+    margin-bottom: 8px !important;
+}
+
+.geovibes-panel .v-btn-toggle {
+    width: 100%;
+}
+
+.geovibes-panel .v-btn-toggle .v-btn {
+    flex: 1 !important;
+    height: 32px !important;
+}
+
+.geovibes-panel .v-slider {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+}
+
+.geovibes-panel .v-select {
+    font-size: 12px !important;
+}
+
+.geovibes-panel .v-select .v-input__slot {
+    min-height: 36px !important;
+}
+</style>
+"""
 
 if not BasemapConfig.MAPTILER_API_KEY:
     warnings.warn(
@@ -159,91 +225,111 @@ class GeoVibes:
         self.main_layout = self.map_manager.make_layout(self.side_panel)
 
     def _build_side_panel(self):
-        self.search_btn = Button(
-            description="Search",
-            layout=Layout(flex="1", height=UIConstants.BUTTON_HEIGHT),
-            button_style="success",
-            tooltip="Find points similar to your positive labels",
-        )
-        self.tiles_button = Button(
-            description="",
-            icon="th",
-            layout=Layout(width="40px", height=UIConstants.BUTTON_HEIGHT),
-            tooltip="View search results as tiles",
-        )
-        search_controls = HBox([self.search_btn, self.tiles_button])
+        css_widget = HTML(SIDE_PANEL_CSS)
 
-        self.neighbors_slider = IntSlider(
-            value=UIConstants.DEFAULT_NEIGHBORS,
+        # Search section with ipyvuetify
+        self.search_btn = v.Btn(
+            color="primary",
+            class_="flex-grow-1",
+            children=["Search"],
+        )
+        self.tiles_button = v.Btn(
+            color="grey lighten-3",
+            small=True,
+            icon=True,
+            children=[v.Icon(children=["mdi-view-grid"])],
+        )
+        search_row = v.Row(
+            no_gutters=True,
+            class_="mb-2",
+            children=[
+                v.Col(cols=9, class_="pr-1", children=[self.search_btn]),
+                v.Col(
+                    cols=3,
+                    class_="pl-1 d-flex justify-end",
+                    children=[self.tiles_button],
+                ),
+            ],
+        )
+
+        self.neighbors_slider = v.Slider(
+            v_model=UIConstants.DEFAULT_NEIGHBORS,
             min=UIConstants.MIN_NEIGHBORS,
             max=UIConstants.MAX_NEIGHBORS,
             step=UIConstants.NEIGHBORS_STEP,
-            layout=Layout(width="100%"),
+            thumb_label=True,  # Only show on drag, not always
+            hide_details=True,
+            class_="mt-0 flex-grow-1",
         )
-        self.reset_btn = Button(
-            description="🗑️ Reset",
-            layout=Layout(width="100%", height=UIConstants.RESET_BUTTON_HEIGHT),
-            tooltip="Clear all labels and search results",
+        self.neighbors_label = v.Html(
+            tag="span",
+            class_="text-body-2 font-weight-medium ml-2",
+            children=[str(UIConstants.DEFAULT_NEIGHBORS)],
+            style_="min-width: 45px; text-align: right;",
         )
-        search_section = VBox(
-            [search_controls, self.neighbors_slider, self.reset_btn],
-            layout=Layout(padding="5px", margin="0 0 10px 0"),
-        )
-
-        self.label_toggle = ToggleButtons(
-            options=[
-                ("Positive", "Positive"),
-                ("Negative", "Negative"),
-                ("Erase", "Erase"),
+        slider_row = v.Row(
+            no_gutters=True,
+            align="center",
+            children=[
+                v.Col(cols=10, class_="pa-0", children=[self.neighbors_slider]),
+                v.Col(
+                    cols=2,
+                    class_="pa-0 d-flex justify-end",
+                    children=[self.neighbors_label],
+                ),
             ],
-            value="Positive",
-            layout=Layout(width="100%"),
-        )
-        self.selection_mode = ToggleButtons(
-            options=[("Point", "point"), ("Polygon", "polygon")],
-            value="point",
-            layout=Layout(width="100%"),
         )
 
-        # Basemap buttons
-        self.basemap_buttons = {}
-        basemap_widgets = []
-        for name in self.map_manager.basemap_tiles.keys():
-            btn = Button(
-                description=name.replace("_", " "),
-                layout=Layout(width="100%", margin="1px"),
-            )
-            btn.basemap_name = name
-            self.basemap_buttons[name] = btn
-            basemap_widgets.append(btn)
-        self._update_basemap_button_styles()
+        search_card = v.Card(
+            outlined=True,
+            class_="section-card pa-3",
+            children=[search_row, slider_row],
+        )
 
-        # Dataset and external tools
-        self.save_btn = Button(
-            description="💾 Save Dataset", layout=Layout(width="100%")
+        # Label toggle with ipyvuetify BtnToggle
+        self._label_values = ["Positive", "Negative", "Erase"]
+        self.label_toggle = v.BtnToggle(
+            v_model=0,
+            mandatory=True,
+            class_="d-flex",
+            children=[
+                v.Btn(small=True, children=["✓ Pos"]),
+                v.Btn(small=True, children=["✗ Neg"]),
+                v.Btn(small=True, children=["⌫ Erase"]),
+            ],
         )
-        self.load_btn = Button(
-            description="📂 Load Dataset", layout=Layout(width="100%")
+
+        label_card = v.Card(
+            outlined=True,
+            class_="section-card pa-3",
+            children=[
+                v.Html(tag="span", class_="section-label", children=["LABEL"]),
+                self.label_toggle,
+            ],
         )
-        self.file_upload = FileUpload(
-            accept=".geojson,.parquet",
-            multiple=False,
-            layout=Layout(width="100%", display="none"),
+
+        # Mode toggle with ipyvuetify BtnToggle
+        self._mode_values = ["point", "polygon"]
+        self.selection_mode = v.BtnToggle(
+            v_model=0,
+            mandatory=True,
+            class_="d-flex",
+            children=[
+                v.Btn(small=True, children=["• Point"]),
+                v.Btn(small=True, children=["▢ Polygon"]),
+            ],
         )
-        self.add_vector_btn = Button(
-            description="📄 Add Vector Layer",
-            layout=Layout(width="100%"),
+
+        mode_card = v.Card(
+            outlined=True,
+            class_="section-card pa-3",
+            children=[
+                v.Html(tag="span", class_="section-label", children=["MODE"]),
+                self.selection_mode,
+            ],
         )
-        self.vector_file_upload = FileUpload(
-            accept=".geojson,.parquet",
-            multiple=False,
-            layout=Layout(width="100%", display="none"),
-        )
-        self.google_maps_btn = Button(
-            description="🌍 Google Maps ↗",
-            layout=Layout(width="100%"),
-        )
-        # Detection controls - threshold slider with text input
+
+        # Detection controls (keep ipywidgets for sliders with text input)
         self.detection_threshold_slider = FloatSlider(
             value=0.5,
             min=0.0,
@@ -264,84 +350,147 @@ class GeoVibes:
             value="",
             layout=Layout(width="100%"),
         )
-        self.detection_controls = VBox(
-            [
-                Label("Probability Threshold:"),
+        self.detection_controls = v.Card(
+            outlined=True,
+            class_="section-card pa-3",
+            style_="display: none;",
+            children=[
+                v.Html(
+                    tag="span", class_="section-label", children=["DETECTION THRESHOLD"]
+                ),
                 HBox(
                     [self.detection_threshold_slider, self.detection_threshold_text],
                     layout=Layout(align_items="center", width="100%"),
                 ),
                 self.detection_status_label,
             ],
-            layout=Layout(display="none", padding="5px", width="100%"),
         )
 
-        # Database dropdown
-        database_section_widgets = []
+        # Database dropdown with ipyvuetify
         if getattr(self.data, "available_databases", []):
-            options = [
-                (
-                    entry.get("display_name", entry["db_path"]),
-                    entry["db_path"],
-                )
+            db_items = [
+                {
+                    "text": entry.get("display_name", entry["db_path"]),
+                    "value": entry["db_path"],
+                }
                 for entry in self.data.available_databases
             ]
-            self.database_dropdown = Dropdown(
-                options=options,
-                value=self.data.current_database_path,
-                layout=Layout(width="100%"),
+            self.database_dropdown = v.Select(
+                v_model=self.data.current_database_path,
+                items=db_items,
+                dense=True,
+                outlined=True,
+                hide_details=True,
             )
-            database_section_widgets.append(Label("Select Database:"))
-            database_section_widgets.append(self.database_dropdown)
         else:
             self.database_dropdown = None
 
-        accordion_children = []
-        accordion_titles = []
-        if database_section_widgets:
-            accordion_children.append(
-                VBox(database_section_widgets, layout=Layout(padding="5px"))
+        # Basemap buttons with ipyvuetify
+        self.basemap_buttons = {}
+        basemap_widgets = []
+        for name in self.map_manager.basemap_tiles.keys():
+            btn = v.Btn(
+                block=True,
+                small=True,
+                class_="my-1 text-none",
+                children=[name.replace("_", " ")],
             )
-            accordion_titles.append("Database")
+            btn.basemap_name = name
+            self.basemap_buttons[name] = btn
+            basemap_widgets.append(btn)
 
-        accordion_children.extend(
-            [
-                VBox(
-                    [
-                        Label("Label Type:"),
-                        self.label_toggle,
-                        Label("Selection Mode:", layout=Layout(margin="10px 0 0 0")),
-                        self.selection_mode,
-                    ],
-                    layout=Layout(padding="5px"),
-                ),
-                VBox(basemap_widgets, layout=Layout(padding="5px")),
-                VBox(
-                    [
-                        self.save_btn,
-                        self.load_btn,
-                        self.file_upload,
-                        self.add_vector_btn,
-                        self.vector_file_upload,
-                        self.google_maps_btn,
-                    ],
-                    layout=Layout(padding="5px"),
-                ),
-            ]
+        # Export buttons with ipyvuetify
+        self.save_btn = v.Btn(
+            block=True,
+            small=True,
+            class_="my-1 text-none",
+            children=["💾 Save Dataset"],
         )
-        accordion_titles.extend(["Label Mode", "Basemaps", "Export & Tools"])
-
-        # Detection controls accordion section (added dynamically when in detection mode)
-        self.detection_accordion_section = VBox(
-            [self.detection_controls],
-            layout=Layout(padding="5px"),
+        self.load_btn = v.Btn(
+            block=True,
+            small=True,
+            class_="my-1 text-none",
+            children=["📂 Load Dataset"],
+        )
+        self.file_upload = FileUpload(
+            accept=".geojson,.parquet",
+            multiple=False,
+            layout=Layout(width="100%", display="none"),
+        )
+        self.add_vector_btn = v.Btn(
+            block=True,
+            small=True,
+            class_="my-1 text-none",
+            children=["📄 Add Vector Layer"],
+        )
+        self.vector_file_upload = FileUpload(
+            accept=".geojson,.parquet",
+            multiple=False,
+            layout=Layout(width="100%", display="none"),
+        )
+        self.google_maps_btn = v.Btn(
+            block=True,
+            small=True,
+            class_="my-1 text-none",
+            children=["🌍 Google Maps ↗"],
         )
 
-        accordion = Accordion(children=accordion_children)
-        for idx, title in enumerate(accordion_titles):
-            accordion.set_title(idx, title)
-        accordion.selected_index = 0
+        # Build expansion panels
+        expansion_panels = []
 
+        if self.database_dropdown:
+            expansion_panels.append(
+                v.ExpansionPanel(
+                    children=[
+                        v.ExpansionPanelHeader(children=["Database"]),
+                        v.ExpansionPanelContent(children=[self.database_dropdown]),
+                    ]
+                )
+            )
+
+        expansion_panels.append(
+            v.ExpansionPanel(
+                children=[
+                    v.ExpansionPanelHeader(children=["Basemaps"]),
+                    v.ExpansionPanelContent(children=basemap_widgets),
+                ]
+            )
+        )
+
+        expansion_panels.append(
+            v.ExpansionPanel(
+                children=[
+                    v.ExpansionPanelHeader(children=["Export & Tools"]),
+                    v.ExpansionPanelContent(
+                        children=[
+                            self.save_btn,
+                            self.load_btn,
+                            self.file_upload,
+                            self.add_vector_btn,
+                            self.vector_file_upload,
+                            self.google_maps_btn,
+                        ]
+                    ),
+                ]
+            )
+        )
+
+        self.accordion_container = v.ExpansionPanels(
+            accordion=True,
+            flat=True,
+            children=expansion_panels,
+        )
+
+        # Reset button
+        self.reset_btn = v.Btn(
+            block=True,
+            color="error",
+            outlined=True,
+            class_="mt-3 text-none",
+            children=["🗑️ Reset All"],
+        )
+
+        # Collapse button (keep ipywidgets for simplicity)
         self.collapse_btn = Button(
             description="◀",
             layout=Layout(
@@ -352,21 +501,22 @@ class GeoVibes:
         )
         self.panel_collapsed = False
 
-        panel_header = HBox(
-            [Label("Controls", layout=Layout(flex="1")), self.collapse_btn],
-            layout=Layout(width="100%", justify_content="space-between", padding="2px"),
-        )
-        self.accordion_container = VBox([accordion], layout=Layout(width="100%"))
-
+        # Wrap in VBox with ipyvuetify components
         panel = VBox(
             [
-                panel_header,
-                search_section,
+                css_widget,
+                search_card,
+                label_card,
+                mode_card,
                 self.detection_controls,
                 self.accordion_container,
+                self.reset_btn,
             ],
-            layout=Layout(width=UIConstants.PANEL_WIDTH, padding="5px"),
+            layout=Layout(
+                width=UIConstants.PANEL_WIDTH, padding="8px", overflow="hidden"
+            ),
         )
+        panel.add_class("geovibes-panel")
 
         ui_widgets = {
             "search_btn": self.search_btn,
@@ -393,28 +543,47 @@ class GeoVibes:
     # ------------------------------------------------------------------
 
     def _wire_events(self) -> None:
-        self.search_btn.on_click(self.search_click)
-        self.reset_btn.on_click(self.reset_all)
-        self.tiles_button.on_click(lambda _b: self.tile_panel.toggle())
-        self.label_toggle.observe(self._on_label_change, names="value")
-        self.selection_mode.observe(self._on_selection_mode_change, names="value")
+        # ipyvuetify buttons use on_event instead of on_click
+        self.search_btn.on_event("click", lambda *args: self.search_click(None))
+        self.reset_btn.on_event("click", lambda *args: self.reset_all(None))
+        self.tiles_button.on_event("click", lambda *args: self.tile_panel.toggle())
+
+        # BtnToggle uses v_model (index) instead of value
+        self.label_toggle.observe(self._on_label_change, names="v_model")
+        self.selection_mode.observe(self._on_selection_mode_change, names="v_model")
+
+        # Slider label update
+        self.neighbors_slider.observe(self._on_neighbors_slider_change, names="v_model")
+
+        # Basemap buttons
         for name, btn in self.basemap_buttons.items():
-            btn.on_click(lambda _b, basemap=name: self._on_basemap_select(basemap))
+            btn.on_event(
+                "click", lambda *args, basemap=name: self._on_basemap_select(basemap)
+            )
+
+        # Database dropdown uses v_model
         if self.database_dropdown:
-            self.database_dropdown.observe(self._on_database_change, names="value")
+            self.database_dropdown.observe(self._on_database_change, names="v_model")
+
         self.collapse_btn.on_click(self._on_toggle_collapse)
 
-        self.save_btn.on_click(lambda _b: self._handle_save_dataset())
-        self.load_btn.on_click(
-            lambda btn: DatasetManager.toggle_upload(
-                btn, self.file_upload, "📂 Cancel Load", "📂 Load Dataset"
-            )
+        # Export buttons
+        self.save_btn.on_event("click", lambda *args: self._handle_save_dataset())
+        self.load_btn.on_event(
+            "click",
+            lambda *args: self._toggle_vuetify_upload(
+                self.load_btn, self.file_upload, "📂 Cancel Load", "📂 Load Dataset"
+            ),
         )
         self.file_upload.observe(self._on_file_upload, names="value")
-        self.add_vector_btn.on_click(
-            lambda btn: DatasetManager.toggle_upload(
-                btn, self.vector_file_upload, "📄 Cancel Vector", "📄 Add Vector Layer"
-            )
+        self.add_vector_btn.on_event(
+            "click",
+            lambda *args: self._toggle_vuetify_upload(
+                self.add_vector_btn,
+                self.vector_file_upload,
+                "📄 Cancel Vector",
+                "📄 Add Vector Layer",
+            ),
         )
         self.vector_file_upload.observe(self._on_vector_upload, names="value")
         self.detection_threshold_slider.observe(
@@ -423,7 +592,9 @@ class GeoVibes:
         self.detection_threshold_text.observe(
             self._on_detection_threshold_text_change, names="value"
         )
-        self.google_maps_btn.on_click(self._on_google_maps_click)
+        self.google_maps_btn.on_event(
+            "click", lambda *args: self._on_google_maps_click(None)
+        )
 
         self.map_manager.register_draw_handler(self._handle_draw)
         self.map_manager.map.on_interaction(self._on_map_interaction)
@@ -433,14 +604,37 @@ class GeoVibes:
     # ------------------------------------------------------------------
 
     def _on_label_change(self, change) -> None:
-        self.state.set_label_mode(change["new"])
-        self._update_status()
+        # v_model gives us an index, convert to value
+        idx = change["new"]
+        if idx is not None and 0 <= idx < len(self._label_values):
+            value = self._label_values[idx]
+            self.state.set_label_mode(value)
+            self._update_status()
 
     def _on_selection_mode_change(self, change) -> None:
-        self.state.selection_mode = change["new"]
-        self.state.lasso_mode = change["new"] == "polygon"
-        self.state.execute_label_point = change["new"] != "polygon"
-        self._update_status()
+        # v_model gives us an index, convert to value
+        idx = change["new"]
+        if idx is not None and 0 <= idx < len(self._mode_values):
+            value = self._mode_values[idx]
+            self.state.selection_mode = value
+            self.state.lasso_mode = value == "polygon"
+            self.state.execute_label_point = value != "polygon"
+            self._update_status()
+
+    def _toggle_vuetify_upload(
+        self, btn, file_upload, cancel_text: str, default_text: str
+    ) -> None:
+        if file_upload.layout.display == "none":
+            file_upload.layout.display = "block"
+            btn.children = [cancel_text]
+        else:
+            file_upload.layout.display = "none"
+            btn.children = [default_text]
+
+    def _on_neighbors_slider_change(self, change) -> None:
+        value = change["new"]
+        if value is not None:
+            self.neighbors_label.children = [f"{value:,}"]
 
     def _on_basemap_select(self, basemap_name: str) -> None:
         self.map_manager.update_basemap(basemap_name)
@@ -472,7 +666,7 @@ class GeoVibes:
             self.map_manager.update_boundary_layer(self.data.effective_boundary_path)
             self.reset_all()
             if self.database_dropdown:
-                self.database_dropdown.value = new_path
+                self.database_dropdown.v_model = new_path
         except Exception as exc:
             if self.verbose:
                 print(f"❌ Failed to switch database: {exc}")
@@ -812,7 +1006,7 @@ class GeoVibes:
         self._search_faiss()
 
     def _search_faiss(self) -> None:
-        n_neighbors = self.neighbors_slider.value
+        n_neighbors = self.neighbors_slider.v_model
         all_labeled = self.state.pos_ids + self.state.neg_ids
         extra_results = min(len(all_labeled), n_neighbors // 2)
         total_requested = n_neighbors + extra_results
@@ -1272,9 +1466,12 @@ class GeoVibes:
 
     def _update_basemap_button_styles(self) -> None:
         for name, btn in self.basemap_buttons.items():
-            btn.button_style = (
-                "info" if name == self.map_manager.current_basemap else ""
-            )
+            if name == self.map_manager.current_basemap:
+                btn.color = "primary"
+                btn.outlined = False
+            else:
+                btn.color = None
+                btn.outlined = True
 
     @staticmethod
     def _empty_collection() -> Dict:
