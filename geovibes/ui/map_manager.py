@@ -11,7 +11,7 @@ import ipywidgets as ipyw
 import shapely.geometry
 import shapely.geometry.base
 from ipyleaflet import DrawControl, Map
-from ipywidgets import HTML, HBox, Layout, VBox
+from ipywidgets import Button, FloatSlider, HTML, HBox, Label, Layout, VBox
 from tqdm import tqdm
 
 from geovibes.ee_tools import (
@@ -61,6 +61,7 @@ class MapManager:
 
         self._add_map_layers()
         self.draw_control = self._setup_draw_control()
+        self._layer_manager_control = self._build_layer_manager()
         self.update_status()
 
     # ------------------------------------------------------------------
@@ -377,6 +378,78 @@ class MapManager:
         )
 
     # ------------------------------------------------------------------
+    # Layer manager widget
+    # ------------------------------------------------------------------
+
+    def _build_layer_manager(self) -> ipyl.WidgetControl:
+        self._layer_rows = VBox(
+            [], layout=Layout(max_height="200px", overflow_y="auto")
+        )
+        header = Label(
+            "Overlay Layers",
+            style={"font_weight": "bold", "font_size": "12px"},
+        )
+        self._layer_manager_container = VBox(
+            [header, self._layer_rows],
+            layout=Layout(
+                padding="8px",
+                min_width="180px",
+            ),
+        )
+        control = ipyl.WidgetControl(
+            widget=self._layer_manager_container,
+            position="bottomright",
+        )
+        self._layer_manager_container.layout.display = "none"
+        self.map.add_control(control)
+        return control
+
+    def _refresh_layer_manager(self) -> None:
+        rows = []
+        for name in self._overlay_layers:
+            layer = self._overlay_layers[name]
+            row = self._create_layer_row(name, layer.opacity)
+            rows.append(row)
+        self._layer_rows.children = tuple(rows)
+        self._layer_manager_container.layout.display = "flex" if rows else "none"
+
+    def _create_layer_row(self, name: str, opacity: float) -> HBox:
+        label = Label(
+            name,
+            layout=Layout(width="90px", overflow="hidden"),
+            style={"font_size": "11px"},
+        )
+        slider = FloatSlider(
+            value=opacity,
+            min=0,
+            max=1,
+            step=0.05,
+            readout=False,
+            layout=Layout(width="70px"),
+        )
+
+        def on_opacity_change(change, layer_name=name):
+            if layer_name in self._overlay_layers:
+                self._overlay_layers[layer_name].opacity = change["new"]
+
+        slider.observe(on_opacity_change, names="value")
+        remove_btn = Button(
+            icon="times",
+            layout=Layout(width="24px", height="24px", padding="0"),
+            button_style="danger",
+            tooltip=f"Remove {name}",
+        )
+
+        def on_remove(_, layer_name=name):
+            self.remove_layer(layer_name)
+
+        remove_btn.on_click(on_remove)
+        return HBox(
+            [label, slider, remove_btn],
+            layout=Layout(margin="2px 0", align_items="center"),
+        )
+
+    # ------------------------------------------------------------------
     # Overlay tile layer management
     # ------------------------------------------------------------------
 
@@ -399,6 +472,7 @@ class MapManager:
         )
         self._overlay_layers[name] = layer
         self._insert_overlay_layer(layer)
+        self._refresh_layer_manager()
 
     def add_ee_layer(
         self,
@@ -418,6 +492,7 @@ class MapManager:
         layer = self._overlay_layers.pop(name)
         if layer in self.map.layers:
             self.map.remove_layer(layer)
+        self._refresh_layer_manager()
         return True
 
     def set_layer_opacity(self, name: str, opacity: float) -> None:
@@ -430,7 +505,10 @@ class MapManager:
 
     def clear_overlay_layers(self) -> None:
         for name in list(self._overlay_layers.keys()):
-            self.remove_layer(name)
+            layer = self._overlay_layers.pop(name)
+            if layer in self.map.layers:
+                self.map.remove_layer(layer)
+        self._refresh_layer_manager()
 
     def _insert_overlay_layer(self, layer: ipyl.TileLayer) -> None:
         layers = list(self.map.layers)

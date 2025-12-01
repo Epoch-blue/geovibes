@@ -11,11 +11,21 @@ from geovibes.ui.map_manager import MapManager
 # ------------------------------------------------------------------
 
 
+def _setup_layer_manager_mocks(manager):
+    """Set up mock layer manager widget attributes for testing."""
+    manager._layer_rows = SimpleNamespace(children=())
+    manager._layer_manager_container = SimpleNamespace(
+        layout=SimpleNamespace(display="none")
+    )
+    manager._create_layer_row = lambda name, opacity: SimpleNamespace(name=name)
+
+
 def test_add_tile_layer_creates_layer():
     manager = MapManager.__new__(MapManager)
     manager._overlay_layers = {}
     manager.basemap_layer = SimpleNamespace(name="basemap")
     manager.map = SimpleNamespace(layers=(manager.basemap_layer,))
+    _setup_layer_manager_mocks(manager)
 
     def mock_insert(layer):
         manager.map.layers = manager.map.layers + (layer,)
@@ -42,6 +52,7 @@ def test_add_tile_layer_clamps_opacity():
     manager._overlay_layers = {}
     manager.basemap_layer = SimpleNamespace(name="basemap")
     manager.map = SimpleNamespace(layers=(manager.basemap_layer,))
+    _setup_layer_manager_mocks(manager)
     manager._insert_overlay_layer = lambda layer: None
 
     manager.add_tile_layer("http://tiles/{z}/{x}/{y}.png", "high", 1.5)
@@ -64,6 +75,7 @@ def test_remove_layer_removes_from_map():
     manager = MapManager.__new__(MapManager)
     layer = SimpleNamespace(name="test")
     manager._overlay_layers = {"test": layer}
+    _setup_layer_manager_mocks(manager)
 
     removed_layers = []
     manager.map = SimpleNamespace(
@@ -125,6 +137,7 @@ def test_clear_overlay_layers():
     layer1 = SimpleNamespace(name="layer1")
     layer2 = SimpleNamespace(name="layer2")
     manager._overlay_layers = {"layer1": layer1, "layer2": layer2}
+    _setup_layer_manager_mocks(manager)
 
     removed = []
     manager.map = SimpleNamespace(
@@ -161,6 +174,85 @@ def test_add_ee_layer_raises_when_ee_unavailable():
 
     with pytest.raises(RuntimeError, match="Earth Engine not available"):
         manager.add_ee_layer(MagicMock(), {"min": 0, "max": 1}, "ee_layer")
+
+
+def test_refresh_layer_manager_shows_widget_when_layers_exist():
+    manager = MapManager.__new__(MapManager)
+    manager._overlay_layers = {"test": SimpleNamespace(opacity=0.5)}
+    manager._layer_rows = SimpleNamespace(children=())
+    manager._layer_manager_container = SimpleNamespace(
+        layout=SimpleNamespace(display="none")
+    )
+    manager._create_layer_row = lambda name, opacity: SimpleNamespace(name=name)
+
+    manager._refresh_layer_manager()
+
+    assert manager._layer_manager_container.layout.display == "flex"
+    assert len(manager._layer_rows.children) == 1
+
+
+def test_refresh_layer_manager_hides_widget_when_no_layers():
+    manager = MapManager.__new__(MapManager)
+    manager._overlay_layers = {}
+    manager._layer_rows = SimpleNamespace(children=())
+    manager._layer_manager_container = SimpleNamespace(
+        layout=SimpleNamespace(display="flex")
+    )
+
+    manager._refresh_layer_manager()
+
+    assert manager._layer_manager_container.layout.display == "none"
+    assert len(manager._layer_rows.children) == 0
+
+
+def test_add_tile_layer_refreshes_layer_manager():
+    manager = MapManager.__new__(MapManager)
+    manager._overlay_layers = {}
+    manager.basemap_layer = SimpleNamespace(name="basemap")
+    manager.map = SimpleNamespace(layers=(manager.basemap_layer,))
+    manager._layer_rows = SimpleNamespace(children=())
+    manager._layer_manager_container = SimpleNamespace(
+        layout=SimpleNamespace(display="none")
+    )
+
+    refresh_calls = []
+
+    def mock_refresh(self):
+        refresh_calls.append(True)
+        manager._layer_manager_container.layout.display = "flex"
+
+    manager._refresh_layer_manager = lambda: mock_refresh(manager)
+    manager._insert_overlay_layer = lambda layer: None
+
+    manager.add_tile_layer("http://tiles/{z}/{x}/{y}.png", "test", 0.7)
+
+    assert len(refresh_calls) == 1
+
+
+def test_remove_layer_refreshes_layer_manager():
+    manager = MapManager.__new__(MapManager)
+    layer = SimpleNamespace(name="test")
+    manager._overlay_layers = {"test": layer}
+    manager.map = SimpleNamespace(
+        layers=(layer,),
+        remove_layer=lambda lyr: None,
+    )
+    manager._layer_rows = SimpleNamespace(children=())
+    manager._layer_manager_container = SimpleNamespace(
+        layout=SimpleNamespace(display="flex")
+    )
+
+    refresh_calls = []
+
+    def mock_refresh():
+        refresh_calls.append(True)
+        manager._layer_manager_container.layout.display = "none"
+
+    manager._refresh_layer_manager = mock_refresh
+
+    manager.remove_layer("test")
+
+    assert len(refresh_calls) == 1
 
 
 # ------------------------------------------------------------------
