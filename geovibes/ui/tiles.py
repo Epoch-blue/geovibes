@@ -121,6 +121,51 @@ TILE_PANEL_CSS = """
     font-weight: 500;
 }
 
+/* Sort Toggle Buttons - twin pill buttons */
+.sort-toggle {
+    width: 100% !important;
+}
+.sort-toggle > .widget-toggle-buttons {
+    width: 100% !important;
+    height: 28px !important;
+    gap: 6px !important;
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+}
+.sort-toggle > .widget-toggle-buttons > .widget-toggle-button {
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
+    max-width: 50% !important;
+    width: auto !important;
+    height: 28px !important;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.2px !important;
+    padding: 0 8px !important;
+    border: 1px solid #d1d5db !important;
+    border-radius: 6px !important;
+    background: white !important;
+    color: #6b7280 !important;
+    transition: all 0.2s ease !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    line-height: 1 !important;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
+}
+.sort-toggle .widget-toggle-button:hover:not(.mod-active) {
+    background: #f8fafc !important;
+    border-color: #3b82f6 !important;
+    color: #374151 !important;
+}
+.sort-toggle .widget-toggle-button.mod-active {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+    color: white !important;
+    border-color: #2563eb !important;
+    box-shadow: 0 2px 4px rgba(59,130,246,0.3) !important;
+}
+
 /* Action buttons - no scrollbar */
 .tile-action-btn {
     opacity: 0.5;
@@ -208,6 +253,14 @@ class TilePanel:
         )
         self.page_info_label.add_class("page-info-text")
 
+        self.sort_order_toggle = ipyw.ToggleButtons(
+            options=["Similar", "Dissimilar"],
+            value="Similar",
+            layout=Layout(width="100%"),
+        )
+        self.sort_order_toggle.add_class("sort-toggle")
+        self.sort_order_toggle.observe(self._on_sort_order_change, names="value")
+
         self.load_more_btn = Button(
             description="Load More",
             layout=Layout(
@@ -231,7 +284,16 @@ class TilePanel:
             ),
         )
 
-        # Load More button row - placed below header, always visible
+        # Sort toggle row: twin pill buttons
+        sort_row = HBox(
+            [self.sort_order_toggle],
+            layout=Layout(
+                padding="0 8px 8px 8px",
+                width="100%",
+            ),
+        )
+
+        # Load More button row: full width prominent button
         load_more_row = HBox(
             [self.load_more_btn],
             layout=Layout(
@@ -241,7 +303,7 @@ class TilePanel:
         )
 
         header = VBox(
-            [header_row, load_more_row],
+            [header_row, sort_row, load_more_row],
             layout=Layout(width="100%"),
         )
         header.add_class("tile-header")
@@ -396,6 +458,18 @@ class TilePanel:
         self.state.tile_basemap = new_value
         self.reload_tiles_for_new_basemap()
 
+    def _on_sort_order_change(self, change) -> None:
+        if self.state.last_search_results_df is None:
+            return
+        self.state.tile_page = 0
+        self._page_sizes = []
+        self.results_grid.children = []
+        self._render_current_page(
+            append=False,
+            on_finish=self._handle_tiles_ready,
+            loader_token=self._loader_token,
+        )
+
     def _on_next_tiles_click(self, _button) -> None:
         next_size = 10
         self.state.tile_page += 1
@@ -431,6 +505,10 @@ class TilePanel:
             if on_finish:
                 on_finish()
             return
+
+        # Reverse order for "Dissimilar"
+        if self.sort_order_toggle.value == "Dissimilar":
+            df = df.iloc[::-1].reset_index(drop=True)
 
         refresh_only = limit is not None and not append
 
