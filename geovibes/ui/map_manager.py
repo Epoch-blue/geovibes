@@ -70,7 +70,8 @@ class MapManager:
 
     def _setup_basemap_tiles(self) -> Dict[str, str]:
         basemap_tiles = BasemapConfig.BASEMAP_TILES.copy()
-        if self.data.ee_available:
+        # TODO: Re-enable EE basemaps after testing tile layers
+        if False and self.data.ee_available:
             try:
                 if self.verbose:
                     print(
@@ -382,23 +383,63 @@ class MapManager:
     # ------------------------------------------------------------------
 
     def _build_layer_manager(self) -> ipyl.WidgetControl:
+        style_css = HTML(
+            """<style>
+            .layer-manager {
+                background: #ffffff;
+                border: 1px solid #e2e8f0;
+                border-radius: 6px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+                padding: 8px 10px;
+                min-width: 190px;
+            }
+            .layer-manager-header {
+                font-size: 11px;
+                font-weight: 600;
+                color: #374151;
+                margin-bottom: 6px;
+                letter-spacing: 0.3px;
+            }
+            .layer-row {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                margin: 4px 0;
+            }
+            .layer-row .widget-label {
+                font-size: 11px;
+                color: #64748b;
+                width: 80px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .layer-row .widget-floatslider {
+                width: 70px;
+            }
+            .layer-row .widget-button {
+                min-width: 22px !important;
+                width: 22px !important;
+                height: 22px !important;
+                padding: 0 !important;
+                font-size: 10px;
+            }
+            </style>"""
+        )
         self._layer_rows = VBox(
-            [], layout=Layout(max_height="200px", overflow_y="auto")
+            [],
+            layout=Layout(max_height="200px", overflow_y="auto", overflow_x="hidden"),
         )
-        header = Label(
-            "Overlay Layers",
-            style={"font_weight": "bold", "font_size": "12px"},
-        )
+        header = HTML('<div class="layer-manager-header">Layers</div>')
         self._layer_manager_container = VBox(
-            [header, self._layer_rows],
-            layout=Layout(
-                padding="8px",
-                min_width="180px",
-            ),
+            [style_css, header, self._layer_rows],
+            layout=Layout(padding="0"),
         )
+        self._layer_manager_container.add_class("layer-manager")
         control = ipyl.WidgetControl(
             widget=self._layer_manager_container,
-            position="bottomright",
+            position="topright",
         )
         self._layer_manager_container.layout.display = "none"
         self.map.add_control(control)
@@ -414,18 +455,13 @@ class MapManager:
         self._layer_manager_container.layout.display = "flex" if rows else "none"
 
     def _create_layer_row(self, name: str, opacity: float) -> HBox:
-        label = Label(
-            name,
-            layout=Layout(width="90px", overflow="hidden"),
-            style={"font_size": "11px"},
-        )
+        label = Label(name)
         slider = FloatSlider(
             value=opacity,
             min=0,
             max=1,
             step=0.05,
             readout=False,
-            layout=Layout(width="70px"),
         )
 
         def on_opacity_change(change, layer_name=name):
@@ -434,20 +470,16 @@ class MapManager:
 
         slider.observe(on_opacity_change, names="value")
         remove_btn = Button(
-            icon="times",
-            layout=Layout(width="24px", height="24px", padding="0"),
-            button_style="danger",
-            tooltip=f"Remove {name}",
+            icon="times", button_style="danger", tooltip=f"Remove {name}"
         )
 
         def on_remove(_, layer_name=name):
             self.remove_layer(layer_name)
 
         remove_btn.on_click(on_remove)
-        return HBox(
-            [label, slider, remove_btn],
-            layout=Layout(margin="2px 0", align_items="center"),
-        )
+        row = HBox([label, slider, remove_btn])
+        row.add_class("layer-row")
+        return row
 
     # ------------------------------------------------------------------
     # Overlay tile layer management
