@@ -103,6 +103,10 @@ TILE_PANEL_CSS = """
     letter-spacing: 0.3px !important;
     transition: all 0.2s ease !important;
     box-shadow: 0 2px 4px rgba(59,130,246,0.3) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    line-height: 1 !important;
 }
 .load-more-btn:hover {
     background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
