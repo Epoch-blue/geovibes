@@ -162,12 +162,44 @@ def test_insert_overlay_layer_positions_after_basemap():
     manager.map = SimpleNamespace(layers=(basemap, geojson))
 
     new_layer = SimpleNamespace(name="overlay")
+    # Layer is added to _overlay_layers before _insert_overlay_layer is called
+    manager._overlay_layers = {"overlay": new_layer}
     manager._insert_overlay_layer(new_layer)
 
     layers = list(manager.map.layers)
     assert layers.index(new_layer) == 1
     assert layers.index(basemap) == 0
     assert layers.index(geojson) == 2
+
+
+def test_insert_multiple_overlay_layers_maintains_order():
+    """New overlay layers should appear on top of existing overlays."""
+    manager = MapManager.__new__(MapManager)
+    basemap = SimpleNamespace(name="basemap")
+    geojson = SimpleNamespace(name="points")
+    manager.basemap_layer = basemap
+    manager.map = SimpleNamespace(layers=(basemap, geojson))
+    manager._overlay_layers = {}
+
+    layer1 = SimpleNamespace(name="layer1")
+    manager._overlay_layers["layer1"] = layer1
+    manager._insert_overlay_layer(layer1)
+
+    layer2 = SimpleNamespace(name="layer2")
+    manager._overlay_layers["layer2"] = layer2
+    manager._insert_overlay_layer(layer2)
+
+    layer3 = SimpleNamespace(name="layer3")
+    manager._overlay_layers["layer3"] = layer3
+    manager._insert_overlay_layer(layer3)
+
+    layers = list(manager.map.layers)
+    assert layers == [basemap, layer1, layer2, layer3, geojson]
+    assert layers.index(basemap) == 0
+    assert layers.index(layer1) == 1
+    assert layers.index(layer2) == 2
+    assert layers.index(layer3) == 3
+    assert layers.index(geojson) == 4
 
 
 def test_add_ee_layer_raises_when_ee_unavailable():

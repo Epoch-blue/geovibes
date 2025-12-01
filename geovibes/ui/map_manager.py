@@ -477,7 +477,10 @@ class MapManager:
             if lyr is self.basemap_layer:
                 basemap_idx = i
                 break
-        layers.insert(basemap_idx + 1, layer)
+        # Insert after basemap and all existing overlays (new layers appear on top)
+        # Note: layer is already in _overlay_layers when this is called
+        insert_idx = basemap_idx + len(self._overlay_layers)
+        layers.insert(insert_idx, layer)
         self.map.layers = tuple(layers)
 
 
