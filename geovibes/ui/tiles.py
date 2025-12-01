@@ -121,49 +121,37 @@ TILE_PANEL_CSS = """
     font-weight: 500;
 }
 
-/* Sort Toggle Buttons - twin pill buttons */
-.sort-toggle {
-    width: 100% !important;
-}
-.sort-toggle > .widget-toggle-buttons {
-    width: 100% !important;
-    height: 28px !important;
-    gap: 6px !important;
-    display: flex !important;
-    flex-direction: row !important;
-    flex-wrap: nowrap !important;
-}
-.sort-toggle > .widget-toggle-buttons > .widget-toggle-button {
-    flex: 1 1 0 !important;
-    min-width: 0 !important;
-    max-width: 50% !important;
-    width: auto !important;
-    height: 28px !important;
+/* Sort Toggle Buttons - active state (blue) */
+.sort-btn-active {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 6px !important;
     font-size: 11px !important;
     font-weight: 600 !important;
-    letter-spacing: 0.2px !important;
-    padding: 0 8px !important;
-    border: 1px solid #d1d5db !important;
-    border-radius: 6px !important;
-    background: white !important;
-    color: #6b7280 !important;
-    transition: all 0.2s ease !important;
+    box-shadow: 0 2px 4px rgba(59,130,246,0.3) !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-    line-height: 1 !important;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
 }
-.sort-toggle .widget-toggle-button:hover:not(.mod-active) {
+
+/* Sort Toggle Buttons - inactive state (white) */
+.sort-btn-inactive {
+    background: white !important;
+    color: #6b7280 !important;
+    border: 1px solid #d1d5db !important;
+    border-radius: 6px !important;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+.sort-btn-inactive:hover {
     background: #f8fafc !important;
     border-color: #3b82f6 !important;
     color: #374151 !important;
-}
-.sort-toggle .widget-toggle-button.mod-active {
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
-    color: white !important;
-    border-color: #2563eb !important;
-    box-shadow: 0 2px 4px rgba(59,130,246,0.3) !important;
 }
 
 /* Action buttons - no scrollbar */
@@ -253,13 +241,21 @@ class TilePanel:
         )
         self.page_info_label.add_class("page-info-text")
 
-        self.sort_order_toggle = ipyw.ToggleButtons(
-            options=["Similar", "Dissimilar"],
-            value="Similar",
-            layout=Layout(width="100%"),
+        self._sort_order = "Similar"
+
+        self.similar_btn = Button(
+            description="Similar",
+            layout=Layout(width="50%", height="28px"),
         )
-        self.sort_order_toggle.add_class("sort-toggle")
-        self.sort_order_toggle.observe(self._on_sort_order_change, names="value")
+        self.similar_btn.add_class("sort-btn-active")
+        self.similar_btn.on_click(self._on_similar_click)
+
+        self.dissimilar_btn = Button(
+            description="Dissimilar",
+            layout=Layout(width="50%", height="28px"),
+        )
+        self.dissimilar_btn.add_class("sort-btn-inactive")
+        self.dissimilar_btn.on_click(self._on_dissimilar_click)
 
         self.load_more_btn = Button(
             description="Load More",
@@ -284,12 +280,13 @@ class TilePanel:
             ),
         )
 
-        # Sort toggle row: twin pill buttons
+        # Sort toggle row: two buttons side by side
         sort_row = HBox(
-            [self.sort_order_toggle],
+            [self.similar_btn, self.dissimilar_btn],
             layout=Layout(
                 padding="0 8px 8px 8px",
                 width="100%",
+                gap="6px",
             ),
         )
 
@@ -458,7 +455,27 @@ class TilePanel:
         self.state.tile_basemap = new_value
         self.reload_tiles_for_new_basemap()
 
-    def _on_sort_order_change(self, change) -> None:
+    def _on_similar_click(self, _button) -> None:
+        if self._sort_order == "Similar":
+            return
+        self._sort_order = "Similar"
+        self.similar_btn.remove_class("sort-btn-inactive")
+        self.similar_btn.add_class("sort-btn-active")
+        self.dissimilar_btn.remove_class("sort-btn-active")
+        self.dissimilar_btn.add_class("sort-btn-inactive")
+        self._trigger_sort_refresh()
+
+    def _on_dissimilar_click(self, _button) -> None:
+        if self._sort_order == "Dissimilar":
+            return
+        self._sort_order = "Dissimilar"
+        self.dissimilar_btn.remove_class("sort-btn-inactive")
+        self.dissimilar_btn.add_class("sort-btn-active")
+        self.similar_btn.remove_class("sort-btn-active")
+        self.similar_btn.add_class("sort-btn-inactive")
+        self._trigger_sort_refresh()
+
+    def _trigger_sort_refresh(self) -> None:
         if self.state.last_search_results_df is None:
             return
         self.state.tile_page = 0
@@ -507,7 +524,7 @@ class TilePanel:
             return
 
         # Reverse order for "Dissimilar"
-        if self.sort_order_toggle.value == "Dissimilar":
+        if self._sort_order == "Dissimilar":
             df = df.iloc[::-1].reset_index(drop=True)
 
         refresh_only = limit is not None and not append
