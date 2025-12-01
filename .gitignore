@@ -182,4 +182,11 @@ cython_debug/
 notebooks/*.ipynb
 labeled_dataset_*.geojson
 labeled_dataset_*_labels.csv
+
+# UI Testing artifacts
+test_tile_panel.ipynb
+screenshot_ui.py
+tile_panel_screenshot.png
+*.png
+preview_ui.sh
 alabama_aquaculture/
