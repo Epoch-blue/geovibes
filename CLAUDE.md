@@ -111,9 +111,14 @@ When I say **"run this yourself and debug issues"** or **"fix issues until it wo
 - **Border feedback**: 2px transparent border, colored on hover/active states
 
 ### Typography
-- **Font sizes**: 10px (badges), 11px (small labels), 12px (body), 13px (buttons)
-- **Font weights**: 500 (medium), 600 (semibold for emphasis)
+- **Font sizes**: 10px (badges), 11px (small labels), 12px (body/buttons)
+- **Font weights**: 500 (medium), 600 (semibold for emphasis/buttons)
 - **Number formatting**: Use `:,` format specifier for thousands separators
+- **Button font consistency**: All button types (action buttons, toggle buttons, etc.) must share identical `font-family`, `font-size`, `font-weight`, and `letter-spacing` properties
+- **Font families**:
+  - Primary: `'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
+  - Use `@import url('https://fonts.googleapis.com/css2?family=Inter:wght@500;600&display=swap')` for web font loading in CSS
+- **Letter spacing**: 0.3px for button text (improves readability)
 
 ### Layout Principles
 - **Image-first**: Show visual content before actions (natural reading order)
