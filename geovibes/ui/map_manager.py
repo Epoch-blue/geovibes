@@ -426,7 +426,7 @@ class MapManager:
         header = HTML('<div class="layer-manager-header">Layers</div>')
         self._layer_manager_container = VBox(
             [style_css, header, self._layer_rows],
-            layout=Layout(padding="0"),
+            layout=Layout(padding="0", width="180px"),
         )
         self._layer_manager_container.add_class("layer-manager")
         control = ipyl.WidgetControl(
