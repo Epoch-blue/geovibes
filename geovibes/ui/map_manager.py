@@ -391,45 +391,37 @@ class MapManager:
                 border-radius: 6px;
                 box-shadow: 0 1px 3px rgba(0,0,0,0.08);
                 font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-                padding: 8px 10px;
-                min-width: 190px;
+                padding: 6px 8px;
             }
             .layer-manager-header {
                 font-size: 11px;
                 font-weight: 600;
                 color: #374151;
-                margin-bottom: 6px;
-                letter-spacing: 0.3px;
+                margin-bottom: 4px;
             }
             .layer-row {
                 display: flex;
                 align-items: center;
-                gap: 6px;
-                margin: 4px 0;
+                gap: 4px;
+                margin: 2px 0;
             }
             .layer-row .widget-label {
-                font-size: 11px;
+                font-size: 10px;
                 color: #64748b;
-                width: 80px;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-            }
-            .layer-row .widget-floatslider {
-                width: 70px;
             }
             .layer-row .widget-button {
-                min-width: 22px !important;
-                width: 22px !important;
-                height: 22px !important;
+                min-width: 18px !important;
+                width: 18px !important;
+                height: 18px !important;
                 padding: 0 !important;
-                font-size: 10px;
+                font-size: 9px;
+                border-radius: 4px !important;
             }
             </style>"""
         )
         self._layer_rows = VBox(
             [],
-            layout=Layout(max_height="200px", overflow_y="auto", overflow_x="hidden"),
+            layout=Layout(max_height="150px", overflow_y="auto", overflow_x="hidden"),
         )
         header = HTML('<div class="layer-manager-header">Layers</div>')
         self._layer_manager_container = VBox(
@@ -439,7 +431,7 @@ class MapManager:
         self._layer_manager_container.add_class("layer-manager")
         control = ipyl.WidgetControl(
             widget=self._layer_manager_container,
-            position="topright",
+            position="topleft",
         )
         self._layer_manager_container.layout.display = "none"
         self.map.add_control(control)
