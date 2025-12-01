@@ -522,8 +522,14 @@ class TilePanel:
                 on_finish()
             return
 
-        # Reverse order for "Dissimilar"
-        if self._sort_order == "Dissimilar":
+        # Determine if we should reverse the order
+        # - Search mode: data is sorted by distance ascending (low = similar)
+        #   "Similar" = keep order, "Dissimilar" = reverse
+        # - Detection mode: data is sorted by probability ascending (low = dissimilar)
+        #   "Similar" = reverse (high prob first), "Dissimilar" = keep order
+        is_detection = getattr(self.state, "detection_mode", False)
+        should_reverse = (self._sort_order == "Dissimilar") != is_detection
+        if should_reverse:
             df = df.iloc[::-1].reset_index(drop=True)
 
         refresh_only = limit is not None and not append

@@ -358,6 +358,17 @@ def test_sort_toggle_no_op_when_already_selected(monkeypatch):
     assert len(render_calls) == 0
 
 
+def _extract_tile_ids(panel: TilePanel) -> list:
+    """Extract tile IDs from the results grid children in display order."""
+    ids = []
+    for child in panel.results_grid.children:
+        if isinstance(child, VBox) and child.children:
+            label = child.children[0]
+            if isinstance(label, Label) and label.value.startswith("tile-"):
+                ids.append(label.value.replace("tile-", ""))
+    return ids
+
+
 def test_dissimilar_reverses_tile_order(monkeypatch):
     state = AppState()
     panel = TilePanel(
@@ -367,10 +378,7 @@ def test_dissimilar_reverses_tile_order(monkeypatch):
         on_center=lambda row: None,
     )
 
-    captured_ids = []
-
     def fake_widget(self, row, image_bytes, rank=None):
-        captured_ids.append(row["id"])
         return VBox([Label(value=f"tile-{row['id']}")])
 
     monkeypatch.setattr(TilePanel, "_build_tile_widget", fake_widget)
@@ -381,12 +389,47 @@ def test_dissimilar_reverses_tile_order(monkeypatch):
     panel._sort_order = "Similar"
     panel.update_results(df, auto_show=True)
     _await_tiles(panel)
-    similar_order = captured_ids.copy()
+    similar_order = _extract_tile_ids(panel)
 
-    captured_ids.clear()
     panel._on_dissimilar_click(None)
     _await_tiles(panel)
-    dissimilar_order = captured_ids.copy()
+    dissimilar_order = _extract_tile_ids(panel)
 
     assert similar_order == ["1", "2", "3"]
     assert dissimilar_order == ["3", "2", "1"]
+
+
+def test_detection_mode_inverts_sort_order(monkeypatch):
+    """In detection mode, data is sorted by probability ascending (low=dissimilar).
+
+    Similar should reverse to show high prob first.
+    Dissimilar should keep order to show low prob first.
+    """
+    state = AppState()
+    state.detection_mode = True
+    panel = TilePanel(
+        state=state,
+        map_manager=DummyMapManager(),
+        on_label=lambda *args, **kwargs: None,
+        on_center=lambda row: None,
+    )
+
+    def fake_widget(self, row, image_bytes, rank=None):
+        return VBox([Label(value=f"tile-{row['id']}")])
+
+    monkeypatch.setattr(TilePanel, "_build_tile_widget", fake_widget)
+    monkeypatch.setattr(TilePanel, "_fetch_tile_image_bytes", lambda self, row: None)
+
+    df = pd.DataFrame([{"id": "1"}, {"id": "2"}, {"id": "3"}])
+
+    panel._sort_order = "Similar"
+    panel.update_results(df, auto_show=True)
+    _await_tiles(panel)
+    similar_order = _extract_tile_ids(panel)
+
+    panel._on_dissimilar_click(None)
+    _await_tiles(panel)
+    dissimilar_order = _extract_tile_ids(panel)
+
+    assert similar_order == ["3", "2", "1"]
+    assert dissimilar_order == ["1", "2", "3"]
