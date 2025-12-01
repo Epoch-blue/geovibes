@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 import warnings
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -1232,6 +1232,7 @@ class GeoVibes:
         self.map_manager.clear_detection_layer()
         self.map_manager.clear_vector_layer()
         self.map_manager.clear_highlight()
+        self.map_manager.clear_overlay_layers()
         self.detection_controls.layout.display = "none"
         self.detection_status_label.value = ""
         # Reset slider and colormap range to defaults
@@ -1278,6 +1279,32 @@ class GeoVibes:
     @staticmethod
     def _empty_collection() -> Dict:
         return {"type": "FeatureCollection", "features": []}
+
+    # ------------------------------------------------------------------
+    # Overlay tile layer API
+    # ------------------------------------------------------------------
+
+    def add_tile_layer(self, url: str, name: str, opacity: float = 1.0) -> None:
+        """Add an XYZ tile layer overlay."""
+        self.map_manager.add_tile_layer(url, name, opacity)
+
+    def add_ee_layer(
+        self, ee_image, vis_params: Dict, name: str, opacity: float = 1.0
+    ) -> None:
+        """Add an Earth Engine image as a tile layer overlay."""
+        self.map_manager.add_ee_layer(ee_image, vis_params, name, opacity)
+
+    def remove_layer(self, name: str) -> bool:
+        """Remove an overlay layer by name."""
+        return self.map_manager.remove_layer(name)
+
+    def set_layer_opacity(self, name: str, opacity: float) -> None:
+        """Set the opacity of an overlay layer."""
+        self.map_manager.set_layer_opacity(name, opacity)
+
+    def list_layers(self) -> List[str]:
+        """Return names of all overlay layers."""
+        return self.map_manager.list_overlay_layers()
 
     def close(self) -> None:
         self.data.close()

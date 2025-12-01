@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, List, Optional
 
 import geopandas as gpd
 import ipyleaflet as ipyl
@@ -57,6 +57,7 @@ class MapManager:
         self.status_bar = HTML(value="Ready")
         self.vector_layer = None
         self.highlight_layer = None
+        self._overlay_layers: Dict[str, ipyl.TileLayer] = {}
 
         self._add_map_layers()
         self.draw_control = self._setup_draw_control()
@@ -374,6 +375,72 @@ class MapManager:
         self.detection_layer.data = json.loads(
             gpd.GeoDataFrame(columns=["geometry"]).to_json()
         )
+
+    # ------------------------------------------------------------------
+    # Overlay tile layer management
+    # ------------------------------------------------------------------
+
+    def add_tile_layer(
+        self,
+        url: str,
+        name: str,
+        opacity: float = 1.0,
+        attribution: str = "",
+    ) -> None:
+        if name in self._overlay_layers:
+            raise ValueError(f"Layer '{name}' already exists")
+        opacity = max(0.0, min(1.0, opacity))
+        layer = ipyl.TileLayer(
+            url=url,
+            name=name,
+            opacity=opacity,
+            attribution=attribution,
+            no_wrap=True,
+        )
+        self._overlay_layers[name] = layer
+        self._insert_overlay_layer(layer)
+
+    def add_ee_layer(
+        self,
+        ee_image,
+        vis_params: Dict,
+        name: str,
+        opacity: float = 1.0,
+    ) -> None:
+        if not self.data.ee_available:
+            raise RuntimeError("Earth Engine not available")
+        url = get_ee_image_url(ee_image, vis_params)
+        self.add_tile_layer(url, name, opacity, attribution="Google Earth Engine")
+
+    def remove_layer(self, name: str) -> bool:
+        if name not in self._overlay_layers:
+            return False
+        layer = self._overlay_layers.pop(name)
+        if layer in self.map.layers:
+            self.map.remove_layer(layer)
+        return True
+
+    def set_layer_opacity(self, name: str, opacity: float) -> None:
+        if name not in self._overlay_layers:
+            raise ValueError(f"Layer '{name}' not found")
+        self._overlay_layers[name].opacity = max(0.0, min(1.0, opacity))
+
+    def list_overlay_layers(self) -> List[str]:
+        return list(self._overlay_layers.keys())
+
+    def clear_overlay_layers(self) -> None:
+        for name in list(self._overlay_layers.keys()):
+            self.remove_layer(name)
+
+    def _insert_overlay_layer(self, layer: ipyl.TileLayer) -> None:
+        layers = list(self.map.layers)
+        basemap_idx = 0
+        for i, lyr in enumerate(layers):
+            if lyr is self.basemap_layer:
+                basemap_idx = i
+                break
+        layers.insert(basemap_idx + 1, layer)
+        self.map.layers = tuple(layers)
 
 
 __all__ = ["MapManager"]

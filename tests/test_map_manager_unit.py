@@ -1,8 +1,171 @@
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
 from geovibes.ui.map_manager import MapManager
+
+
+# ------------------------------------------------------------------
+# Overlay layer tests
+# ------------------------------------------------------------------
+
+
+def test_add_tile_layer_creates_layer():
+    manager = MapManager.__new__(MapManager)
+    manager._overlay_layers = {}
+    manager.basemap_layer = SimpleNamespace(name="basemap")
+    manager.map = SimpleNamespace(layers=(manager.basemap_layer,))
+
+    def mock_insert(layer):
+        manager.map.layers = manager.map.layers + (layer,)
+
+    manager._insert_overlay_layer = mock_insert
+
+    manager.add_tile_layer("http://tiles/{z}/{x}/{y}.png", "test_layer", 0.8)
+
+    assert "test_layer" in manager._overlay_layers
+    assert manager._overlay_layers["test_layer"].opacity == 0.8
+    assert manager._overlay_layers["test_layer"].url == "http://tiles/{z}/{x}/{y}.png"
+
+
+def test_add_tile_layer_duplicate_name_raises():
+    manager = MapManager.__new__(MapManager)
+    manager._overlay_layers = {"existing": SimpleNamespace()}
+
+    with pytest.raises(ValueError, match="already exists"):
+        manager.add_tile_layer("http://tiles/{z}/{x}/{y}.png", "existing")
+
+
+def test_add_tile_layer_clamps_opacity():
+    manager = MapManager.__new__(MapManager)
+    manager._overlay_layers = {}
+    manager.basemap_layer = SimpleNamespace(name="basemap")
+    manager.map = SimpleNamespace(layers=(manager.basemap_layer,))
+    manager._insert_overlay_layer = lambda layer: None
+
+    manager.add_tile_layer("http://tiles/{z}/{x}/{y}.png", "high", 1.5)
+    assert manager._overlay_layers["high"].opacity == 1.0
+
+    manager.add_tile_layer("http://tiles/{z}/{x}/{y}.png", "low", -0.5)
+    assert manager._overlay_layers["low"].opacity == 0.0
+
+
+def test_remove_layer_returns_false_for_unknown():
+    manager = MapManager.__new__(MapManager)
+    manager._overlay_layers = {}
+
+    result = manager.remove_layer("nonexistent")
+
+    assert result is False
+
+
+def test_remove_layer_removes_from_map():
+    manager = MapManager.__new__(MapManager)
+    layer = SimpleNamespace(name="test")
+    manager._overlay_layers = {"test": layer}
+
+    removed_layers = []
+    manager.map = SimpleNamespace(
+        layers=(layer,),
+        remove_layer=lambda lyr: removed_layers.append(lyr),
+    )
+
+    result = manager.remove_layer("test")
+
+    assert result is True
+    assert "test" not in manager._overlay_layers
+    assert layer in removed_layers
+
+
+def test_set_layer_opacity():
+    manager = MapManager.__new__(MapManager)
+    layer = SimpleNamespace(opacity=1.0)
+    manager._overlay_layers = {"test": layer}
+
+    manager.set_layer_opacity("test", 0.5)
+
+    assert layer.opacity == 0.5
+
+
+def test_set_layer_opacity_clamps_values():
+    manager = MapManager.__new__(MapManager)
+    layer = SimpleNamespace(opacity=1.0)
+    manager._overlay_layers = {"test": layer}
+
+    manager.set_layer_opacity("test", 1.5)
+    assert layer.opacity == 1.0
+
+    manager.set_layer_opacity("test", -0.5)
+    assert layer.opacity == 0.0
+
+
+def test_set_layer_opacity_unknown_raises():
+    manager = MapManager.__new__(MapManager)
+    manager._overlay_layers = {}
+
+    with pytest.raises(ValueError, match="not found"):
+        manager.set_layer_opacity("nonexistent", 0.5)
+
+
+def test_list_overlay_layers():
+    manager = MapManager.__new__(MapManager)
+    manager._overlay_layers = {
+        "layer1": SimpleNamespace(),
+        "layer2": SimpleNamespace(),
+    }
+
+    result = manager.list_overlay_layers()
+
+    assert set(result) == {"layer1", "layer2"}
+
+
+def test_clear_overlay_layers():
+    manager = MapManager.__new__(MapManager)
+    layer1 = SimpleNamespace(name="layer1")
+    layer2 = SimpleNamespace(name="layer2")
+    manager._overlay_layers = {"layer1": layer1, "layer2": layer2}
+
+    removed = []
+    manager.map = SimpleNamespace(
+        layers=(layer1, layer2),
+        remove_layer=lambda lyr: removed.append(lyr),
+    )
+
+    manager.clear_overlay_layers()
+
+    assert manager._overlay_layers == {}
+    assert len(removed) == 2
+
+
+def test_insert_overlay_layer_positions_after_basemap():
+    manager = MapManager.__new__(MapManager)
+    basemap = SimpleNamespace(name="basemap")
+    geojson = SimpleNamespace(name="points")
+    manager.basemap_layer = basemap
+    manager.map = SimpleNamespace(layers=(basemap, geojson))
+
+    new_layer = SimpleNamespace(name="overlay")
+    manager._insert_overlay_layer(new_layer)
+
+    layers = list(manager.map.layers)
+    assert layers.index(new_layer) == 1
+    assert layers.index(basemap) == 0
+    assert layers.index(geojson) == 2
+
+
+def test_add_ee_layer_raises_when_ee_unavailable():
+    manager = MapManager.__new__(MapManager)
+    manager._overlay_layers = {}
+    manager.data = SimpleNamespace(ee_available=False)
+
+    with pytest.raises(RuntimeError, match="Earth Engine not available"):
+        manager.add_ee_layer(MagicMock(), {"min": 0, "max": 1}, "ee_layer")
+
+
+# ------------------------------------------------------------------
+# Basemap tests
+# ------------------------------------------------------------------
 
 
 def test_update_basemap_updates_url():
