@@ -477,6 +477,10 @@ class TilePanel:
     def _trigger_sort_refresh(self) -> None:
         if self.state.last_search_results_df is None:
             return
+        for future in list(self._pending_futures):
+            future.cancel()
+        self._pending_futures.clear()
+        self._pending_batches.clear()
         self.state.tile_page = 0
         self._page_sizes = []
         self.results_grid.children = []
