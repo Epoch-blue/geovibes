@@ -200,7 +200,7 @@ class TilePanel:
 
         self.page_info_label = HTML(
             value="",
-            layout=Layout(margin="0 0 0 auto"),
+            layout=Layout(margin="0 8px 0 auto"),
         )
         self.page_info_label.add_class("page-info-text")
 
