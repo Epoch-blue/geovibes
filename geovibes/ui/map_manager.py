@@ -13,15 +13,7 @@ import shapely.geometry.base
 from ipyleaflet import DrawControl, Map
 import ipyvuetify as v
 from ipywidgets import HTML, HBox, Layout, VBox
-from tqdm import tqdm
-
-from geovibes.ee_tools import (
-    get_ee_image_url,
-    get_s2_hsv_median,
-    get_s2_ndvi_median,
-    get_s2_ndwi_median,
-    get_s2_rgb_median,
-)
+from geovibes.ee_tools import get_ee_image_url
 from geovibes.ui_config import BasemapConfig, LayerStyles, UIConstants
 
 from .status import StatusBus
@@ -70,57 +62,7 @@ class MapManager:
     # ------------------------------------------------------------------
 
     def _setup_basemap_tiles(self) -> Dict[str, str]:
-        basemap_tiles = BasemapConfig.BASEMAP_TILES.copy()
-        # TODO: Re-enable EE basemaps after testing tile layers
-        if False and self.data.ee_available:
-            try:
-                if self.verbose:
-                    print(
-                        "🛰️ Setting up Earth Engine basemaps (S2 RGB, NDVI, NDWI, HSV)..."
-                    )
-
-                boundary = self.data.ee_boundary
-                start = self.data.config.start_date
-                end = self.data.config.end_date
-
-                basemap_tasks = [
-                    (
-                        "S2_RGB",
-                        lambda: get_s2_rgb_median(boundary, start, end),
-                        BasemapConfig.S2_RGB_VIS_PARAMS,
-                    ),
-                    (
-                        "S2_NDVI",
-                        lambda: get_s2_ndvi_median(boundary, start, end),
-                        BasemapConfig.NDVI_VIS_PARAMS,
-                    ),
-                    (
-                        "S2_NDWI",
-                        lambda: get_s2_ndwi_median(boundary, start, end),
-                        BasemapConfig.NDWI_VIS_PARAMS,
-                    ),
-                    (
-                        "S2_HSV",
-                        lambda: get_s2_hsv_median(boundary, start, end),
-                        BasemapConfig.S2_HSV_VIS_PARAMS,
-                    ),
-                ]
-
-                for name, image_func, vis_params in tqdm(
-                    basemap_tasks, desc="Loading Earth Engine basemaps"
-                ):
-                    image = image_func()
-                    basemap_tiles[name] = get_ee_image_url(image, vis_params)
-
-                if self.verbose:
-                    print("✅ Earth Engine basemaps added successfully!")
-            except Exception as exc:
-                if self.verbose:
-                    print(f"⚠️  Failed to create Earth Engine basemaps: {exc}")
-                    print("⚠️  Continuing with basic basemaps only")
-        elif self.verbose:
-            print("⚠️  Earth Engine not available - S2/NDVI/NDWI basemaps skipped")
-        return basemap_tiles
+        return BasemapConfig.BASEMAP_TILES.copy()
 
     def _build_map(self, center) -> Map:
         map_widget = Map(
