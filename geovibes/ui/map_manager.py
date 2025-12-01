@@ -402,20 +402,31 @@ class MapManager:
             .layer-row {
                 display: flex;
                 align-items: center;
-                gap: 4px;
+                gap: 6px;
                 margin: 2px 0;
             }
             .layer-row .widget-label {
                 font-size: 10px;
                 color: #64748b;
+                flex: 1;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
             }
             .layer-row .widget-button {
                 min-width: 18px !important;
                 width: 18px !important;
                 height: 18px !important;
                 padding: 0 !important;
-                font-size: 9px;
                 border-radius: 4px !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                line-height: 1 !important;
+            }
+            .layer-row .widget-button i {
+                font-size: 10px;
             }
             </style>"""
         )
