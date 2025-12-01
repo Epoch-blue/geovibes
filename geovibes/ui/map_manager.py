@@ -415,6 +415,8 @@ class MapManager:
             self._layer_manager_container.hide()
 
     def _create_layer_row(self, name: str, opacity: float) -> v.Row:
+        display_name = name[:9] if len(name) > 9 else name
+
         slider = v.Slider(
             v_model=opacity,
             min=0,
@@ -423,7 +425,7 @@ class MapManager:
             hide_details=True,
             dense=True,
             class_="ma-0 pa-0",
-            style_="max-width: 60px;",
+            style_="flex: 1; min-width: 40px;",
         )
 
         def on_opacity_change(widget, event, data, layer_name=name):
@@ -437,7 +439,8 @@ class MapManager:
             x_small=True,
             children=[v.Icon(children=["mdi-close"], x_small=True)],
             color="error",
-            class_="ma-0",
+            class_="ma-0 pa-0",
+            style_="min-width: 20px; width: 20px;",
         )
 
         def on_remove(widget, event, data, layer_name=name):
@@ -449,9 +452,12 @@ class MapManager:
             children=[
                 v.Html(
                     tag="span",
-                    children=[name],
-                    class_="text-caption text-truncate",
-                    style_="max-width: 70px; flex-shrink: 0;",
+                    children=[display_name],
+                    class_="text-caption",
+                    style_=(
+                        "width: 54px; min-width: 54px; flex-shrink: 0; "
+                        "overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                    ),
                 ),
                 slider,
                 remove_btn,
