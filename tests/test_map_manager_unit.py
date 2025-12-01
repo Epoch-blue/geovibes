@@ -351,6 +351,46 @@ def test_create_layer_row_preserves_short_names():
     assert label.children[0] == "LULC2024"
 
 
+def test_ipyvuetify_show_hide_methods():
+    """Verify ipyvuetify widgets have working show/hide methods."""
+    import ipyvuetify as v
+
+    card = v.Card()
+    assert hasattr(card, "show")
+    assert hasattr(card, "hide")
+
+    card.hide()
+    assert "d-none" in card.class_
+
+    card.show()
+    assert "d-none" not in (card.class_ or "")
+
+
+def test_layer_manager_visibility_toggle():
+    """Test that layer manager container visibility is properly toggled."""
+    manager = MapManager.__new__(MapManager)
+    manager._overlay_layers = {}
+
+    manager._layer_rows = MagicMock()
+    manager._layer_rows.children = []
+
+    import ipyvuetify as v
+
+    manager._layer_manager_container = v.Card()
+    manager._create_layer_row = lambda name, opacity: MagicMock()
+
+    manager._layer_manager_container.hide()
+    assert "d-none" in manager._layer_manager_container.class_
+
+    manager._overlay_layers = {"test": MagicMock(opacity=0.5)}
+    manager._refresh_layer_manager()
+    assert "d-none" not in (manager._layer_manager_container.class_ or "")
+
+    manager._overlay_layers = {}
+    manager._refresh_layer_manager()
+    assert "d-none" in manager._layer_manager_container.class_
+
+
 # ------------------------------------------------------------------
 # Basemap tests
 # ------------------------------------------------------------------

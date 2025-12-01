@@ -1285,9 +1285,11 @@ class GeoVibes:
     # Overlay tile layer API
     # ------------------------------------------------------------------
 
-    def add_tile_layer(self, url: str, name: str, opacity: float = 1.0) -> None:
+    def add_tile_layer(
+        self, url: str, name: str, opacity: float = 1.0, attribution: str = ""
+    ) -> None:
         """Add an XYZ tile layer overlay."""
-        self.map_manager.add_tile_layer(url, name, opacity)
+        self.map_manager.add_tile_layer(url, name, opacity, attribution)
 
     def add_ee_layer(
         self, ee_image, vis_params: Dict, name: str, opacity: float = 1.0
