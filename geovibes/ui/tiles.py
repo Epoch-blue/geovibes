@@ -145,9 +145,15 @@ TILE_PANEL_CSS = """
     background: #94a3b8;
 }
 
-/* Hide any unwanted scrollbars in tiles */
+/* Hide any unwanted scrollbars */
 .tile-card * {
     overflow: hidden !important;
+}
+.tile-panel-container {
+    overflow: hidden !important;
+}
+.tile-scroll-area {
+    overflow-x: hidden !important;
 }
 </style>
 """
@@ -268,6 +274,7 @@ class TilePanel:
                 width="270px",
                 padding="0px",
                 border_radius="8px",
+                overflow="hidden",
             ),
         )
         self.container.add_class("tile-panel-container")
