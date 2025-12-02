@@ -300,19 +300,16 @@ class GeoVibes:
         self._label_values = ["Positive", "Negative", "Erase"]
         self._pos_btn = Button(
             icon="fa-thumbs-up",
-            description=" Pos",
             layout=Layout(flex="1", height="32px"),
-            tooltip="Label as positive/similar",
+            tooltip="Positive / Similar",
         )
         self._neg_btn = Button(
             icon="fa-thumbs-down",
-            description=" Neg",
             layout=Layout(flex="1", height="32px"),
-            tooltip="Label as negative/different",
+            tooltip="Negative / Different",
         )
         self._erase_btn = Button(
             icon="fa-eraser",
-            description=" Erase",
             layout=Layout(flex="1", height="32px"),
             tooltip="Erase label",
         )
