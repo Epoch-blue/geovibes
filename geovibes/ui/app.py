@@ -45,30 +45,19 @@ SIDE_PANEL_CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 
-.geovibes-panel {
+.geovibes-panel,
+.geovibes-panel * {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
 }
 
 .geovibes-panel .v-btn {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
     text-transform: none !important;
     letter-spacing: 0.3px !important;
+    font-size: 12px !important;
 }
 
 .geovibes-panel .v-btn__content {
     font-weight: 500 !important;
-}
-
-.geovibes-panel .v-expansion-panel-header {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
-    font-size: 13px !important;
-    font-weight: 500 !important;
-    min-height: 40px !important;
-    padding: 8px 16px !important;
-}
-
-.geovibes-panel .v-expansion-panel-content__wrap {
-    padding: 8px 16px 16px !important;
 }
 
 .geovibes-panel .section-label {
@@ -105,6 +94,19 @@ SIDE_PANEL_CSS = """
 
 .geovibes-panel .v-select .v-input__slot {
     min-height: 36px !important;
+}
+
+.geovibes-panel .v-select .v-select__selection {
+    font-size: 12px !important;
+}
+
+.geovibes-panel .v-list-item__title {
+    font-size: 12px !important;
+}
+
+.geovibes-panel .text-body-2 {
+    font-size: 12px !important;
+    font-weight: 500 !important;
 }
 </style>
 """
@@ -385,100 +387,99 @@ class GeoVibes:
         else:
             self.database_dropdown = None
 
-        # Basemap buttons with ipyvuetify
-        self.basemap_buttons = {}
-        basemap_widgets = []
-        for name in self.map_manager.basemap_tiles.keys():
-            btn = v.Btn(
-                block=True,
-                small=True,
-                class_="my-1 text-none",
-                children=[name.replace("_", " ")],
-            )
-            btn.basemap_name = name
-            self.basemap_buttons[name] = btn
-            basemap_widgets.append(btn)
+        # Basemap buttons with ipyvuetify BtnToggle (same style as Label/Mode)
+        basemap_names = list(self.map_manager.basemap_tiles.keys())
+        basemap_btns = [
+            v.Btn(small=True, children=[name.replace("_", " ")])
+            for name in basemap_names
+        ]
+        self.basemap_toggle = v.BtnToggle(
+            v_model=0,
+            mandatory=True,
+            dense=True,
+            class_="d-flex flex-wrap",
+            children=basemap_btns,
+        )
+        self.basemap_names = basemap_names
+        self.basemap_buttons = {
+            name: btn for name, btn in zip(basemap_names, basemap_btns)
+        }
 
-        # Export buttons with ipyvuetify
-        self.save_btn = v.Btn(
-            block=True,
-            small=True,
-            class_="my-1 text-none",
-            children=["💾 Save Dataset"],
-        )
-        self.load_btn = v.Btn(
-            block=True,
-            small=True,
-            class_="my-1 text-none",
-            children=["📂 Load Dataset"],
-        )
+        # Export buttons with ipyvuetify (same style as Label/Mode toggles)
+        self.save_btn = v.Btn(small=True, children=["💾 Save"])
+        self.load_btn = v.Btn(small=True, children=["📂 Load"])
         self.file_upload = FileUpload(
             accept=".geojson,.parquet",
             multiple=False,
             layout=Layout(width="100%", display="none"),
         )
-        self.add_vector_btn = v.Btn(
-            block=True,
-            small=True,
-            class_="my-1 text-none",
-            children=["📄 Add Vector Layer"],
-        )
+        self.add_vector_btn = v.Btn(small=True, children=["📄 Vector"])
         self.vector_file_upload = FileUpload(
             accept=".geojson,.parquet",
             multiple=False,
             layout=Layout(width="100%", display="none"),
         )
-        self.google_maps_btn = v.Btn(
-            block=True,
-            small=True,
-            class_="my-1 text-none",
-            children=["🌍 Google Maps ↗"],
-        )
+        self.google_maps_btn = v.Btn(small=True, children=["🌍 Maps ↗"])
 
-        # Build expansion panels
-        expansion_panels = []
-
+        # Database card (always visible)
         if self.database_dropdown:
-            expansion_panels.append(
-                v.ExpansionPanel(
+            database_card = v.Card(
+                outlined=True,
+                class_="section-card pa-3",
+                children=[
+                    v.Html(tag="span", class_="section-label", children=["DATABASE"]),
+                    self.database_dropdown,
+                ],
+            )
+        else:
+            database_card = None
+
+        # Basemaps card (always visible)
+        basemaps_card = v.Card(
+            outlined=True,
+            class_="section-card pa-3",
+            children=[
+                v.Html(tag="span", class_="section-label", children=["BASEMAPS"]),
+                self.basemap_toggle,
+            ],
+        )
+
+        # Export & Tools card (always visible)
+        # FileUpload widgets are placed in a hidden container to avoid gaps
+        self.hidden_uploads = VBox(
+            [self.file_upload, self.vector_file_upload],
+            layout=Layout(display="none"),
+        )
+        export_card = v.Card(
+            outlined=True,
+            class_="section-card pa-3",
+            children=[
+                v.Html(tag="span", class_="section-label", children=["EXPORT & TOOLS"]),
+                v.BtnToggle(
+                    v_model=None,
+                    dense=True,
+                    class_="d-flex flex-wrap",
                     children=[
-                        v.ExpansionPanelHeader(children=["Database"]),
-                        v.ExpansionPanelContent(children=[self.database_dropdown]),
-                    ]
-                )
-            )
-
-        expansion_panels.append(
-            v.ExpansionPanel(
-                children=[
-                    v.ExpansionPanelHeader(children=["Basemaps"]),
-                    v.ExpansionPanelContent(children=basemap_widgets),
-                ]
-            )
+                        self.save_btn,
+                        self.load_btn,
+                    ],
+                ),
+                v.BtnToggle(
+                    v_model=None,
+                    dense=True,
+                    class_="d-flex flex-wrap mt-1",
+                    children=[
+                        self.add_vector_btn,
+                        self.google_maps_btn,
+                    ],
+                ),
+            ],
         )
 
-        expansion_panels.append(
-            v.ExpansionPanel(
-                children=[
-                    v.ExpansionPanelHeader(children=["Export & Tools"]),
-                    v.ExpansionPanelContent(
-                        children=[
-                            self.save_btn,
-                            self.load_btn,
-                            self.file_upload,
-                            self.add_vector_btn,
-                            self.vector_file_upload,
-                            self.google_maps_btn,
-                        ]
-                    ),
-                ]
-            )
-        )
-
-        self.accordion_container = v.ExpansionPanels(
-            accordion=True,
-            flat=True,
-            children=expansion_panels,
+        # Keep accordion_container reference for compatibility but not used
+        self.accordion_container = VBox(
+            [w for w in [database_card, basemaps_card, export_card] if w is not None],
+            layout=Layout(width="100%"),
         )
 
         # Reset button
@@ -511,6 +512,7 @@ class GeoVibes:
                 self.detection_controls,
                 self.accordion_container,
                 self.reset_btn,
+                self.hidden_uploads,
             ],
             layout=Layout(
                 width=UIConstants.PANEL_WIDTH, padding="8px", overflow="hidden"
@@ -524,6 +526,7 @@ class GeoVibes:
             "label_toggle": self.label_toggle,
             "selection_mode": self.selection_mode,
             "neighbors_slider": self.neighbors_slider,
+            "basemap_toggle": self.basemap_toggle,
             "basemap_buttons": self.basemap_buttons,
             "save_btn": self.save_btn,
             "load_btn": self.load_btn,
@@ -555,11 +558,8 @@ class GeoVibes:
         # Slider label update
         self.neighbors_slider.observe(self._on_neighbors_slider_change, names="v_model")
 
-        # Basemap buttons
-        for name, btn in self.basemap_buttons.items():
-            btn.on_event(
-                "click", lambda *args, basemap=name: self._on_basemap_select(basemap)
-            )
+        # Basemap toggle uses v_model (index)
+        self.basemap_toggle.observe(self._on_basemap_toggle_change, names="v_model")
 
         # Database dropdown uses v_model
         if self.database_dropdown:
@@ -636,10 +636,12 @@ class GeoVibes:
         if value is not None:
             self.neighbors_label.children = [f"{value:,}"]
 
-    def _on_basemap_select(self, basemap_name: str) -> None:
-        self.map_manager.update_basemap(basemap_name)
-        self.tile_panel.handle_map_basemap_change(basemap_name)
-        self._update_basemap_button_styles()
+    def _on_basemap_toggle_change(self, change) -> None:
+        index = change["new"]
+        if index is not None and 0 <= index < len(self.basemap_names):
+            basemap_name = self.basemap_names[index]
+            self.map_manager.update_basemap(basemap_name)
+            self.tile_panel.handle_map_basemap_change(basemap_name)
 
     def _on_toggle_collapse(self, _button) -> None:
         if self.panel_collapsed:
@@ -1463,15 +1465,6 @@ class GeoVibes:
 
     def _clear_operation_status(self) -> None:
         self.map_manager.clear_operation()
-
-    def _update_basemap_button_styles(self) -> None:
-        for name, btn in self.basemap_buttons.items():
-            if name == self.map_manager.current_basemap:
-                btn.color = "primary"
-                btn.outlined = False
-            else:
-                btn.color = None
-                btn.outlined = True
 
     @staticmethod
     def _empty_collection() -> Dict:
