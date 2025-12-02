@@ -42,12 +42,20 @@ from geovibes.ui.utils import log_to_file
 warnings.simplefilter("ignore", category=FutureWarning)
 
 SIDE_PANEL_CSS = """
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 
 .geovibes-panel,
 .geovibes-panel * {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+}
+
+/* Make search button more prominent */
+.geovibes-panel .search-btn {
+    height: 40px !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
 }
 
 .geovibes-panel .v-btn {
@@ -232,14 +240,14 @@ class GeoVibes:
         # Search section with ipyvuetify
         self.search_btn = v.Btn(
             color="primary",
-            class_="flex-grow-1",
+            class_="flex-grow-1 search-btn",
             children=["Search"],
         )
         self.tiles_button = v.Btn(
             outlined=True,
             small=True,
             icon=True,
-            children=[v.Icon(children=["fa fa-th"])],
+            children=[v.Icon(children=["mdi-view-grid-outline"])],
         )
         search_row = v.Row(
             no_gutters=True,
@@ -288,35 +296,33 @@ class GeoVibes:
             children=[search_row, slider_row],
         )
 
-        # Label toggle with ipyvuetify BtnToggle (using FontAwesome icons like tile panel)
+        # Label toggle using ipywidgets Button (FontAwesome icons like tile panel)
         self._label_values = ["Positive", "Negative", "Erase"]
-        self.label_toggle = v.BtnToggle(
-            v_model=0,
-            mandatory=True,
-            class_="d-flex",
-            children=[
-                v.Btn(
-                    small=True,
-                    children=[
-                        v.Icon(small=True, children=["fa fa-thumbs-up"]),
-                        " Pos",
-                    ],
-                ),
-                v.Btn(
-                    small=True,
-                    children=[
-                        v.Icon(small=True, children=["fa fa-thumbs-down"]),
-                        " Neg",
-                    ],
-                ),
-                v.Btn(
-                    small=True,
-                    children=[
-                        v.Icon(small=True, children=["fa fa-eraser"]),
-                        " Erase",
-                    ],
-                ),
-            ],
+        self._pos_btn = Button(
+            icon="fa-thumbs-up",
+            description=" Pos",
+            layout=Layout(flex="1", height="32px"),
+            tooltip="Label as positive/similar",
+        )
+        self._neg_btn = Button(
+            icon="fa-thumbs-down",
+            description=" Neg",
+            layout=Layout(flex="1", height="32px"),
+            tooltip="Label as negative/different",
+        )
+        self._erase_btn = Button(
+            icon="fa-eraser",
+            description=" Erase",
+            layout=Layout(flex="1", height="32px"),
+            tooltip="Erase label",
+        )
+        self._label_buttons = [self._pos_btn, self._neg_btn, self._erase_btn]
+        self._selected_label_idx = 0
+        self._update_label_button_styles()
+
+        self.label_toggle = HBox(
+            self._label_buttons,
+            layout=Layout(width="100%"),
         )
 
         label_card = v.Card(
@@ -419,18 +425,18 @@ class GeoVibes:
         )
         self.basemap_names = basemap_names
 
-        # Export buttons with ipyvuetify (using FontAwesome icons like tile panel)
+        # Export buttons with ipyvuetify (using MDI outline icons)
         self.save_btn = v.Btn(
             small=True,
             children=[
-                v.Icon(small=True, children=["fa fa-save"]),
+                v.Icon(small=True, children=["mdi-content-save-outline"]),
                 " Save",
             ],
         )
         self.load_btn = v.Btn(
             small=True,
             children=[
-                v.Icon(small=True, children=["fa fa-folder-open"]),
+                v.Icon(small=True, children=["mdi-folder-open-outline"]),
                 " Load",
             ],
         )
@@ -441,7 +447,7 @@ class GeoVibes:
         )
         self.add_vector_btn = v.Btn(
             small=True,
-            children=[v.Icon(small=True, children=["fa fa-object-group"]), " Vector"],
+            children=[v.Icon(small=True, children=["mdi-vector-polygon"]), " Vector"],
         )
         self.vector_file_upload = FileUpload(
             accept=".geojson,.parquet",
@@ -450,7 +456,7 @@ class GeoVibes:
         )
         self.google_maps_btn = v.Btn(
             small=True,
-            children=[v.Icon(small=True, children=["fa fa-map-marker"]), " Maps"],
+            children=[v.Icon(small=True, children=["mdi-google-maps"]), " Maps"],
         )
 
         # Database card (always visible)
@@ -521,7 +527,7 @@ class GeoVibes:
             outlined=True,
             class_="mt-3 text-none",
             children=[
-                v.Icon(small=True, class_="mr-1", children=["fa fa-trash"]),
+                v.Icon(small=True, class_="mr-1", children=["mdi-trash-can-outline"]),
                 "Reset All",
             ],
         )
@@ -585,8 +591,12 @@ class GeoVibes:
         self.reset_btn.on_event("click", lambda *args: self.reset_all(None))
         self.tiles_button.on_event("click", lambda *args: self.tile_panel.toggle())
 
+        # Label buttons use on_click (ipywidgets)
+        self._pos_btn.on_click(lambda b: self._on_label_button_click(0))
+        self._neg_btn.on_click(lambda b: self._on_label_button_click(1))
+        self._erase_btn.on_click(lambda b: self._on_label_button_click(2))
+
         # BtnToggle uses v_model (index) instead of value
-        self.label_toggle.observe(self._on_label_change, names="v_model")
         self.selection_mode.observe(self._on_selection_mode_change, names="v_model")
 
         # Slider label update
@@ -608,8 +618,8 @@ class GeoVibes:
             lambda *args: self._toggle_vuetify_upload(
                 self.load_btn,
                 self.file_upload,
-                [v.Icon(small=True, children=["fa fa-times"]), " Cancel"],
-                [v.Icon(small=True, children=["fa fa-folder-open"]), " Load"],
+                [v.Icon(small=True, children=["mdi-close"]), " Cancel"],
+                [v.Icon(small=True, children=["mdi-folder-open-outline"]), " Load"],
             ),
         )
         self.file_upload.observe(self._on_file_upload, names="value")
@@ -618,8 +628,8 @@ class GeoVibes:
             lambda *args: self._toggle_vuetify_upload(
                 self.add_vector_btn,
                 self.vector_file_upload,
-                [v.Icon(small=True, children=["fa fa-times"]), " Cancel"],
-                [v.Icon(small=True, children=["fa fa-object-group"]), " Vector"],
+                [v.Icon(small=True, children=["mdi-close"]), " Cancel"],
+                [v.Icon(small=True, children=["mdi-vector-polygon"]), " Vector"],
             ),
         )
         self.vector_file_upload.observe(self._on_vector_upload, names="value")
@@ -640,13 +650,20 @@ class GeoVibes:
     # Event handlers
     # ------------------------------------------------------------------
 
-    def _on_label_change(self, change) -> None:
-        # v_model gives us an index, convert to value
-        idx = change["new"]
-        if idx is not None and 0 <= idx < len(self._label_values):
+    def _on_label_button_click(self, idx: int) -> None:
+        self._selected_label_idx = idx
+        self._update_label_button_styles()
+        if 0 <= idx < len(self._label_values):
             value = self._label_values[idx]
             self.state.set_label_mode(value)
             self._update_status()
+
+    def _update_label_button_styles(self) -> None:
+        for i, btn in enumerate(self._label_buttons):
+            if i == self._selected_label_idx:
+                btn.button_style = "primary"
+            else:
+                btn.button_style = ""
 
     def _on_selection_mode_change(self, change) -> None:
         # v_model gives us an index, convert to value
@@ -786,7 +803,7 @@ class GeoVibes:
             self.file_upload.value = ()
             self.file_upload.layout.display = "none"
             self.load_btn.children = [
-                v.Icon(small=True, children=["fa fa-folder-open"]),
+                v.Icon(small=True, children=["mdi-folder-open-outline"]),
                 " Load",
             ]
 
@@ -806,7 +823,7 @@ class GeoVibes:
             self.vector_file_upload.value = ()
             self.vector_file_upload.layout.display = "none"
             self.add_vector_btn.children = [
-                v.Icon(small=True, children=["fa fa-object-group"]),
+                v.Icon(small=True, children=["mdi-vector-polygon"]),
                 " Vector",
             ]
 
