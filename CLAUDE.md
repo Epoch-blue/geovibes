@@ -130,6 +130,109 @@ When I say **"run this yourself and debug issues"** or **"fix issues until it wo
 - **Horizontal carousel**: Better for ranked results, preserves map width, familiar pattern (Netflix/YouTube)
 - **Vertical sidebar** (current): Familiar pattern, doesn't take vertical space
 
+### ipyvuetify Side Panel (PR: ui-redesign-claude)
+
+The side panel was redesigned using ipyvuetify for a more polished, Material Design-inspired look. Key design decisions:
+
+#### Widget Library Strategy
+- **Side panel**: Uses `ipyvuetify` (v.Btn, v.BtnToggle, v.Select, v.Card, v.Icon) for polished Material Design components
+- **Tile panel**: Remains `ipywidgets` (Button, HBox, VBox) for lightweight tile cards
+- **Hybrid approach**: ipywidgets can be embedded inside ipyvuetify containers (e.g., sliders inside v.Card)
+
+#### Icon Systems (Critical)
+- **ipyvuetify uses MDI icons** (Material Design Icons): `mdi-thumb-up-outline`, `mdi-magnify`, etc.
+- **ipywidgets uses FontAwesome**: `icon="fa-thumbs-up"` in Button widget
+- **Do NOT mix**: FontAwesome icons will not render inside ipyvuetify containers due to CSS isolation
+- **Reference**: https://materialdesignicons.com/ for MDI icon names
+
+#### Component Patterns
+
+**Search Button (Style L)**:
+```python
+v.Btn(
+    block=True,           # Full width
+    color="primary",
+    depressed=True,       # Flat style, no shadow
+    children=[
+        v.Icon(small=True, class_="mr-2", children=["mdi-magnify"]),
+        "Search",
+    ],
+)
+# Layout: cols=10 for search, cols=2 for tiles icon button
+```
+
+**Label Toggle (BtnToggle with icons)**:
+```python
+v.BtnToggle(
+    v_model=0,
+    mandatory=True,
+    class_="d-flex",
+    children=[
+        v.Btn(small=True, children=[v.Icon(small=True, children=["mdi-thumb-up-outline"])]),
+        v.Btn(small=True, children=[v.Icon(small=True, children=["mdi-thumb-down-outline"])]),
+        v.Btn(small=True, children=[v.Icon(small=True, children=["mdi-eraser"])]),
+    ],
+)
+# Event: observe(handler, names="v_model") - returns index
+```
+
+**Mode Toggle (BtnToggle with text)**:
+```python
+v.BtnToggle(
+    v_model=0,
+    mandatory=True,
+    children=[
+        v.Btn(small=True, children=["• Point"]),
+        v.Btn(small=True, children=["▢ Polygon"]),
+    ],
+)
+```
+
+**Dropdown Select**:
+```python
+v.Select(
+    v_model="value",
+    items=["Option1", "Option2"],
+    dense=True,
+    hide_details=True,
+)
+# Event: observe(handler, names="v_model") - returns selected value
+```
+
+**Section Cards**:
+```python
+v.Card(
+    outlined=True,
+    class_="section-card pa-3",
+    children=[
+        v.Html(tag="span", class_="section-label", children=["LABEL"]),
+        # ... widgets
+    ],
+)
+```
+
+#### Event Handling Differences
+| Widget Type | Event Method | Callback Pattern |
+|-------------|--------------|------------------|
+| `v.Btn` | `on_event("click", handler)` | `lambda *args: ...` |
+| `v.BtnToggle` | `observe(handler, names="v_model")` | `change["new"]` = index |
+| `v.Select` | `observe(handler, names="v_model")` | `change["new"]` = value |
+| ipywidgets Button | `on_click(handler)` | `lambda btn: ...` |
+
+#### CSS Customization
+Custom CSS is injected via `HTML` widget with `<style>` tags. Key classes:
+- `.geovibes-panel` - Root container class
+- `.section-label` - Uppercase gray section headers (10px, #64748b)
+- `.search-btn` - Prominent search button (40px height, 14px font)
+- `.v-btn` overrides - Remove text-transform, set letter-spacing
+
+#### Design Rationale
+1. **Expansion panels → Cards**: Replaced v.ExpansionPanels with always-visible v.Card sections for immediate access
+2. **Basemap expansion → Dropdown**: Changed from expansion panel to v.Select for compact selection
+3. **Icon-only label buttons**: More compact, relies on tooltips for clarity
+4. **Full-width search button**: More prominent call-to-action (Style L from comparison)
+5. **Depressed button style**: Flat appearance without shadows for cleaner look
+
 ## Project Overview
 
 GeoVibes is an interactive geospatial similarity search tool that lets users "vibe check" satellite foundation model embeddings through an intuitive Jupyter notebook interface. Instead of relying solely on academic benchmarks, it enables hands-on exploration to assess which embedding models suit specific use cases.

@@ -42,7 +42,6 @@ from geovibes.ui.utils import log_to_file
 warnings.simplefilter("ignore", category=FutureWarning)
 
 SIDE_PANEL_CSS = """
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 
@@ -237,25 +236,29 @@ class GeoVibes:
     def _build_side_panel(self):
         css_widget = HTML(SIDE_PANEL_CSS)
 
-        # Search section with ipyvuetify
+        # Search section with ipyvuetify (style L: full-width search + icon button)
         self.search_btn = v.Btn(
+            block=True,
             color="primary",
-            class_="flex-grow-1 search-btn",
-            children=["Search"],
+            depressed=True,
+            class_="search-btn",
+            children=[
+                v.Icon(small=True, class_="mr-2", children=["mdi-magnify"]),
+                "Search",
+            ],
         )
         self.tiles_button = v.Btn(
-            outlined=True,
-            small=True,
             icon=True,
             children=[v.Icon(children=["mdi-view-grid-outline"])],
         )
         search_row = v.Row(
             no_gutters=True,
+            align="center",
             class_="mb-2",
             children=[
-                v.Col(cols=9, class_="pr-1", children=[self.search_btn]),
+                v.Col(cols=10, class_="pr-1", children=[self.search_btn]),
                 v.Col(
-                    cols=3,
+                    cols=2,
                     class_="pl-1 d-flex justify-end",
                     children=[self.tiles_button],
                 ),
@@ -296,30 +299,26 @@ class GeoVibes:
             children=[search_row, slider_row],
         )
 
-        # Label toggle using ipywidgets Button (FontAwesome icons like tile panel)
+        # Label toggle using ipyvuetify BtnToggle with MDI icons
         self._label_values = ["Positive", "Negative", "Erase"]
-        self._pos_btn = Button(
-            icon="fa-thumbs-up",
-            layout=Layout(flex="1", height="32px"),
-            tooltip="Positive / Similar",
-        )
-        self._neg_btn = Button(
-            icon="fa-thumbs-down",
-            layout=Layout(flex="1", height="32px"),
-            tooltip="Negative / Different",
-        )
-        self._erase_btn = Button(
-            icon="fa-eraser",
-            layout=Layout(flex="1", height="32px"),
-            tooltip="Erase label",
-        )
-        self._label_buttons = [self._pos_btn, self._neg_btn, self._erase_btn]
-        self._selected_label_idx = 0
-        self._update_label_button_styles()
-
-        self.label_toggle = HBox(
-            self._label_buttons,
-            layout=Layout(width="100%"),
+        self.label_toggle = v.BtnToggle(
+            v_model=0,
+            mandatory=True,
+            class_="d-flex",
+            children=[
+                v.Btn(
+                    small=True,
+                    children=[v.Icon(small=True, children=["mdi-thumb-up-outline"])],
+                ),
+                v.Btn(
+                    small=True,
+                    children=[v.Icon(small=True, children=["mdi-thumb-down-outline"])],
+                ),
+                v.Btn(
+                    small=True,
+                    children=[v.Icon(small=True, children=["mdi-eraser"])],
+                ),
+            ],
         )
 
         label_card = v.Card(
@@ -525,7 +524,7 @@ class GeoVibes:
             class_="mt-3 text-none",
             children=[
                 v.Icon(small=True, class_="mr-1", children=["mdi-trash-can-outline"]),
-                "Reset All",
+                "Reset",
             ],
         )
 
@@ -588,10 +587,8 @@ class GeoVibes:
         self.reset_btn.on_event("click", lambda *args: self.reset_all(None))
         self.tiles_button.on_event("click", lambda *args: self.tile_panel.toggle())
 
-        # Label buttons use on_click (ipywidgets)
-        self._pos_btn.on_click(lambda b: self._on_label_button_click(0))
-        self._neg_btn.on_click(lambda b: self._on_label_button_click(1))
-        self._erase_btn.on_click(lambda b: self._on_label_button_click(2))
+        # Label toggle uses v_model (index)
+        self.label_toggle.observe(self._on_label_toggle_change, names="v_model")
 
         # BtnToggle uses v_model (index) instead of value
         self.selection_mode.observe(self._on_selection_mode_change, names="v_model")
@@ -647,20 +644,12 @@ class GeoVibes:
     # Event handlers
     # ------------------------------------------------------------------
 
-    def _on_label_button_click(self, idx: int) -> None:
-        self._selected_label_idx = idx
-        self._update_label_button_styles()
-        if 0 <= idx < len(self._label_values):
+    def _on_label_toggle_change(self, change) -> None:
+        idx = change["new"]
+        if idx is not None and 0 <= idx < len(self._label_values):
             value = self._label_values[idx]
             self.state.set_label_mode(value)
             self._update_status()
-
-    def _update_label_button_styles(self) -> None:
-        for i, btn in enumerate(self._label_buttons):
-            if i == self._selected_label_idx:
-                btn.button_style = "primary"
-            else:
-                btn.button_style = ""
 
     def _on_selection_mode_change(self, change) -> None:
         # v_model gives us an index, convert to value
