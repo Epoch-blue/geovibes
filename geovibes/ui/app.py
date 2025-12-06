@@ -750,7 +750,7 @@ class GeoVibes:
             self.dataset_manager.load_from_content(content, file_info["name"])
             if self.state.detection_mode:
                 # Show detection controls
-                self.detection_controls.layout.display = "flex"
+                self.detection_controls.style_ = "display: flex;"
                 features = self.state.detection_data.get("features", [])
                 num_detections = len(features)
 
@@ -777,7 +777,7 @@ class GeoVibes:
                 self._filter_detection_layer(self.detection_threshold_slider.value)
                 self._update_detection_tiles()
             else:
-                self.detection_controls.layout.display = "none"
+                self.detection_controls.style_ = "display: none;"
                 self._update_layers()
                 self._update_query_vector()
                 self._show_operation_status("✅ Dataset loaded")
@@ -1480,7 +1480,7 @@ class GeoVibes:
         self.map_manager.clear_detection_layer()
         self.map_manager.clear_vector_layer()
         self.map_manager.clear_highlight()
-        self.detection_controls.layout.display = "none"
+        self.detection_controls.style_ = "display: none;"
         self.detection_status_label.value = ""
         # Reset slider and colormap range to defaults
         self.detection_threshold_slider.min = 0.0
