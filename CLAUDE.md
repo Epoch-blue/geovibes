@@ -47,6 +47,54 @@ When I say **"run this yourself and debug issues"** or **"fix issues until it wo
 
 **Ask clarifying questions when unsure** before proceeding with implementation. Better to clarify upfront than to implement the wrong thing.
 
+## Bug Analysis Guidelines
+
+When analyzing code for bugs (especially when using subagents), apply rigorous verification to avoid false positives:
+
+### Verification Checklist (MANDATORY before reporting a bug)
+
+1. **Trace actual execution paths** - Don't flag code based on pattern matching alone. Follow the control flow:
+   - What conditions must be true to reach this code?
+   - What state exists when this code executes?
+   - Example: `if key in dict: dict[key]` is NOT a KeyError bug - the condition guarantees the key exists
+
+2. **Read docstrings and comments** - Check if behavior is intentional:
+   - A function named `toggle_label` that removes then re-adds is a feature, not a bug
+   - Docstrings like "Toggle label assignment" indicate intentional toggle behavior
+
+3. **Understand library-specific behaviors**:
+   - **DuckDB**: `execute(sql, [a, b, c])` correctly binds list elements to `?` placeholders
+   - **Regex**: Non-greedy quantifiers (`\d+?`) still produce correct results due to backtracking
+   - **ipyleaflet**: Layer removal patterns with `if layer in map.layers` are idiomatic
+
+4. **Recognize intentional design patterns**:
+   - **Graceful degradation**: Silent exception handling in async/background tasks is often intentional
+   - **Cleanup-then-return**: Removing old state before early return is correct cleanup
+   - **Toggle vs Set**: UI controls often toggle off when clicked twice - this is UX, not a bug
+
+5. **Consider UX intent** - Some "bugs" are features:
+   - Clicking the same label twice to remove it
+   - Cancelling pending operations when starting new ones
+   - Displaying empty state instead of errors
+
+### Common False Positive Patterns to Avoid
+
+| Pattern | Why It's Usually NOT a Bug |
+|---------|---------------------------|
+| `if key in dict: use dict[key]` | Condition guarantees key exists |
+| `list.remove(x); list.append(x)` | Ensures no duplicates, moves to end |
+| `connection.close(); connection = new()` | Old connection should close before reconnect |
+| `try: ... except: pass` (in async) | Intentional graceful degradation |
+| `str(value)` where value might be None | Creates "None" string - edge case, not crash |
+
+### Subagent Bug Analysis Protocol
+
+When deploying subagents for bug analysis:
+1. Instruct them to apply this verification checklist
+2. Require them to explain WHY something is a bug, not just WHAT looks suspicious
+3. Have them categorize findings as: **Confirmed Bug**, **Potential Issue**, or **Needs Verification**
+4. Always manually verify "critical" findings before acting on them
+
 ## Git Workflow
 
 - **Git Worktrees**: Use git worktrees for feature branches when requested.
