@@ -1074,7 +1074,6 @@ class GeoVibes:
             self._show_operation_status("✅ Search complete. No results found.")
             self.map_manager.update_search_layer(self._empty_collection())
             self.tile_panel.clear()
-            self.tiles_button.button_style = ""
             return
 
         metadata_df = self.data.query_search_metadata(faiss_ids)
@@ -1082,7 +1081,6 @@ class GeoVibes:
             self._show_operation_status("✅ Search complete. No results found.")
             self.map_manager.update_search_layer(self._empty_collection())
             self.tile_panel.clear()
-            self.tiles_button.button_style = ""
             return
 
         id_map = {id_val: i for i, id_val in enumerate(faiss_ids)}
@@ -1102,13 +1100,10 @@ class GeoVibes:
         else:
             filtered = results_df.head(n_neighbors)
 
-        self.tiles_button.button_style = ""
-
         if filtered.empty:
             self._show_operation_status("✅ Search complete. No results found.")
             self.map_manager.update_search_layer(self._empty_collection())
             self.tile_panel.clear()
-            self.tiles_button.button_style = ""
             return
 
         self._show_operation_status(f"✅ Found {len(filtered)} similar points.")
@@ -1491,7 +1486,6 @@ class GeoVibes:
         self._detection_prob_max = 1.0
         self.tile_panel.clear()
         self.tile_panel.hide()
-        self.tiles_button.button_style = ""
         self._clear_operation_status()
         self._update_status()
 
