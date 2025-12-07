@@ -115,6 +115,22 @@ SIDE_PANEL_CSS = """
     font-size: 12px !important;
     font-weight: 500 !important;
 }
+
+/* Compact FileUpload widget */
+.geovibes-panel .widget-upload {
+    padding: 0 !important;
+    margin: 4px 0 !important;
+}
+
+.geovibes-panel .widget-upload > .widget-label {
+    display: none !important;
+}
+
+.geovibes-panel .widget-upload-label {
+    font-size: 11px !important;
+    padding: 4px 8px !important;
+    margin: 0 !important;
+}
 </style>
 """
 
@@ -439,7 +455,7 @@ class GeoVibes:
         self.file_upload = FileUpload(
             accept=".geojson,.parquet",
             multiple=False,
-            layout=Layout(width="100%", display="none"),
+            layout=Layout(width="100%", display="none", margin="4px 0 0 0"),
         )
         self.add_vector_btn = v.Btn(
             small=True,
@@ -448,7 +464,7 @@ class GeoVibes:
         self.vector_file_upload = FileUpload(
             accept=".geojson,.parquet",
             multiple=False,
-            layout=Layout(width="100%", display="none"),
+            layout=Layout(width="100%", display="none", margin="4px 0 0 0"),
         )
         self.google_maps_btn = v.Btn(
             small=True,
