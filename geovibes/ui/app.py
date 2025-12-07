@@ -479,11 +479,6 @@ class GeoVibes:
         )
 
         # Export & Tools card (always visible)
-        # FileUpload widgets are placed in a hidden container to avoid gaps
-        self.hidden_uploads = VBox(
-            [self.file_upload, self.vector_file_upload],
-            layout=Layout(display="none"),
-        )
         export_card = v.Card(
             outlined=True,
             class_="section-card pa-3",
@@ -498,6 +493,7 @@ class GeoVibes:
                         self.load_btn,
                     ],
                 ),
+                self.file_upload,
                 v.BtnToggle(
                     v_model=None,
                     dense=True,
@@ -507,6 +503,7 @@ class GeoVibes:
                         self.google_maps_btn,
                     ],
                 ),
+                self.vector_file_upload,
             ],
         )
 
@@ -549,7 +546,6 @@ class GeoVibes:
                 self.detection_controls,
                 self.accordion_container,
                 self.reset_btn,
-                self.hidden_uploads,
             ],
             layout=Layout(
                 width=UIConstants.PANEL_WIDTH, padding="8px", overflow="hidden"
