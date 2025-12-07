@@ -47,6 +47,54 @@ When I say **"run this yourself and debug issues"** or **"fix issues until it wo
 
 **Ask clarifying questions when unsure** before proceeding with implementation. Better to clarify upfront than to implement the wrong thing.
 
+## Bug Analysis Guidelines
+
+When analyzing code for bugs (especially when using subagents), apply rigorous verification to avoid false positives:
+
+### Verification Checklist (MANDATORY before reporting a bug)
+
+1. **Trace actual execution paths** - Don't flag code based on pattern matching alone. Follow the control flow:
+   - What conditions must be true to reach this code?
+   - What state exists when this code executes?
+   - Example: `if key in dict: dict[key]` is NOT a KeyError bug - the condition guarantees the key exists
+
+2. **Read docstrings and comments** - Check if behavior is intentional:
+   - A function named `toggle_label` that removes then re-adds is a feature, not a bug
+   - Docstrings like "Toggle label assignment" indicate intentional toggle behavior
+
+3. **Understand library-specific behaviors**:
+   - **DuckDB**: `execute(sql, [a, b, c])` correctly binds list elements to `?` placeholders
+   - **Regex**: Non-greedy quantifiers (`\d+?`) still produce correct results due to backtracking
+   - **ipyleaflet**: Layer removal patterns with `if layer in map.layers` are idiomatic
+
+4. **Recognize intentional design patterns**:
+   - **Graceful degradation**: Silent exception handling in async/background tasks is often intentional
+   - **Cleanup-then-return**: Removing old state before early return is correct cleanup
+   - **Toggle vs Set**: UI controls often toggle off when clicked twice - this is UX, not a bug
+
+5. **Consider UX intent** - Some "bugs" are features:
+   - Clicking the same label twice to remove it
+   - Cancelling pending operations when starting new ones
+   - Displaying empty state instead of errors
+
+### Common False Positive Patterns to Avoid
+
+| Pattern | Why It's Usually NOT a Bug |
+|---------|---------------------------|
+| `if key in dict: use dict[key]` | Condition guarantees key exists |
+| `list.remove(x); list.append(x)` | Ensures no duplicates, moves to end |
+| `connection.close(); connection = new()` | Old connection should close before reconnect |
+| `try: ... except: pass` (in async) | Intentional graceful degradation |
+| `str(value)` where value might be None | Creates "None" string - edge case, not crash |
+
+### Subagent Bug Analysis Protocol
+
+When deploying subagents for bug analysis:
+1. Instruct them to apply this verification checklist
+2. Require them to explain WHY something is a bug, not just WHAT looks suspicious
+3. Have them categorize findings as: **Confirmed Bug**, **Potential Issue**, or **Needs Verification**
+4. Always manually verify "critical" findings before acting on them
+
 ## Git Workflow
 
 - **Git Worktrees**: Use git worktrees for feature branches when requested.
@@ -129,6 +177,109 @@ When I say **"run this yourself and debug issues"** or **"fix issues until it wo
 ### Alternative Layouts Considered
 - **Horizontal carousel**: Better for ranked results, preserves map width, familiar pattern (Netflix/YouTube)
 - **Vertical sidebar** (current): Familiar pattern, doesn't take vertical space
+
+### ipyvuetify Side Panel (PR: ui-redesign-claude)
+
+The side panel was redesigned using ipyvuetify for a more polished, Material Design-inspired look. Key design decisions:
+
+#### Widget Library Strategy
+- **Side panel**: Uses `ipyvuetify` (v.Btn, v.BtnToggle, v.Select, v.Card, v.Icon) for polished Material Design components
+- **Tile panel**: Remains `ipywidgets` (Button, HBox, VBox) for lightweight tile cards
+- **Hybrid approach**: ipywidgets can be embedded inside ipyvuetify containers (e.g., sliders inside v.Card)
+
+#### Icon Systems (Critical)
+- **ipyvuetify uses MDI icons** (Material Design Icons): `mdi-thumb-up-outline`, `mdi-magnify`, etc.
+- **ipywidgets uses FontAwesome**: `icon="fa-thumbs-up"` in Button widget
+- **Do NOT mix**: FontAwesome icons will not render inside ipyvuetify containers due to CSS isolation
+- **Reference**: https://materialdesignicons.com/ for MDI icon names
+
+#### Component Patterns
+
+**Search Button (Style L)**:
+```python
+v.Btn(
+    block=True,           # Full width
+    color="primary",
+    depressed=True,       # Flat style, no shadow
+    children=[
+        v.Icon(small=True, class_="mr-2", children=["mdi-magnify"]),
+        "Search",
+    ],
+)
+# Layout: cols=10 for search, cols=2 for tiles icon button
+```
+
+**Label Toggle (BtnToggle with icons)**:
+```python
+v.BtnToggle(
+    v_model=0,
+    mandatory=True,
+    class_="d-flex",
+    children=[
+        v.Btn(small=True, children=[v.Icon(small=True, children=["mdi-thumb-up-outline"])]),
+        v.Btn(small=True, children=[v.Icon(small=True, children=["mdi-thumb-down-outline"])]),
+        v.Btn(small=True, children=[v.Icon(small=True, children=["mdi-eraser"])]),
+    ],
+)
+# Event: observe(handler, names="v_model") - returns index
+```
+
+**Mode Toggle (BtnToggle with text)**:
+```python
+v.BtnToggle(
+    v_model=0,
+    mandatory=True,
+    children=[
+        v.Btn(small=True, children=["• Point"]),
+        v.Btn(small=True, children=["▢ Polygon"]),
+    ],
+)
+```
+
+**Dropdown Select**:
+```python
+v.Select(
+    v_model="value",
+    items=["Option1", "Option2"],
+    dense=True,
+    hide_details=True,
+)
+# Event: observe(handler, names="v_model") - returns selected value
+```
+
+**Section Cards**:
+```python
+v.Card(
+    outlined=True,
+    class_="section-card pa-3",
+    children=[
+        v.Html(tag="span", class_="section-label", children=["LABEL"]),
+        # ... widgets
+    ],
+)
+```
+
+#### Event Handling Differences
+| Widget Type | Event Method | Callback Pattern |
+|-------------|--------------|------------------|
+| `v.Btn` | `on_event("click", handler)` | `lambda *args: ...` |
+| `v.BtnToggle` | `observe(handler, names="v_model")` | `change["new"]` = index |
+| `v.Select` | `observe(handler, names="v_model")` | `change["new"]` = value |
+| ipywidgets Button | `on_click(handler)` | `lambda btn: ...` |
+
+#### CSS Customization
+Custom CSS is injected via `HTML` widget with `<style>` tags. Key classes:
+- `.geovibes-panel` - Root container class
+- `.section-label` - Uppercase gray section headers (10px, #64748b)
+- `.search-btn` - Prominent search button (40px height, 14px font)
+- `.v-btn` overrides - Remove text-transform, set letter-spacing
+
+#### Design Rationale
+1. **Expansion panels → Cards**: Replaced v.ExpansionPanels with always-visible v.Card sections for immediate access
+2. **Basemap expansion → Dropdown**: Changed from expansion panel to v.Select for compact selection
+3. **Icon-only label buttons**: More compact, relies on tooltips for clarity
+4. **Full-width search button**: More prominent call-to-action (Style L from comparison)
+5. **Depressed button style**: Flat appearance without shadows for cleaner look
 
 ## Project Overview
 
@@ -307,6 +458,50 @@ Pre-built indexes available for:
 - Earth Genome SSL4EO DINO ViT (Sentinel-2)
 - Google Satellite Embeddings v1 (AlphaEarth)
 - Clay v1.5 NAIP embeddings
+
+## UI Preview Workflow (Visual Testing)
+
+For iterating on UI changes, use Voila + Playwright to preview and capture screenshots.
+
+**Tools location:** `claude_ui_dev/`
+- `test_tile_panel.ipynb` - Test notebook that programmatically triggers UI state
+- `screenshot_ui.py` - Playwright-based headless screenshot capture
+- `preview_ui.sh` - Convenience wrapper script
+
+### Quick Start
+
+```bash
+# Install playwright (one-time)
+uv add playwright && uv run playwright install chromium
+
+# Start Voila in background (port 8866)
+cd claude_ui_dev
+uv run voila test_tile_panel.ipynb --port=8866 --no-browser &
+
+# Take screenshot after UI loads
+./preview_ui.sh my_screenshot.png 10
+
+# Or with full control
+uv run python screenshot_ui.py --output tile_panel_v2.png --wait 15 --width 1600 --height 900
+
+# Kill Voila when done
+pkill -f "voila test_tile_panel"
+```
+
+### Iterative Design Loop
+
+1. Make UI changes in `geovibes/ui/*.py`
+2. Restart Voila (or use `--autoreload=True`)
+3. Take screenshot: `./preview_ui.sh iteration_N.png 10`
+4. Review screenshot, iterate
+5. Compare versions side-by-side
+
+### Test Notebook Customization
+
+Edit `claude_ui_dev/test_tile_panel.ipynb` to:
+- Change coordinates to match your database coverage
+- Trigger specific UI states (detection mode, different basemaps, etc.)
+- Test specific workflows programmatically
 
 ## Troubleshooting
 
