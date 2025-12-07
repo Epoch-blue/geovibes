@@ -367,7 +367,7 @@ class GeoVibes:
             ],
         )
 
-        # Detection controls (keep ipywidgets for sliders with text input)
+        # Detection controls (ipywidgets must be outside v.Card for proper rendering)
         self.detection_threshold_slider = FloatSlider(
             value=0.5,
             min=0.0,
@@ -375,33 +375,48 @@ class GeoVibes:
             step=0.01,
             description="",
             readout=False,
-            layout=Layout(width="100%", margin="0"),
+            layout=Layout(flex="1 1 auto", min_width="100px", margin="0"),
         )
         self.detection_threshold_text = FloatText(
             value=0.5,
             min=0.0,
             max=1.0,
             step=0.01,
-            layout=Layout(width="60px"),
+            layout=Layout(width="60px", flex="0 0 auto"),
         )
         self.detection_status_label = Label(
             value="",
-            layout=Layout(width="100%"),
+            layout=Layout(width="100%", margin="4px 0 0 0"),
         )
-        self.detection_controls = v.Card(
+        # Detection card with only the label (vuetify component)
+        detection_label_card = v.Card(
             outlined=True,
-            class_="section-card pa-3",
-            style_="display: none;",
+            class_="section-card pa-3 pb-1",
             children=[
                 v.Html(
-                    tag="span", class_="section-label", children=["DETECTION THRESHOLD"]
+                    tag="span",
+                    class_="section-label mb-0",
+                    children=["DETECTION THRESHOLD"],
                 ),
+            ],
+        )
+        # Detection widgets container (ipywidgets, placed outside v.Card)
+        self.detection_widgets_container = VBox(
+            [
                 HBox(
                     [self.detection_threshold_slider, self.detection_threshold_text],
-                    layout=Layout(align_items="center", width="100%"),
+                    layout=Layout(
+                        align_items="center", width="100%", display="flex", gap="8px"
+                    ),
                 ),
                 self.detection_status_label,
             ],
+            layout=Layout(width="100%", padding="0 12px", margin="0 0 8px 0"),
+        )
+        # Combined detection controls container
+        self.detection_controls = VBox(
+            [detection_label_card, self.detection_widgets_container],
+            layout=Layout(width="100%", display="none"),
         )
 
         # Database dropdown with ipyvuetify
@@ -775,7 +790,7 @@ class GeoVibes:
             self.dataset_manager.load_from_content(content, file_info["name"])
             if self.state.detection_mode:
                 # Show detection controls
-                self.detection_controls.style_ = "display: flex;"
+                self.detection_controls.layout.display = "flex"
                 features = self.state.detection_data.get("features", [])
                 num_detections = len(features)
 
@@ -802,7 +817,7 @@ class GeoVibes:
                 self._filter_detection_layer(self.detection_threshold_slider.value)
                 self._update_detection_tiles()
             else:
-                self.detection_controls.style_ = "display: none;"
+                self.detection_controls.layout.display = "none"
                 self._update_layers()
                 self._update_query_vector()
                 self._show_operation_status("✅ Dataset loaded")
@@ -1501,7 +1516,7 @@ class GeoVibes:
         self.map_manager.clear_vector_layer()
         self.map_manager.clear_highlight()
         self.map_manager.clear_overlay_layers()
-        self.detection_controls.style_ = "display: none;"
+        self.detection_controls.layout.display = "none"
         self.detection_status_label.value = ""
         # Reset slider and colormap range to defaults
         self.detection_threshold_slider.min = 0.0
