@@ -495,6 +495,7 @@ class GeoVibes:
         )
 
         # Export & Tools card (always visible)
+        # FileUpload widgets are kept outside v.Card to avoid rendering issues
         export_card = v.Card(
             outlined=True,
             class_="section-card pa-3",
@@ -509,7 +510,6 @@ class GeoVibes:
                         self.load_btn,
                     ],
                 ),
-                self.file_upload,
                 v.BtnToggle(
                     v_model=None,
                     dense=True,
@@ -519,13 +519,26 @@ class GeoVibes:
                         self.google_maps_btn,
                     ],
                 ),
-                self.vector_file_upload,
             ],
+        )
+        # Container for file uploads (placed outside v.Card for proper rendering)
+        self.upload_container = VBox(
+            [self.file_upload, self.vector_file_upload],
+            layout=Layout(width="100%", padding="0 12px", margin="0"),
         )
 
         # Keep accordion_container reference for compatibility but not used
         self.accordion_container = VBox(
-            [w for w in [database_card, basemaps_card, export_card] if w is not None],
+            [
+                w
+                for w in [
+                    database_card,
+                    basemaps_card,
+                    export_card,
+                    self.upload_container,
+                ]
+                if w is not None
+            ],
             layout=Layout(width="100%"),
         )
 

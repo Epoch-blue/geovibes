@@ -190,3 +190,6 @@ tile_panel_screenshot.png
 *.png
 preview_ui.sh
 alabama_aquaculture/
+
+# UI dev testing artifacts
+claude_ui_dev/
