@@ -1472,7 +1472,7 @@ class GeoVibes:
         else:
             self._show_operation_status("⚠️ Nothing to save")
 
-    def reset_all(self, _button=None) -> None:
+    def reset_all(self, _button=None, clear_overlays: bool = False) -> None:
         if self.verbose:
             print("🗑️ Resetting all labels and search results...")
         self.state.reset()
@@ -1485,7 +1485,8 @@ class GeoVibes:
         self.map_manager.clear_detection_layer()
         self.map_manager.clear_vector_layer()
         self.map_manager.clear_highlight()
-        self.map_manager.clear_overlay_layers()
+        if clear_overlays:
+            self.map_manager.clear_overlay_layers()
         self.detection_controls.style_ = "display: none;"
         # Reset slider and colormap range to defaults
         self.detection_threshold_slider.min = 0.0
