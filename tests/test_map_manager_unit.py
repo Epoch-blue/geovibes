@@ -20,7 +20,10 @@ def _setup_layer_manager_mocks(manager):
         hide=lambda: setattr(container, "_visible", False),
     )
     manager._layer_manager_container = container
-    manager._create_layer_row = lambda name, opacity: SimpleNamespace(name=name)
+    manager._create_layer_row = (
+        lambda name, opacity, layer_type="tile": SimpleNamespace(name=name)
+    )
+    manager._geojson_layers = {}
 
 
 def test_add_tile_layer_creates_layer():
@@ -42,12 +45,23 @@ def test_add_tile_layer_creates_layer():
     assert manager._overlay_layers["test_layer"].url == "http://tiles/{z}/{x}/{y}.png"
 
 
-def test_add_tile_layer_duplicate_name_raises():
+def test_add_tile_layer_duplicate_name_replaces():
     manager = MapManager.__new__(MapManager)
-    manager._overlay_layers = {"existing": SimpleNamespace()}
+    old_layer = SimpleNamespace(url="http://old/{z}/{x}/{y}.png", opacity=0.5)
+    manager._overlay_layers = {"existing": old_layer}
+    manager.basemap_layer = SimpleNamespace(name="basemap")
+    manager.map = SimpleNamespace(
+        layers=(manager.basemap_layer, old_layer),
+        remove_layer=lambda lyr: None,
+    )
+    _setup_layer_manager_mocks(manager)
+    manager._insert_overlay_layer = lambda layer: None
 
-    with pytest.raises(ValueError, match="already exists"):
-        manager.add_tile_layer("http://tiles/{z}/{x}/{y}.png", "existing")
+    manager.add_tile_layer("http://new/{z}/{x}/{y}.png", "existing", 0.8)
+
+    assert "existing" in manager._overlay_layers
+    assert manager._overlay_layers["existing"].url == "http://new/{z}/{x}/{y}.png"
+    assert manager._overlay_layers["existing"].opacity == 0.8
 
 
 def test_add_tile_layer_clamps_opacity():
@@ -366,8 +380,9 @@ def test_add_tile_layer_with_attribution():
 def test_create_layer_row_truncates_long_names():
     manager = MapManager.__new__(MapManager)
     manager._overlay_layers = {}
+    manager._geojson_layers = {}
 
-    row = manager._create_layer_row("VeryLongLayerName", 0.5)
+    row = manager._create_layer_row("VeryLongLayerName", 0.5, layer_type="tile")
 
     label = row.children[0]
     assert label.children[0] == "VeryLongL"
@@ -376,8 +391,9 @@ def test_create_layer_row_truncates_long_names():
 def test_create_layer_row_preserves_short_names():
     manager = MapManager.__new__(MapManager)
     manager._overlay_layers = {}
+    manager._geojson_layers = {}
 
-    row = manager._create_layer_row("LULC2024", 0.8)
+    row = manager._create_layer_row("LULC2024", 0.8, layer_type="tile")
 
     label = row.children[0]
     assert label.children[0] == "LULC2024"
@@ -402,6 +418,7 @@ def test_layer_manager_visibility_toggle():
     """Test that layer manager container visibility is properly toggled."""
     manager = MapManager.__new__(MapManager)
     manager._overlay_layers = {}
+    manager._geojson_layers = {}
 
     manager._layer_rows = MagicMock()
     manager._layer_rows.children = []
@@ -409,7 +426,7 @@ def test_layer_manager_visibility_toggle():
     import ipyvuetify as v
 
     manager._layer_manager_container = v.Card()
-    manager._create_layer_row = lambda name, opacity: MagicMock()
+    manager._create_layer_row = lambda name, opacity, layer_type="tile": MagicMock()
 
     manager._layer_manager_container.hide()
     assert "d-none" in manager._layer_manager_container.class_

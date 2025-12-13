@@ -51,6 +51,7 @@ class MapManager:
         self.vector_layer = None
         self.highlight_layer = None
         self._overlay_layers: Dict[str, ipyl.TileLayer] = {}
+        self._geojson_layers: Dict[str, dict] = {}
 
         self._add_map_layers()
         self.draw_control = self._setup_draw_control()
@@ -223,7 +224,9 @@ class MapManager:
         self, geojson_data: dict, name: str, style: Optional[dict] = None
     ) -> None:
         if self.vector_layer and self.vector_layer in self.map.layers:
+            old_name = self.vector_layer.name
             self.map.remove_layer(self.vector_layer)
+            self._geojson_layers.pop(old_name, None)
         style = style or {
             "color": "#FF6B6B",
             "weight": 2,
@@ -233,10 +236,19 @@ class MapManager:
         }
         self.vector_layer = ipyl.GeoJSON(name=name, data=geojson_data, style=style)
         self.map.add_layer(self.vector_layer)
+        self._geojson_layers[name] = {
+            "layer": self.vector_layer,
+            "base_style": style.copy(),
+            "opacity": 1.0,
+        }
+        self._refresh_layer_manager()
 
     def clear_vector_layer(self) -> None:
         if self.vector_layer and self.vector_layer in self.map.layers:
+            name = self.vector_layer.name
             self.map.remove_layer(self.vector_layer)
+            self._geojson_layers.pop(name, None)
+            self._refresh_layer_manager()
         self.vector_layer = None
 
     def highlight_polygon(
@@ -348,7 +360,10 @@ class MapManager:
         rows = []
         for name in self._overlay_layers:
             layer = self._overlay_layers[name]
-            row = self._create_layer_row(name, layer.opacity)
+            row = self._create_layer_row(name, layer.opacity, layer_type="tile")
+            rows.append(row)
+        for name, info in self._geojson_layers.items():
+            row = self._create_layer_row(name, info["opacity"], layer_type="geojson")
             rows.append(row)
         self._layer_rows.children = rows
         if rows:
@@ -356,7 +371,9 @@ class MapManager:
         else:
             self._layer_manager_container.hide()
 
-    def _create_layer_row(self, name: str, opacity: float) -> v.Row:
+    def _create_layer_row(
+        self, name: str, opacity: float, layer_type: str = "tile"
+    ) -> v.Row:
         display_name = name[:9] if len(name) > 9 else name
 
         slider = v.Slider(
@@ -370,9 +387,11 @@ class MapManager:
             style_="flex: 1; min-width: 40px;",
         )
 
-        def on_opacity_change(widget, event, data, layer_name=name):
-            if layer_name in self._overlay_layers:
+        def on_opacity_change(widget, event, data, layer_name=name, ltype=layer_type):
+            if ltype == "tile" and layer_name in self._overlay_layers:
                 self._overlay_layers[layer_name].opacity = data
+            elif ltype == "geojson" and layer_name in self._geojson_layers:
+                self._set_geojson_opacity(layer_name, data)
 
         slider.on_event("input", on_opacity_change)
 
@@ -385,8 +404,11 @@ class MapManager:
             style_="min-width: 20px; width: 20px;",
         )
 
-        def on_remove(widget, event, data, layer_name=name):
-            self.remove_layer(layer_name)
+        def on_remove(widget, event, data, layer_name=name, ltype=layer_type):
+            if ltype == "tile":
+                self.remove_layer(layer_name)
+            elif ltype == "geojson":
+                self._remove_geojson_layer(layer_name)
 
         remove_btn.on_event("click", on_remove)
 
@@ -408,6 +430,31 @@ class MapManager:
             dense=True,
             no_gutters=True,
         )
+
+    def _set_geojson_opacity(self, name: str, opacity: float) -> None:
+        if name not in self._geojson_layers:
+            return
+        info = self._geojson_layers[name]
+        info["opacity"] = opacity
+        base_style = info["base_style"]
+        layer = info["layer"]
+        new_style = base_style.copy()
+        if "opacity" in new_style:
+            new_style["opacity"] = base_style["opacity"] * opacity
+        if "fillOpacity" in new_style:
+            new_style["fillOpacity"] = base_style["fillOpacity"] * opacity
+        layer.style = new_style
+
+    def _remove_geojson_layer(self, name: str) -> None:
+        if name not in self._geojson_layers:
+            return
+        info = self._geojson_layers.pop(name)
+        layer = info["layer"]
+        if layer in self.map.layers:
+            self.map.remove_layer(layer)
+        if self.vector_layer == layer:
+            self.vector_layer = None
+        self._refresh_layer_manager()
 
     # ------------------------------------------------------------------
     # Overlay tile layer management
