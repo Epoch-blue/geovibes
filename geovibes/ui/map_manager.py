@@ -421,7 +421,7 @@ class MapManager:
         attribution: str = "",
     ) -> None:
         if name in self._overlay_layers:
-            raise ValueError(f"Layer '{name}' already exists")
+            self.remove_layer(name)
         opacity = max(0.0, min(1.0, opacity))
         layer = ipyl.TileLayer(
             url=url,
