@@ -58,7 +58,7 @@ class UIConstants:
     NEGATIVE_LABEL = 0
     ERASE_LABEL = -100
 
-    SEARCH_COLORMAP = os.getenv("GEOVIBES_SEARCH_COLORMAP", "plasma")
+    SEARCH_COLORMAP = os.getenv("GEOVIBES_SEARCH_COLORMAP", "turbo")
     _COLORMAP_CACHE: dict[str, dict[str, object]] = {}
 
     @classmethod
@@ -199,15 +199,6 @@ class BasemapConfig:
         "HUTCH_TILE": "https://tiles.earthindex.ai/v1/tiles/sentinel2-yearly-mosaics/2024-01-01/2025-01-01/rgb/{z}/{x}/{y}.webp",
         "GOOGLE_HYBRID": "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
     }
-
-    # Earth Engine basemap visualization parameters
-    S2_RGB_VIS_PARAMS = {"min": 0, "max": 3000, "bands": ["B4", "B3", "B2"]}
-
-    NDVI_VIS_PARAMS = {"min": -0.1, "max": 1.0, "palette": ["red", "yellow", "green"]}
-
-    NDWI_VIS_PARAMS = {"min": -0.5, "max": 0.5, "palette": ["brown", "white", "blue"]}
-
-    S2_HSV_VIS_PARAMS = {"min": 0, "max": 1, "bands": ["hue", "saturation", "value"]}
 
 
 class DatabaseConstants:

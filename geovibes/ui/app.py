@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 import warnings
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -20,11 +20,7 @@ from IPython.display import display
 from ipywidgets import (
     Button,
     FileUpload,
-    FloatSlider,
-    FloatText,
-    HBox,
     HTML,
-    Label,
     Layout,
     VBox,
 )
@@ -114,6 +110,22 @@ SIDE_PANEL_CSS = """
 .geovibes-panel .text-body-2 {
     font-size: 12px !important;
     font-weight: 500 !important;
+}
+
+/* Compact FileUpload widget */
+.geovibes-panel .widget-upload {
+    padding: 0 !important;
+    margin: 4px 0 !important;
+}
+
+.geovibes-panel .widget-upload > .widget-label {
+    display: none !important;
+}
+
+.geovibes-panel .widget-upload-label {
+    font-size: 11px !important;
+    padding: 4px 8px !important;
+    margin: 0 !important;
 }
 </style>
 """
@@ -351,26 +363,35 @@ class GeoVibes:
             ],
         )
 
-        # Detection controls (keep ipywidgets for sliders with text input)
-        self.detection_threshold_slider = FloatSlider(
-            value=0.5,
+        # Detection controls using ipyvuetify (same pattern as neighbors_slider)
+        self.detection_threshold_slider = v.Slider(
+            v_model=0.5,
             min=0.0,
             max=1.0,
             step=0.01,
-            description="",
-            readout=False,
-            layout=Layout(width="100%", margin="0"),
+            thumb_label=True,
+            hide_details=True,
+            class_="mt-0 flex-grow-1",
         )
-        self.detection_threshold_text = FloatText(
-            value=0.5,
-            min=0.0,
-            max=1.0,
-            step=0.01,
-            layout=Layout(width="60px"),
+        self.detection_threshold_label = v.Html(
+            tag="span",
+            class_="text-body-2 font-weight-medium ml-2",
+            children=["0.50"],
+            style_="min-width: 45px; text-align: right;",
         )
-        self.detection_status_label = Label(
-            value="",
-            layout=Layout(width="100%"),
+        detection_slider_row = v.Row(
+            no_gutters=True,
+            align="center",
+            children=[
+                v.Col(
+                    cols=10, class_="pa-0", children=[self.detection_threshold_slider]
+                ),
+                v.Col(
+                    cols=2,
+                    class_="pa-0 d-flex justify-end",
+                    children=[self.detection_threshold_label],
+                ),
+            ],
         )
         self.detection_controls = v.Card(
             outlined=True,
@@ -378,13 +399,11 @@ class GeoVibes:
             style_="display: none;",
             children=[
                 v.Html(
-                    tag="span", class_="section-label", children=["DETECTION THRESHOLD"]
+                    tag="span",
+                    class_="section-label",
+                    children=["DETECTION THRESHOLD"],
                 ),
-                HBox(
-                    [self.detection_threshold_slider, self.detection_threshold_text],
-                    layout=Layout(align_items="center", width="100%"),
-                ),
-                self.detection_status_label,
+                detection_slider_row,
             ],
         )
 
@@ -439,7 +458,7 @@ class GeoVibes:
         self.file_upload = FileUpload(
             accept=".geojson,.parquet",
             multiple=False,
-            layout=Layout(width="100%", display="none"),
+            layout=Layout(width="100%", display="none", margin="4px 0 0 0"),
         )
         self.add_vector_btn = v.Btn(
             small=True,
@@ -448,7 +467,7 @@ class GeoVibes:
         self.vector_file_upload = FileUpload(
             accept=".geojson,.parquet",
             multiple=False,
-            layout=Layout(width="100%", display="none"),
+            layout=Layout(width="100%", display="none", margin="4px 0 0 0"),
         )
         self.google_maps_btn = v.Btn(
             small=True,
@@ -479,11 +498,7 @@ class GeoVibes:
         )
 
         # Export & Tools card (always visible)
-        # FileUpload widgets are placed in a hidden container to avoid gaps
-        self.hidden_uploads = VBox(
-            [self.file_upload, self.vector_file_upload],
-            layout=Layout(display="none"),
-        )
+        # FileUpload widgets are kept outside v.Card to avoid rendering issues
         export_card = v.Card(
             outlined=True,
             class_="section-card pa-3",
@@ -509,10 +524,24 @@ class GeoVibes:
                 ),
             ],
         )
+        # Container for file uploads (placed outside v.Card for proper rendering)
+        self.upload_container = VBox(
+            [self.file_upload, self.vector_file_upload],
+            layout=Layout(width="100%", padding="0 12px", margin="0"),
+        )
 
         # Keep accordion_container reference for compatibility but not used
         self.accordion_container = VBox(
-            [w for w in [database_card, basemaps_card, export_card] if w is not None],
+            [
+                w
+                for w in [
+                    database_card,
+                    basemaps_card,
+                    export_card,
+                    self.upload_container,
+                ]
+                if w is not None
+            ],
             layout=Layout(width="100%"),
         )
 
@@ -549,7 +578,6 @@ class GeoVibes:
                 self.detection_controls,
                 self.accordion_container,
                 self.reset_btn,
-                self.hidden_uploads,
             ],
             layout=Layout(
                 width=UIConstants.PANEL_WIDTH, padding="8px", overflow="hidden"
@@ -628,10 +656,7 @@ class GeoVibes:
         )
         self.vector_file_upload.observe(self._on_vector_upload, names="value")
         self.detection_threshold_slider.observe(
-            self._on_detection_threshold_change, names="value"
-        )
-        self.detection_threshold_text.observe(
-            self._on_detection_threshold_text_change, names="value"
+            self._on_detection_threshold_change, names="v_model"
         )
         self.google_maps_btn.on_event(
             "click", lambda *args: self._on_google_maps_click(None)
@@ -721,19 +746,9 @@ class GeoVibes:
         if not self.state.detection_mode or not self.state.detection_data:
             return
         threshold = change["new"]
-        # Sync text input with slider
-        if self.detection_threshold_text.value != threshold:
-            self.detection_threshold_text.value = threshold
+        self.detection_threshold_label.children = [f"{threshold:.2f}"]
         self._filter_detection_layer(threshold)
         self._update_detection_tiles()
-
-    def _on_detection_threshold_text_change(self, change) -> None:
-        if not self.state.detection_mode or not self.state.detection_data:
-            return
-        threshold = max(0.0, min(1.0, change["new"]))
-        # Sync slider with text input
-        if self.detection_threshold_slider.value != threshold:
-            self.detection_threshold_slider.value = threshold
 
     def _on_google_maps_click(self, _button) -> None:
         lat, lon = self.map_manager.map.center
@@ -750,7 +765,7 @@ class GeoVibes:
             self.dataset_manager.load_from_content(content, file_info["name"])
             if self.state.detection_mode:
                 # Show detection controls
-                self.detection_controls.style_ = "display: flex;"
+                self.detection_controls.style_ = ""
                 features = self.state.detection_data.get("features", [])
                 num_detections = len(features)
 
@@ -766,15 +781,15 @@ class GeoVibes:
                     self._detection_prob_max = max_prob
                     self.detection_threshold_slider.min = min_prob
                     self.detection_threshold_slider.max = max_prob
-                    self.detection_threshold_slider.value = min_prob
-                    self.detection_threshold_text.value = min_prob
+                    self.detection_threshold_slider.v_model = min_prob
+                    self.detection_threshold_label.children = [f"{min_prob:.2f}"]
 
                 self._show_operation_status(
                     f"🔍 Detection mode: {num_detections} detections loaded. "
                     "Click to label as negative/positive."
                 )
                 # Apply initial filtering and populate tile panel
-                self._filter_detection_layer(self.detection_threshold_slider.value)
+                self._filter_detection_layer(self.detection_threshold_slider.v_model)
                 self._update_detection_tiles()
             else:
                 self.detection_controls.style_ = "display: none;"
@@ -1353,7 +1368,7 @@ class GeoVibes:
 
     def _refresh_detection_layer(self) -> None:
         """Refresh detection layer with current threshold and labels."""
-        threshold = self.detection_threshold_slider.value
+        threshold = self.detection_threshold_slider.v_model
         self._filter_detection_layer(threshold)
 
     def _update_detection_tiles(self) -> None:
@@ -1361,7 +1376,7 @@ class GeoVibes:
         if not self.state.detection_mode or not self.state.detection_data:
             return
 
-        threshold = self.detection_threshold_slider.value
+        threshold = self.detection_threshold_slider.v_model
         features = self.state.detection_data.get("features", [])
 
         # Filter by threshold
@@ -1373,7 +1388,6 @@ class GeoVibes:
 
         if not filtered:
             self.tile_panel.clear()
-            self.detection_status_label.value = "No detections above threshold"
             return
 
         # Build DataFrame for tile panel (sorted by lowest probability first)
@@ -1400,10 +1414,6 @@ class GeoVibes:
         df = pd.DataFrame(records)
         # Sort by probability ascending (lowest first = hardest cases)
         df = df.sort_values("probability", ascending=True).reset_index(drop=True)
-
-        # Update status
-        num_labeled = len(self.state.detection_labels)
-        self.detection_status_label.value = f"{len(df)} shown | {num_labeled} labeled"
 
         # Update tile panel
         self.tile_panel.update_results(df, auto_show=False)
@@ -1462,7 +1472,7 @@ class GeoVibes:
         else:
             self._show_operation_status("⚠️ Nothing to save")
 
-    def reset_all(self, _button=None) -> None:
+    def reset_all(self, _button=None, clear_overlays: bool = False) -> None:
         if self.verbose:
             print("🗑️ Resetting all labels and search results...")
         self.state.reset()
@@ -1475,13 +1485,14 @@ class GeoVibes:
         self.map_manager.clear_detection_layer()
         self.map_manager.clear_vector_layer()
         self.map_manager.clear_highlight()
+        if clear_overlays:
+            self.map_manager.clear_overlay_layers()
         self.detection_controls.style_ = "display: none;"
-        self.detection_status_label.value = ""
         # Reset slider and colormap range to defaults
         self.detection_threshold_slider.min = 0.0
         self.detection_threshold_slider.max = 1.0
-        self.detection_threshold_slider.value = 0.5
-        self.detection_threshold_text.value = 0.5
+        self.detection_threshold_slider.v_model = 0.5
+        self.detection_threshold_label.children = ["0.50"]
         self._detection_prob_min = 0.0
         self._detection_prob_max = 1.0
         self.tile_panel.clear()
@@ -1514,6 +1525,34 @@ class GeoVibes:
     @staticmethod
     def _empty_collection() -> Dict:
         return {"type": "FeatureCollection", "features": []}
+
+    # ------------------------------------------------------------------
+    # Overlay tile layer API
+    # ------------------------------------------------------------------
+
+    def add_tile_layer(
+        self, url: str, name: str, opacity: float = 1.0, attribution: str = ""
+    ) -> None:
+        """Add an XYZ tile layer overlay."""
+        self.map_manager.add_tile_layer(url, name, opacity, attribution)
+
+    def add_ee_layer(
+        self, ee_image, vis_params: Dict, name: str, opacity: float = 1.0
+    ) -> None:
+        """Add an Earth Engine image as a tile layer overlay."""
+        self.map_manager.add_ee_layer(ee_image, vis_params, name, opacity)
+
+    def remove_layer(self, name: str) -> bool:
+        """Remove an overlay layer by name."""
+        return self.map_manager.remove_layer(name)
+
+    def set_layer_opacity(self, name: str, opacity: float) -> None:
+        """Set the opacity of an overlay layer."""
+        self.map_manager.set_layer_opacity(name, opacity)
+
+    def list_layers(self) -> List[str]:
+        """Return names of all overlay layers."""
+        return self.map_manager.list_overlay_layers()
 
     def close(self) -> None:
         self.data.close()
