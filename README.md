@@ -295,4 +295,18 @@ GeoVibes is experimental research code. Contributions welcome for:
 - Performance optimizations
 - Documentation improvements
 
+### Developer Documentation
+
+Before contributing, check `docs/` for internal documentation:
+
+| Document | Contents |
+|----------|----------|
+| `modes-and-state.md` | Search vs Detection modes, AppState fields |
+| `event-flow.md` | Method chains for user interactions |
+| `data-formats.md` | GeoJSON schemas, DuckDB table structure |
+| `ui-widgets.md` | ipyvuetify patterns, widget hierarchy |
+| `scripts.md` | CLI tools reference |
+
+See also `CLAUDE.md` for coding conventions and development guidelines.
+
 Contact: chris@demeterlabs.io
