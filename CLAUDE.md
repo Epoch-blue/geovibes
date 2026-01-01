@@ -12,6 +12,31 @@ Do not leave comments unless explicitly asked to
 Do not implement classes unless explicitly necessary, where possible use functions and keep things simple.
 Be parsimonious with code.
 
+## Developer Documentation (`docs/`)
+
+**IMPORTANT**: Before implementing features, check the relevant documentation in `docs/`:
+
+| If you're working on... | Read this doc |
+|-------------------------|---------------|
+| Search vs Detection mode behavior | `docs/modes-and-state.md` |
+| AppState fields, mode transitions | `docs/modes-and-state.md` |
+| How user clicks trigger method chains | `docs/event-flow.md` |
+| Adding new event handlers | `docs/event-flow.md` |
+| GeoJSON input/output formats | `docs/data-formats.md` |
+| DuckDB schema, FAISS index types | `docs/data-formats.md` |
+| ipyvuetify patterns, BtnToggle events | `docs/ui-widgets.md` |
+| Widget hierarchy, CSS injection | `docs/ui-widgets.md` |
+| MDI icons (NOT FontAwesome in side panel) | `docs/ui-widgets.md` |
+| CLI tools (faiss_db.py, download_embeddings.py) | `docs/scripts.md` |
+| Building new databases | `docs/scripts.md` |
+
+### Quick Reference
+
+- **Mode-specific behavior**: Always check `state.detection_mode` before implementing click handlers
+- **BtnToggle returns index**: `v_model=0` means first option, not string value
+- **Icon systems differ**: ipyvuetify uses `mdi-*`, ipywidgets uses `fa-*`
+- **Query vector formula**: `2 * mean(positives) - mean(negatives)`
+
 ## Coding Preferences
 
 - **Fail Fast**: Do not use try-except statements. Let errors surface immediately for faster debugging.
