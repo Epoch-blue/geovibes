@@ -13,14 +13,9 @@ import shapely.geometry.base
 from ipyleaflet import DrawControl, Map
 import ipyvuetify as v
 from ipywidgets import HTML, HBox, Layout, Output, VBox
-from tqdm import tqdm
 
 from geovibes.ee_tools import (
     get_ee_image_url,
-    get_s2_hsv_median,
-    get_s2_ndvi_median,
-    get_s2_ndwi_median,
-    get_s2_rgb_median,
 )
 from geovibes.ui_config import BasemapConfig, LayerStyles, UIConstants
 

@@ -13,7 +13,6 @@ import ee
 import xarray as xr
 import numpy as np
 import pandas as pd
-from pathlib import Path
 
 
 def initialize_earth_engine(service_account_key: Optional[str] = None) -> None:

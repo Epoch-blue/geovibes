@@ -2,7 +2,6 @@ import json
 
 import pandas as pd
 import numpy as np
-import pandas as pd
 
 from geovibes.ui.datasets import DatasetManager
 from geovibes.ui.state import AppState

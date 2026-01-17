@@ -5,11 +5,9 @@ This module provides efficient streaming ingestion using batching and
 handles coordinate-based point data that will be stored alongside FAISS indices.
 """
 
-from typing import Iterator, Optional, List
+from typing import Iterator, List
 import duckdb
 import pandas as pd
-import numpy as np
-from pathlib import Path
 import logging
 
 
@@ -155,7 +153,7 @@ def stream_ingest_generator(
                 axis=1
             )
             
-            con.execute(f"""
+            con.execute("""
                 INSERT INTO geo_embeddings (id, lon, lat, embedding, geometry, tile_id)
                 SELECT 
                     id,

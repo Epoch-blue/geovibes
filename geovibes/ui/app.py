@@ -19,13 +19,14 @@ import faiss
 import pyproj
 from IPython.display import display
 from ipywidgets import (
+    Accordion,
     Button,
+    Dropdown,
     FileUpload,
-    HBox,
     HTML,
-    IntSlider,
     Label,
     Layout,
+    ToggleButtons,
     VBox,
 )
 import ipyvuetify as v
@@ -573,6 +574,8 @@ class GeoVibes:
             self.location_analysis_toggle,
             self.location_analysis_commodity_dropdown,
         ]
+
+        basemap_widgets = []
 
         # Database dropdown
         database_section_widgets = []
@@ -1530,7 +1533,6 @@ class GeoVibes:
             if result.get("success"):
                 analysis = result.get("gemini_analysis", "")
                 place_info = result.get("place_info", {})
-                nearby_places = result.get("nearby_places", [])
 
                 # Display full analysis in the output widget below the map
                 with self.map_manager.location_analysis_output:
@@ -1558,7 +1560,7 @@ class GeoVibes:
                     import sys
 
                     sys.stdout.flush()
-                self._show_operation_status(f"⚠️ Location analysis returned no results")
+                self._show_operation_status("⚠️ Location analysis returned no results")
                 return None
 
         except Exception as e:

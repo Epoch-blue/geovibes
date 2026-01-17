@@ -8,11 +8,9 @@ import os
 import glob
 import pandas as pd
 import geopandas as gpd
-import numpy as np
 from pathlib import Path
 import argparse
 from typing import List, Optional, Tuple
-import json
 from tempfile import NamedTemporaryFile
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -315,7 +313,7 @@ def ingest_to_faiss_db(
         embedding_bands: List of embedding band names
     """
     
-    print(f"🔍 Ingesting Parquet to FAISS database...")
+    print("🔍 Ingesting Parquet to FAISS database...")
     
     # Import FAISS database utilities
     import sys
@@ -377,7 +375,7 @@ def main():
         if gcsfs is None:
             raise RuntimeError("gcsfs is required for --download-first. Install with: pip install gcsfs")
         
-        print(f"📥 Downloading all tiles from GCS first...")
+        print("📥 Downloading all tiles from GCS first...")
         download_dir = os.path.join(os.getcwd(), "downloaded_tiles")
         os.makedirs(download_dir, exist_ok=True)
         

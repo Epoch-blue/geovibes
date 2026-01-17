@@ -4,8 +4,7 @@ Enhanced location analyzer that finds nearby Google Places and uses AI for analy
 
 import os
 import math
-from typing import Dict, Optional, List, Tuple
-import json
+from typing import Dict, Optional, List
 from datetime import datetime
 import googlemaps
 import google.generativeai as genai
@@ -195,7 +194,7 @@ class LocationAnalyzer:
         
         # Add nearby places list (closest 5 within 1km)
         if nearby_places:
-            analysis_parts.append(f"\n🏢 CLOSEST 5 PLACES FOUND WITHIN 1km:")
+            analysis_parts.append("\n🏢 CLOSEST 5 PLACES FOUND WITHIN 1km:")
             for i, place in enumerate(nearby_places, 1):
                 name = place.get('name', 'Unknown')
                 types = ', '.join(place.get('types', [])[:5])  # Show first 5 types
