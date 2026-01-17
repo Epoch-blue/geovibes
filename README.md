@@ -173,6 +173,107 @@ python geovibes/database/faiss_db.py \
 
 This script processes parquet files from an input directory, builds a FAISS index, and creates a separate DuckDB file containing the metadata for the embeddings.
 
+## Classification Pipeline
+
+GeoVibes includes a classification pipeline for training binary classifiers on labeled embeddings. This enables workflows like: label examples → train classifier → review detections → refine with corrections.
+
+### Basic Usage
+
+```bash
+# Train classifier on labeled data
+uv run python -m geovibes.classification.pipeline \
+    --positives labeled_dataset.geojson \
+    --output results/ \
+    --db path/to/embeddings.duckdb \
+    --threshold 0.5
+```
+
+### Iterative Retraining with Corrections
+
+After reviewing detection results in the GeoVibes UI, export corrections and retrain:
+
+```bash
+# Combine original labels with corrections from detection review
+uv run python -m geovibes.classification.pipeline \
+    --positives original_labels.geojson corrections.geojson \
+    --output results_v2/ \
+    --db path/to/embeddings.duckdb \
+    --correction-weight 2.5
+```
+
+The `--correction-weight` parameter emphasizes correction samples (class `relabel_pos`/`relabel_neg`) during training, helping the model learn from its mistakes.
+
+### Detection Review Mode
+
+When you load a GeoJSON file with a `probability` field (classifier output), GeoVibes automatically enters detection review mode:
+
+- **Threshold slider**: Filter detections by probability, with min/max set from your dataset
+- **Colormap visualization**: Probability-scaled colors (plasma colormap)
+- **Interactive labeling**: Click or polygon-select to mark false positives/negatives
+- **Export corrections**: Save as augmented dataset for retraining
+
+### Spatial Cross-Validation
+
+For robust model evaluation, use 5-fold spatial cross-validation instead of a single train/test split:
+
+```bash
+uv run python -m geovibes.classification.pipeline \
+    --positives labeled_data.geojson corrections.geojson \
+    --negatives sampled_negatives.geojson \
+    --db path/to/embeddings.duckdb \
+    --output results/ \
+    --cv \
+    --cv-buffer 500
+```
+
+The spatial CV algorithm:
+1. Buffers positive points (default 500m) and unions into contiguous clusters
+2. Explodes union into separate polygon regions
+3. Distributes clusters across 5 folds with greedy sample balancing
+4. Assigns negatives to the fold of their nearest positive cluster
+5. Reports mean ± std for all metrics
+
+Example output:
+```
+=================================================================
+SPATIAL 5-FOLD CROSS-VALIDATION RESULTS
+=================================================================
+Metric       Mean ± Std
+-----------------------------------------------------------------
+Accuracy:    0.9734 ± 0.0297
+Precision:   0.9387 ± 0.0988
+Recall:      0.9805 ± 0.0115
+F1:          0.9566 ± 0.0590
+AUC-ROC:     0.9970 ± 0.0034
+-----------------------------------------------------------------
+Spatial clusters: 59 (distributed across 5 folds)
+=================================================================
+```
+
+This tests generalization to **new geographic areas**, not just new samples from areas the model has seen.
+
+### CLI Options
+
+| Argument | Description |
+|----------|-------------|
+| `--positives` | One or more GeoJSON files with training examples |
+| `--negatives` | Optional separate file for negative examples |
+| `--output` | Output directory for results |
+| `--db` | Path to DuckDB database with embeddings |
+| `--threshold` | Probability threshold for detection (default: 0.5) |
+| `--correction-weight` | Weight multiplier for correction samples (default: 1.0) |
+| `--batch-size` | Batch size for inference (default: 100000) |
+| `--test-fraction` | Fraction of data for test set (default: 0.2) |
+| `--cv` | Run 5-fold spatial cross-validation (skips inference) |
+| `--cv-buffer` | Buffer distance in meters for spatial clustering (default: 500) |
+
+### Output Files
+
+The pipeline generates:
+- `classification_detections.geojson` - All detections above threshold
+- `classification_union.geojson` - Merged detection polygons
+- `model.json` - Trained XGBoost model (can be reloaded)
+
 ## Performance & Limitations
 
 - **Database scaling**: Tested up to 5M embeddings
@@ -193,5 +294,19 @@ GeoVibes is experimental research code. Contributions welcome for:
 - Custom embedding model support
 - Performance optimizations
 - Documentation improvements
+
+### Developer Documentation
+
+Before contributing, check `docs/` for internal documentation:
+
+| Document | Contents |
+|----------|----------|
+| `modes-and-state.md` | Search vs Detection modes, AppState fields |
+| `event-flow.md` | Method chains for user interactions |
+| `data-formats.md` | GeoJSON schemas, DuckDB table structure |
+| `ui-widgets.md` | ipyvuetify patterns, widget hierarchy |
+| `scripts.md` | CLI tools reference |
+
+See also `CLAUDE.md` for coding conventions and development guidelines.
 
 Contact: chris@demeterlabs.io

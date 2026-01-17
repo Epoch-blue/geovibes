@@ -43,15 +43,21 @@ def test_tile_panel_update_results(monkeypatch):
         on_center=lambda row: None,
     )
 
-    def fake_widget(self, row, append):
-        return Label(value=f"tile-{row['id']}")
+    captured_ids = []
 
-    monkeypatch.setattr(TilePanel, "_create_tile_widget", fake_widget)
+    def fake_widget(self, row, image_bytes, rank=None):
+        captured_ids.append(row["id"])
+        return VBox([Label(value=f"tile-{row['id']}")])
 
-    df = pd.DataFrame([
-        {"id": "1"},
-        {"id": "2"},
-    ])
+    monkeypatch.setattr(TilePanel, "_build_tile_widget", fake_widget)
+    monkeypatch.setattr(TilePanel, "_fetch_tile_image_bytes", lambda self, row: None)
+
+    df = pd.DataFrame(
+        [
+            {"id": "1"},
+            {"id": "2"},
+        ]
+    )
 
     ready_calls = []
 
@@ -59,11 +65,8 @@ def test_tile_panel_update_results(monkeypatch):
 
     _await_tiles(panel)
 
-    assert panel.container.layout.display == "block"
-    assert [child.value for child in panel.results_grid.children] == [
-        "tile-1",
-        "tile-2",
-    ]
+    assert panel.container.layout.display == "flex"
+    assert captured_ids == ["1", "2"]
     assert state.last_search_results_df is df
     assert state.tile_page == 0
     assert panel.next_tiles_btn.layout.display != "flex"
@@ -86,7 +89,9 @@ def test_tile_panel_handle_map_basemap_change(monkeypatch):
 
     calls = []
 
-    def fake_render(self, append, limit=None, on_finish=None, page_size=None, loader_token=None):
+    def fake_render(
+        self, append, limit=None, on_finish=None, page_size=None, loader_token=None
+    ):
         calls.append((append, limit, on_finish, page_size, loader_token))
         if on_finish:
             on_finish()
@@ -130,7 +135,7 @@ def test_tile_panel_apply_label_style_updates_buttons():
     assert cross.button_style == "danger"
 
 
-def test_next_tiles_shows_loading_placeholders(monkeypatch):
+def test_next_tiles_loads_more_results(monkeypatch):
     state = AppState()
     state.initial_load_size = 4
     state.tiles_per_page = 4
@@ -143,36 +148,26 @@ def test_next_tiles_shows_loading_placeholders(monkeypatch):
         on_center=lambda row: None,
     )
 
-    observed = {"placeholder_seen": False}
-
-    def fake_widget(self, row, append):
-        if any(
-            isinstance(child, VBox)
-            and any(
-                isinstance(grandchild, Label) and grandchild.value == "Loading..."
-                for grandchild in child.children
-            )
-            for child in self.results_grid.children
-        ):
-            observed["placeholder_seen"] = True
+    def fake_widget(self, row, image_bytes, rank=None):
         return Label(value=f"tile-{row['id']}")
 
-    monkeypatch.setattr(TilePanel, "_create_tile_widget", fake_widget)
+    monkeypatch.setattr(TilePanel, "_build_tile_widget", fake_widget)
+    monkeypatch.setattr(TilePanel, "_fetch_tile_image_bytes", lambda self, row: None)
 
     df = pd.DataFrame([{"id": str(i)} for i in range(8)])
 
     panel.update_results(df, auto_show=True)
     _await_tiles(panel)
-    observed["placeholder_seen"] = False
 
     assert panel._page_sizes == [4]
+    assert len(panel.results_grid.children) == 4
 
     panel._on_next_tiles_click(None)
 
     _await_tiles(panel)
 
-    assert observed["placeholder_seen"] is True
     assert panel._page_sizes == [4, 4]
+    assert len(panel.results_grid.children) == 8
     assert map_manager.operations[-2:] == ["⏳ Loading tiles...", "✅ Tiles updated"]
 
 
@@ -249,10 +244,192 @@ def test_handle_tile_center_uses_tile_spec(monkeypatch):
     assert color == "red"
     assert fill_opacity == 0.0
 
-    half_side_deg = (tile_spec["tile_size_px"] * tile_spec["meters_per_pixel"]) / (2 * 111_320)
+    half_side_deg = (tile_spec["tile_size_px"] * tile_spec["meters_per_pixel"]) / (
+        2 * 111_320
+    )
     minx, miny, maxx, maxy = polygon.bounds
     tolerance = 1e-5
     assert abs(minx + half_side_deg) < tolerance
     assert abs(maxx - half_side_deg) < tolerance
     assert abs(miny + half_side_deg) < tolerance
     assert abs(maxy - half_side_deg) < tolerance
+
+
+def test_sort_toggle_initial_state():
+    state = AppState()
+    panel = TilePanel(
+        state=state,
+        map_manager=DummyMapManager(),
+        on_label=lambda *args, **kwargs: None,
+        on_center=lambda row: None,
+    )
+
+    assert panel._sort_order == "Similar"
+    assert "sort-btn-active" in panel.similar_btn._dom_classes
+    assert "sort-btn-inactive" in panel.dissimilar_btn._dom_classes
+
+
+def test_sort_toggle_switches_to_dissimilar(monkeypatch):
+    state = AppState()
+    panel = TilePanel(
+        state=state,
+        map_manager=DummyMapManager(),
+        on_label=lambda *args, **kwargs: None,
+        on_center=lambda row: None,
+    )
+
+    render_calls = []
+
+    def fake_render(
+        self, append, limit=None, on_finish=None, page_size=None, loader_token=None
+    ):
+        render_calls.append(("render", self._sort_order))
+        if on_finish:
+            on_finish()
+
+    monkeypatch.setattr(TilePanel, "_render_current_page", fake_render)
+
+    state.last_search_results_df = pd.DataFrame([{"id": "1"}])
+
+    panel._on_dissimilar_click(None)
+
+    assert panel._sort_order == "Dissimilar"
+    assert "sort-btn-active" in panel.dissimilar_btn._dom_classes
+    assert "sort-btn-inactive" in panel.similar_btn._dom_classes
+    assert len(render_calls) == 1
+
+
+def test_sort_toggle_switches_back_to_similar(monkeypatch):
+    state = AppState()
+    panel = TilePanel(
+        state=state,
+        map_manager=DummyMapManager(),
+        on_label=lambda *args, **kwargs: None,
+        on_center=lambda row: None,
+    )
+
+    render_calls = []
+
+    def fake_render(
+        self, append, limit=None, on_finish=None, page_size=None, loader_token=None
+    ):
+        render_calls.append(("render", self._sort_order))
+        if on_finish:
+            on_finish()
+
+    monkeypatch.setattr(TilePanel, "_render_current_page", fake_render)
+
+    state.last_search_results_df = pd.DataFrame([{"id": "1"}])
+
+    panel._on_dissimilar_click(None)
+    panel._on_similar_click(None)
+
+    assert panel._sort_order == "Similar"
+    assert "sort-btn-active" in panel.similar_btn._dom_classes
+    assert "sort-btn-inactive" in panel.dissimilar_btn._dom_classes
+    assert len(render_calls) == 2
+
+
+def test_sort_toggle_no_op_when_already_selected(monkeypatch):
+    state = AppState()
+    panel = TilePanel(
+        state=state,
+        map_manager=DummyMapManager(),
+        on_label=lambda *args, **kwargs: None,
+        on_center=lambda row: None,
+    )
+
+    render_calls = []
+
+    def fake_render(
+        self, append, limit=None, on_finish=None, page_size=None, loader_token=None
+    ):
+        render_calls.append("render")
+        if on_finish:
+            on_finish()
+
+    monkeypatch.setattr(TilePanel, "_render_current_page", fake_render)
+
+    state.last_search_results_df = pd.DataFrame([{"id": "1"}])
+
+    panel._on_similar_click(None)
+
+    assert panel._sort_order == "Similar"
+    assert len(render_calls) == 0
+
+
+def _extract_tile_ids(panel: TilePanel) -> list:
+    """Extract tile IDs from the results grid children in display order."""
+    ids = []
+    for child in panel.results_grid.children:
+        if isinstance(child, VBox) and child.children:
+            label = child.children[0]
+            if isinstance(label, Label) and label.value.startswith("tile-"):
+                ids.append(label.value.replace("tile-", ""))
+    return ids
+
+
+def test_dissimilar_reverses_tile_order(monkeypatch):
+    state = AppState()
+    panel = TilePanel(
+        state=state,
+        map_manager=DummyMapManager(),
+        on_label=lambda *args, **kwargs: None,
+        on_center=lambda row: None,
+    )
+
+    def fake_widget(self, row, image_bytes, rank=None):
+        return VBox([Label(value=f"tile-{row['id']}")])
+
+    monkeypatch.setattr(TilePanel, "_build_tile_widget", fake_widget)
+    monkeypatch.setattr(TilePanel, "_fetch_tile_image_bytes", lambda self, row: None)
+
+    df = pd.DataFrame([{"id": "1"}, {"id": "2"}, {"id": "3"}])
+
+    panel._sort_order = "Similar"
+    panel.update_results(df, auto_show=True)
+    _await_tiles(panel)
+    similar_order = _extract_tile_ids(panel)
+
+    panel._on_dissimilar_click(None)
+    _await_tiles(panel)
+    dissimilar_order = _extract_tile_ids(panel)
+
+    assert similar_order == ["1", "2", "3"]
+    assert dissimilar_order == ["3", "2", "1"]
+
+
+def test_detection_mode_inverts_sort_order(monkeypatch):
+    """In detection mode, data is sorted by probability ascending (low=dissimilar).
+
+    Similar should reverse to show high prob first.
+    Dissimilar should keep order to show low prob first.
+    """
+    state = AppState()
+    state.detection_mode = True
+    panel = TilePanel(
+        state=state,
+        map_manager=DummyMapManager(),
+        on_label=lambda *args, **kwargs: None,
+        on_center=lambda row: None,
+    )
+
+    def fake_widget(self, row, image_bytes, rank=None):
+        return VBox([Label(value=f"tile-{row['id']}")])
+
+    monkeypatch.setattr(TilePanel, "_build_tile_widget", fake_widget)
+    monkeypatch.setattr(TilePanel, "_fetch_tile_image_bytes", lambda self, row: None)
+
+    df = pd.DataFrame([{"id": "1"}, {"id": "2"}, {"id": "3"}])
+
+    panel._sort_order = "Similar"
+    panel.update_results(df, auto_show=True)
+    _await_tiles(panel)
+    similar_order = _extract_tile_ids(panel)
+
+    panel._on_dissimilar_click(None)
+    _await_tiles(panel)
+    dissimilar_order = _extract_tile_ids(panel)
+
+    assert similar_order == ["3", "2", "1"]
+    assert dissimilar_order == ["1", "2", "3"]

@@ -9,10 +9,8 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import duckdb
-import ee
 import faiss
 import geopandas as gpd
-import shapely.geometry
 
 from geovibes.ee_tools import initialize_ee_with_credentials
 from geovibes.ui_config import BasemapConfig, DatabaseConstants, GeoVibesConfig
@@ -49,7 +47,6 @@ class DataManager:
         self.baselayer_url = baselayer_url or BasemapConfig.BASEMAP_TILES["MAPTILER"]
         self.duckdb_path = duckdb_path
         self.duckdb_directory = duckdb_directory
-        self.ee_boundary = None
 
         if "enable_ee" in unused_kwargs and self.verbose:
             print(
@@ -143,7 +140,6 @@ class DataManager:
         self.effective_boundary_path, (self.center_y, self.center_x) = (
             self._setup_boundary_and_center()
         )
-        self._update_ee_boundary()
 
     # ------------------------------------------------------------------
     # Configuration helpers
@@ -675,22 +671,6 @@ class DataManager:
         )
         return None, (center_y, center_x)
 
-    def _update_ee_boundary(self) -> None:
-        if not self.ee_available:
-            return
-
-        if self.effective_boundary_path:
-            try:
-                boundary_gdf = gpd.read_file(self.effective_boundary_path)
-                geometry = shapely.geometry.mapping(boundary_gdf.union_all())
-                self.ee_boundary = ee.Geometry(geometry)
-            except Exception as exc:
-                if self.verbose:
-                    print(f"⚠️  Failed to update Earth Engine boundary: {exc}")
-                self.ee_boundary = None
-        else:
-            self.ee_boundary = None
-
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -964,7 +944,6 @@ class DataManager:
         self.effective_boundary_path, (self.center_y, self.center_x) = (
             self._setup_boundary_and_center()
         )
-        self._update_ee_boundary()
 
 
 __all__ = ["DataManager"]

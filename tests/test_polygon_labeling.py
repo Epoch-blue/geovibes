@@ -67,6 +67,10 @@ def geo_vibes_stub():
     gv.tile_panel = DummyTilePanel()
     gv.tiles_button = SimpleNamespace(button_style="")
 
+    # Add label/mode values used by toggle change handlers
+    gv._label_values = ["Positive", "Negative", "Erase"]
+    gv._mode_values = ["point", "polygon"]
+
     # Replace heavy operations with no-ops for isolated testing
     gv._show_operation_status = lambda *args, **kwargs: None
     gv._update_status = lambda *args, **kwargs: None
@@ -159,11 +163,12 @@ def test_polygon_mode_disables_point_labeling(geo_vibes_stub):
 
     gv.label_point = fake_label_point
 
-    gv._on_selection_mode_change({"new": "polygon"})
+    # _mode_values = ["point", "polygon"], so index 1 = polygon, index 0 = point
+    gv._on_selection_mode_change({"new": 1})  # polygon mode
     gv._on_map_interaction(type="click", coordinates=(37.0, -1.0), modifiers={})
     assert called["value"] is False
 
-    gv._on_selection_mode_change({"new": "point"})
+    gv._on_selection_mode_change({"new": 0})  # point mode
     gv._on_map_interaction(type="click", coordinates=(37.0, -1.0), modifiers={})
     assert called["value"] is True
 
@@ -188,11 +193,14 @@ def test_iterative_label_workflow_positive_then_negative(geo_vibes_stub):
 
     assert gv.state.pos_ids == ["1"]
     assert gv.state.neg_ids == []
-    np.testing.assert_array_equal(gv.state.cached_embeddings["1"], np.array([0.1, 0.2, 0.3]))
+    np.testing.assert_array_equal(
+        gv.state.cached_embeddings["1"], np.array([0.1, 0.2, 0.3])
+    )
     assert layer_calls[-1] == (["1"], [])
     assert query_calls[-1] == ("1",)
 
-    gv._on_label_change({"new": "Negative"})
+    # _label_values = ["Positive", "Negative", "Erase"], so index 1 = Negative
+    gv._on_label_toggle_change({"new": 1})
     assert gv.state.current_label == "Negative"
 
     gv.label_point(lon=-1.2, lat=37.2)
@@ -219,7 +227,8 @@ def test_relabel_point_from_positive_to_negative(geo_vibes_stub):
     assert gv.state.pos_ids == ["7"]
     assert gv.state.neg_ids == []
 
-    gv._on_label_change({"new": "Negative"})
+    # _label_values = ["Positive", "Negative", "Erase"], so index 1 = Negative
+    gv._on_label_toggle_change({"new": 1})
     gv.label_point(lon=-1.0, lat=37.0)
 
     assert gv.state.pos_ids == []

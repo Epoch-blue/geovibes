@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 import numpy as np
 
@@ -21,7 +21,9 @@ class AppState:
     pos_ids: List[str] = field(default_factory=list)
     neg_ids: List[str] = field(default_factory=list)
     cached_embeddings: Dict[str, np.ndarray] = field(default_factory=dict)
-    cached_geometries: Dict[str, dict] = field(default_factory=dict)  # point_id -> GeoJSON geometry
+    cached_geometries: Dict[str, dict] = field(
+        default_factory=dict
+    )  # point_id -> GeoJSON geometry
     query_vector: Optional[np.ndarray] = None
     selection_mode: str = "point"
     current_label: str = "Positive"
@@ -32,9 +34,12 @@ class AppState:
     tile_basemap: str = "MAPTILER"
     tile_page: int = 0
     tiles_per_page: int = 50
-    initial_load_size: int = 8
+    initial_load_size: int = 20
     last_search_results_df: Optional["pd.DataFrame"] = None
     detections_with_embeddings: Optional["gpd.GeoDataFrame"] = None
+    detection_mode: bool = False
+    detection_data: Optional[Dict[str, Any]] = None
+    detection_labels: Dict[str, int] = field(default_factory=dict)
     location_analysis_enabled: bool = False
     location_analysis_commodity: str = "coffee"
 
@@ -63,6 +68,9 @@ class AppState:
         self.set_label_mode("Positive")
         self.lasso_mode = False
         self.polygon_drawing = False
+        self.detection_mode = False
+        self.detection_data = None
+        self.detection_labels.clear()
 
     def toggle_label(self, point_id: str, label: str) -> None:
         """Toggle the label for a point_id, ensuring exclusivity."""
@@ -85,14 +93,22 @@ class AppState:
 
     def update_query_vector(self) -> Optional[np.ndarray]:
         """Recompute query vector based on cached embeddings."""
-        pos_embeddings = [self.cached_embeddings[pid] for pid in self.pos_ids if pid in self.cached_embeddings]
+        pos_embeddings = [
+            self.cached_embeddings[pid]
+            for pid in self.pos_ids
+            if pid in self.cached_embeddings
+        ]
         if not pos_embeddings:
             self.query_vector = None
             return None
 
         pos_vec = np.mean(pos_embeddings, axis=0)
 
-        neg_embeddings = [self.cached_embeddings[nid] for nid in self.neg_ids if nid in self.cached_embeddings]
+        neg_embeddings = [
+            self.cached_embeddings[nid]
+            for nid in self.neg_ids
+            if nid in self.cached_embeddings
+        ]
         if neg_embeddings:
             neg_vec = np.mean(neg_embeddings, axis=0)
         else:
@@ -115,6 +131,26 @@ class AppState:
             self.neg_ids.append(point_id)
             return "negative"
         return "removed"
+
+    def enter_detection_mode(self, detection_geojson: Dict[str, Any]) -> None:
+        """Enter detection review mode with provided GeoJSON data."""
+        self.detection_mode = True
+        self.detection_data = detection_geojson
+        self.detection_labels.clear()
+
+    def exit_detection_mode(self) -> None:
+        """Exit detection review mode and clear detection state."""
+        self.detection_mode = False
+        self.detection_data = None
+        self.detection_labels.clear()
+
+    def label_detection(self, tile_id: str, label: int) -> None:
+        """Add or update label for a detection tile_id."""
+        self.detection_labels[tile_id] = label
+
+    def get_labeled_detections(self) -> List[Tuple[str, int]]:
+        """Return list of (tile_id, label) tuples for all labeled detections."""
+        return list(self.detection_labels.items())
 
 
 __all__ = ["AppState"]

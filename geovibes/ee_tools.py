@@ -18,13 +18,7 @@ def initialize_ee_with_credentials(verbose: bool = False) -> bool:
     except Exception as e:
         if verbose:
             print(f"❌ Earth Engine authentication failed: {e}")
-            print(
-                "\n🔧 To enable NDVI/NDWI basemaps, please run the following command:"
-            )
-            print("    earthengine authenticate")
-            print(
-                "⚠️  Continuing without Earth Engine (NDVI/NDWI basemaps will be unavailable)"
-            )
+            print("\n🔧 To enable Earth Engine layers, run: earthengine authenticate")
         return False
 
 
@@ -53,9 +47,8 @@ def get_s2_cloud_masked_collection(
     if aoi:
         collection = collection.filterBounds(aoi)
 
-    return (
-        collection.linkCollection(csPlus, [QA_BAND])
-        .map(lambda img: img.updateMask(img.select(QA_BAND).gte(clear_threshold)))
+    return collection.linkCollection(csPlus, [QA_BAND]).map(
+        lambda img: img.updateMask(img.select(QA_BAND).gte(clear_threshold))
     )
 
 
