@@ -73,10 +73,16 @@ dependencies = [
     "ruff",
     "voila",
     "googlemaps",
-    "google-generativeai",
     "playwright>=1.56.0",
     "xgboost>=2.0.0",
     "ipyvuetify>=1.11.3",
+    "odc-geo>=0.5.0",
+    "xarray>=2025.6.1",
+    "xee>=0.0.24",
+    "zarr>=2.18.3",
+    "langgraph>=0.2.0",
+    "pydantic>=2.0.0",
+    "google-genai>=0.1.0",
 ]
 
 

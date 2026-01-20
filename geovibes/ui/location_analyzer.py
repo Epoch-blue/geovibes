@@ -6,8 +6,20 @@ import os
 import math
 from typing import Dict, Optional, List
 from datetime import datetime
-import googlemaps
-import google.generativeai as genai
+
+try:
+    import googlemaps
+    GOOGLEMAPS_AVAILABLE = True
+except ImportError:
+    googlemaps = None
+    GOOGLEMAPS_AVAILABLE = False
+
+try:
+    from google import genai
+    GENAI_AVAILABLE = True
+except ImportError:
+    genai = None
+    GENAI_AVAILABLE = False
 
 
 class LocationAnalyzer:
@@ -28,19 +40,27 @@ class LocationAnalyzer:
         self.gemini_api_key = gemini_api_key or os.getenv('GEMINI_API_KEY')
         
         # Initialize Google Maps client
-        if self.google_maps_api_key:
+        if GOOGLEMAPS_AVAILABLE and self.google_maps_api_key:
             self.gmaps = googlemaps.Client(key=self.google_maps_api_key)
         else:
             self.gmaps = None
-            print("Warning: Google Maps API key not found")
+            if not GOOGLEMAPS_AVAILABLE:
+                pass  # Silently skip if package not installed
+            elif not self.google_maps_api_key:
+                print("Warning: Google Maps API key not found")
         
         # Initialize Gemini AI
-        if self.gemini_api_key:
-            genai.configure(api_key=self.gemini_api_key)
-            self.model = genai.GenerativeModel('gemini-2.5-flash')
-        else:
-            self.model = None
-            print("Warning: Gemini API key not found")
+        self.genai_client = None
+        if GENAI_AVAILABLE:
+            if self.gemini_api_key:
+                self.genai_client = genai.Client(api_key=self.gemini_api_key)
+            else:
+                try:
+                    self.genai_client = genai.Client()
+                except ValueError:
+                    self.genai_client = None
+                    if not self.gemini_api_key:
+                        print("Warning: Gemini API key not found")
     
     def find_nearby_places(self, lat: float, lon: float, limit: int = 5) -> List[Dict]:
         """
@@ -242,7 +262,7 @@ class LocationAnalyzer:
         Returns:
             AI analysis of whether places are processing facilities for the commodity
         """
-        if not self.model or not nearby_places:
+        if not self.genai_client or not nearby_places:
             return f"🔍 Found {len(nearby_places)} nearby places within 1km. No AI analysis available."
         
         try:
@@ -311,8 +331,11 @@ Provide a CLEAR and CONCISE assessment:
 Format your response clearly with place names, reasoning, confidence levels, and company ownership information.
 """
             
-            # Get Gemini AI analysis
-            response = self.model.generate_content(prompt)
+            # Get Gemini AI analysis using new client
+            response = self.genai_client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt
+            )
             ai_analysis = response.text.strip()
             
             return ai_analysis
@@ -350,7 +373,7 @@ Format your response clearly with place names, reasoning, confidence levels, and
             Dictionary with place info, nearby places, and AI analysis
         """
         # Performance check - skip if no API keys available
-        if not self.gmaps or not self.model:
+        if not self.gmaps or not self.genai_client:
             return {
                 'success': False,
                 'error': 'Location analyzer not available (missing API keys)',
@@ -398,8 +421,10 @@ def create_location_analyzer(google_maps_api_key: str = None, gemini_api_key: st
         gemini_api_key: Google AI API key for Gemini analysis
     
     Returns:
-        LocationAnalyzer instance
+        LocationAnalyzer instance, or None if dependencies are not available
     """
+    if not GOOGLEMAPS_AVAILABLE or not GENAI_AVAILABLE:
+        return None
     try:
         return LocationAnalyzer(google_maps_api_key, gemini_api_key)
     except Exception as e:
