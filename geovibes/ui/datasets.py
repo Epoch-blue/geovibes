@@ -57,9 +57,14 @@ class DatasetManager:
 
         prepared_ids = [str(pid) for pid in all_ids]
         placeholders = ",".join(["?" for _ in prepared_ids])
+
+        id_candidates = getattr(self.data_manager, "id_column_candidates", ["id"])
+        has_tile_id = "tile_id" in id_candidates
+        tile_id_col = "tile_id," if has_tile_id else ""
+
         query = f"""
         SELECT id,
-               tile_id,
+               {tile_id_col}
                ST_AsGeoJSON(geometry) AS geometry_json,
                embedding
         FROM geo_embeddings
@@ -162,12 +167,16 @@ class DatasetManager:
         features = []
         manual_ids = list(set(self.state.pos_ids + self.state.neg_ids))
 
+        id_candidates = getattr(self.data_manager, "id_column_candidates", ["id"])
+        has_tile_id = "tile_id" in id_candidates
+        tile_id_col = "tile_id," if has_tile_id else ""
+
         if manual_ids:
             prepared_ids = [str(pid) for pid in manual_ids]
             placeholders = ",".join(["?" for _ in prepared_ids])
             query = f"""
             SELECT id,
-                   tile_id,
+                   {tile_id_col}
                    ST_AsGeoJSON(geometry) AS geometry_json,
                    embedding
             FROM geo_embeddings
@@ -212,23 +221,45 @@ class DatasetManager:
                 )
 
         if self.state.detection_labels:
-            detection_tile_ids = list(self.state.detection_labels.keys())
-            detection_placeholders = ",".join(["?" for _ in detection_tile_ids])
-            detection_query = f"""
-            SELECT id,
-                   tile_id,
-                   ST_AsGeoJSON(geometry) AS geometry_json,
-                   embedding
-            FROM geo_embeddings
-            WHERE tile_id IN ({detection_placeholders})
-            """
+            detection_keys = list(self.state.detection_labels.keys())
+            detection_placeholders = ",".join(["?" for _ in detection_keys])
+
+            # Build lookup dict with both string and original keys for robust matching
+            labels_lookup = {}
+            for k, v in self.state.detection_labels.items():
+                labels_lookup[k] = v
+                labels_lookup[str(k)] = v
+
+            if has_tile_id:
+                detection_query = f"""
+                SELECT id,
+                       tile_id,
+                       ST_AsGeoJSON(geometry) AS geometry_json,
+                       embedding
+                FROM geo_embeddings
+                WHERE tile_id IN ({detection_placeholders})
+                """
+                id_column_for_lookup = "tile_id"
+            else:
+                detection_query = f"""
+                SELECT id,
+                       id AS tile_id,
+                       ST_AsGeoJSON(geometry) AS geometry_json,
+                       embedding
+                FROM geo_embeddings
+                WHERE id IN ({detection_placeholders})
+                """
+                id_column_for_lookup = "id"
+
             detection_results = self.data_manager.duckdb_connection.execute(
-                detection_query, detection_tile_ids
+                detection_query, detection_keys
             ).df()
 
             for _, row in detection_results.iterrows():
-                tile_id = row["tile_id"]
-                detection_label = self.state.detection_labels.get(tile_id)
+                lookup_key = row[id_column_for_lookup]
+                detection_label = labels_lookup.get(lookup_key)
+                if detection_label is None:
+                    detection_label = labels_lookup.get(str(lookup_key))
                 if detection_label is None:
                     continue
 
@@ -246,7 +277,7 @@ class DatasetManager:
                         "geometry": json.loads(row["geometry_json"]),
                         "properties": {
                             "id": str(row["id"]),
-                            "tile_id": tile_id,
+                            "tile_id": str(lookup_key),
                             "label": label,
                             "class": class_name,
                             "embedding": embedding.tolist(),

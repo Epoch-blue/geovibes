@@ -731,16 +731,22 @@ class DataManager:
                 WHERE table_name = 'geo_embeddings' 
                 AND column_name IN ('lon', 'lat')
             """).fetchall()
-            has_lon = any(c[0] == 'lon' for c in cols)
-            has_lat = any(c[0] == 'lat' for c in cols)
-            
+            has_lon = any(c[0] == "lon" for c in cols)
+            has_lat = any(c[0] == "lat" for c in cols)
+
             if has_lon and has_lat:
                 # Check if indexes already exist
                 try:
-                    self.duckdb_connection.execute("CREATE INDEX IF NOT EXISTS idx_lon ON geo_embeddings(lon)")
-                    self.duckdb_connection.execute("CREATE INDEX IF NOT EXISTS idx_lat ON geo_embeddings(lat)")
+                    self.duckdb_connection.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_lon ON geo_embeddings(lon)"
+                    )
+                    self.duckdb_connection.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_lat ON geo_embeddings(lat)"
+                    )
                     if self.verbose:
-                        print("✅ Created indexes on lon/lat columns for fast nearest point queries")
+                        print(
+                            "✅ Created indexes on lon/lat columns for fast nearest point queries"
+                        )
                 except Exception:
                     pass  # Indexes may already exist or table doesn't support indexes
         except Exception:
@@ -784,24 +790,26 @@ class DataManager:
                 LIMIT   1
                 """
                 result = self.duckdb_connection.execute(medium_sql, params).fetchone()
-            
+
             if result is not None:
                 # Convert manhattan_dist result to dist_m format expected by caller
                 point_id, wkt, manhattan_dist, embedding = result
-                
+
                 # Validate wkt is a valid string before using it
                 if wkt is None or not isinstance(wkt, str) or not wkt.strip():
                     # If wkt is None/invalid, we already have geometry from query
                     # Use approximate distance based on manhattan_dist
-                    dist_m = manhattan_dist * 111000  # Convert to meters (rough approximation)
+                    dist_m = (
+                        manhattan_dist * 111000
+                    )  # Convert to meters (rough approximation)
                     # Return empty wkt - caller will handle it
                     return (point_id, "", dist_m, embedding)
-                
+
                 # Compute actual ST_Distance for the final result (only once)
                 try:
                     dist_result = self.duckdb_connection.execute(
                         "SELECT ST_Distance(ST_GeomFromText(?), ST_Point(?, ?))",
-                        [str(wkt), lon, lat]
+                        [str(wkt), lon, lat],
                     ).fetchone()
                     if dist_result and dist_result[0] is not None:
                         dist_m = dist_result[0]
@@ -813,13 +821,19 @@ class DataManager:
                 except Exception as dist_err:
                     # If ST_Distance calculation fails, use approximate
                     if self.verbose:
-                        print(f"⚠️ Could not compute ST_Distance, using approximate: {dist_err}")
+                        print(
+                            f"⚠️ Could not compute ST_Distance, using approximate: {dist_err}"
+                        )
                     dist_m = manhattan_dist * 111000
                     return (point_id, wkt, dist_m, embedding)
-            
+
         except Exception as e:
             # Only fall back if it's actually a column error, not other errors
-            if "column" in str(e).lower() or "lon" in str(e).lower() or "lat" in str(e).lower():
+            if (
+                "column" in str(e).lower()
+                or "lon" in str(e).lower()
+                or "lat" in str(e).lower()
+            ):
                 # If lon/lat columns don't exist, use spatial index with bounding box (leverages R-tree)
                 # Create bounding box manually - this uses spatial index efficiently
                 for buffer_deg in [0.01, 0.05, 0.1, 0.5]:
@@ -828,7 +842,7 @@ class DataManager:
                         min_lon, max_lon = lon - buffer_deg, lon + buffer_deg
                         min_lat, max_lat = lat - buffer_deg, lat + buffer_deg
                         bbox_wkt = f"POLYGON(({min_lon} {min_lat}, {max_lon} {min_lat}, {max_lon} {max_lat}, {min_lon} {max_lat}, {min_lon} {min_lat}))"
-                        
+
                         # Use ST_Within with bounding box - leverages spatial index
                         fallback_sql = """
                         SELECT  g.id,
@@ -847,10 +861,12 @@ class DataManager:
                             return result
                     except Exception:
                         continue
-                
+
                 # Last resort: full table scan (slow but works) - should rarely reach here
                 if self.verbose:
-                    print("⚠️ Warning: Using slow full table scan (no lon/lat columns or spatial index)")
+                    print(
+                        "⚠️ Warning: Using slow full table scan (no lon/lat columns or spatial index)"
+                    )
                 fallback_sql = """
                 SELECT  g.id,
                         ST_AsText(g.geometry) AS wkt,
@@ -860,7 +876,9 @@ class DataManager:
                 ORDER BY dist_m
                 LIMIT   1
                 """
-                result = self.duckdb_connection.execute(fallback_sql, [lon, lat]).fetchone()
+                result = self.duckdb_connection.execute(
+                    fallback_sql, [lon, lat]
+                ).fetchone()
                 return result
             else:
                 # Other errors - re-raise them so we know what's wrong

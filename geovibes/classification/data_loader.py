@@ -43,6 +43,20 @@ class ClassificationDataLoader:
         """
         self.conn = duckdb_connection
         self.geojson_path = geojson_path
+        self._id_column: str | None = None
+
+    def _get_id_column(self) -> str:
+        """Detect which ID column exists in the geo_embeddings table."""
+        if self._id_column is not None:
+            return self._id_column
+
+        result = self.conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'geo_embeddings' AND column_name IN ('tile_id', 'id')"
+        ).fetchall()
+        columns = {row[0] for row in result}
+        self._id_column = "tile_id" if "tile_id" in columns else "id"
+        return self._id_column
 
     def load(
         self, test_fraction: float = 0.2, random_state: int = 42
@@ -78,6 +92,13 @@ class ClassificationDataLoader:
         tile_ids = df["tile_id"].tolist()
         embeddings_dict = self._fetch_embeddings(tile_ids)
         fetch_time = time.perf_counter() - fetch_start
+
+        # Normalize tile_ids to strings for consistent mapping
+        id_col = self._get_id_column()
+        if id_col == "id":
+            df["tile_id"] = df["tile_id"].apply(lambda x: str(int(float(x))))
+        else:
+            df["tile_id"] = df["tile_id"].astype(str)
 
         df["embedding"] = df["tile_id"].map(embeddings_dict)
 
@@ -172,9 +193,10 @@ class ClassificationDataLoader:
 
     def _lookup_tile_ids_from_db_ids(self, db_ids: List[int]) -> Dict[int, str]:
         """Look up tile_ids from DuckDB row ids."""
+        id_col = self._get_id_column()
         ids_str = ",".join(str(i) for i in db_ids)
         query = f"""
-            SELECT id, tile_id
+            SELECT id, {id_col} as tile_id
             FROM geo_embeddings
             WHERE id IN ({ids_str})
         """
@@ -183,6 +205,7 @@ class ClassificationDataLoader:
 
     def _spatial_match(self, df: pd.DataFrame) -> pd.DataFrame:
         """Find nearest tile_id for each point using spatial matching."""
+        id_col = self._get_id_column()
         center_lon = df["lon"].mean()
         center_lat = df["lat"].mean()
         utm_zone = int(((center_lon + 180) / 6) + 1)
@@ -200,7 +223,7 @@ class ClassificationDataLoader:
 
             query = f"""
                 SELECT
-                    tile_id,
+                    {id_col} as tile_id,
                     ST_Distance(
                         ST_Transform(geometry, 'EPSG:4326', 'EPSG:{utm_epsg}'),
                         ST_Transform(ST_Point({lon}, {lat}), 'EPSG:4326', 'EPSG:{utm_epsg}')
@@ -231,37 +254,48 @@ class ClassificationDataLoader:
 
         return df
 
+    def _format_ids_for_query(self, tile_ids: List[str]) -> str:
+        """Format tile IDs for SQL IN clause, handling both string and int columns."""
+        id_col = self._get_id_column()
+        if id_col == "id":
+            # Integer column - convert to int, no quotes
+            return ",".join(str(int(float(tid))) for tid in tile_ids)
+        else:
+            # String column - use quotes
+            return ",".join(f"'{tid}'" for tid in tile_ids)
+
     def _fetch_embeddings(self, tile_ids: List[str]) -> Dict[str, np.ndarray]:
         """Fetch embeddings from DuckDB for given tile_ids."""
-        escaped_ids = ",".join(f"'{tid}'" for tid in tile_ids)
+        id_col = self._get_id_column()
+        formatted_ids = self._format_ids_for_query(tile_ids)
         query = f"""
-            SELECT tile_id, embedding
+            SELECT {id_col} as tile_id, embedding
             FROM geo_embeddings
-            WHERE tile_id IN ({escaped_ids})
+            WHERE {id_col} IN ({formatted_ids})
         """
 
         result = self.conn.execute(query).fetchall()
 
         embeddings_dict = {}
         for tile_id, embedding in result:
-            embedding_array = np.array(embedding, dtype=np.float32)
-            embeddings_dict[tile_id] = embedding_array
+            embeddings_dict[str(tile_id)] = np.array(embedding, dtype=np.float32)
 
         return embeddings_dict
 
     def _fetch_geometries(self, tile_ids: List[str]) -> gpd.GeoSeries:
         """Fetch point geometries from DuckDB for given tile_ids."""
-        escaped_ids = ",".join(f"'{tid}'" for tid in tile_ids)
+        id_col = self._get_id_column()
+        formatted_ids = self._format_ids_for_query(tile_ids)
         query = f"""
-            SELECT tile_id, ST_AsText(geometry) as geometry_wkt
+            SELECT {id_col} as tile_id, ST_AsText(geometry) as geometry_wkt
             FROM geo_embeddings
-            WHERE tile_id IN ({escaped_ids})
+            WHERE {id_col} IN ({formatted_ids})
         """
         result = self.conn.execute(query).fetchdf()
         result["geometry"] = gpd.GeoSeries.from_wkt(result["geometry_wkt"])
-        tile_to_geom = dict(zip(result["tile_id"], result["geometry"]))
+        tile_to_geom = dict(zip(result["tile_id"].astype(str), result["geometry"]))
         return gpd.GeoSeries(
-            [tile_to_geom.get(tid) for tid in tile_ids], crs="EPSG:4326"
+            [tile_to_geom.get(str(tid)) for tid in tile_ids], crs="EPSG:4326"
         )
 
     def load_for_cv(
@@ -299,6 +333,13 @@ class ClassificationDataLoader:
         embeddings_dict = self._fetch_embeddings(tile_ids)
         geometries = self._fetch_geometries(tile_ids)
         fetch_time = time.perf_counter() - fetch_start
+
+        # Normalize tile_ids to strings for consistent mapping
+        id_col = self._get_id_column()
+        if id_col == "id":
+            df["tile_id"] = df["tile_id"].apply(lambda x: str(int(float(x))))
+        else:
+            df["tile_id"] = df["tile_id"].astype(str)
 
         df["embedding"] = df["tile_id"].map(embeddings_dict)
 

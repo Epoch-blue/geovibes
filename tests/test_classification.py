@@ -821,12 +821,10 @@ class TestOutputGenerator:
         """OutputGenerator initializes with tile parameters."""
         generator = OutputGenerator(
             duckdb_connection=mock_connection,
-            tile_size_px=32,
-            tile_overlap_px=16,
-            resolution_m=10.0,
+            tile_size_m=80.0,
         )
-        assert generator.tile_size_m == 320.0  # 32 * 10
-        assert generator.half_tile_m == 160.0
+        assert generator.tile_size_m == 80.0
+        assert generator.half_tile_m == 40.0
 
     def test_get_utm_crs_northern(self, mock_connection):
         """_get_utm_crs returns correct EPSG for northern hemisphere."""
@@ -1606,9 +1604,7 @@ class TestOutputGeneratorIntegration:
 
         generator = OutputGenerator(
             duckdb_connection,
-            tile_size_px=32,
-            tile_overlap_px=16,
-            resolution_m=10.0,  # 320m tiles
+            tile_size_m=320.0,
         )
 
         detections = [(1, 0.95), (2, 0.88)]

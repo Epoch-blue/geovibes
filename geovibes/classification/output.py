@@ -28,9 +28,7 @@ class OutputGenerator:
     def __init__(
         self,
         duckdb_connection,
-        tile_size_px: int = 32,
-        tile_overlap_px: int = 16,
-        resolution_m: float = 10.0,
+        tile_size_m: float = 320.0,
     ):
         """
         Initialize output generator.
@@ -39,16 +37,26 @@ class OutputGenerator:
         ----------
         duckdb_connection : duckdb.DuckDBPyConnection
             DuckDB connection with geo_embeddings table
-        tile_size_px : int
-            Tile size in pixels
-        tile_overlap_px : int
-            Tile overlap in pixels
-        resolution_m : float
-            Resolution in meters per pixel
+        tile_size_m : float
+            Size of output tile polygons in meters (default 320.0)
         """
         self.conn = duckdb_connection
-        self.tile_size_m = tile_size_px * resolution_m
+        self.tile_size_m = tile_size_m
         self.half_tile_m = self.tile_size_m / 2
+        self._id_column: str | None = None
+
+    def _get_id_column(self) -> str:
+        """Detect which ID column exists in the geo_embeddings table."""
+        if self._id_column is not None:
+            return self._id_column
+
+        result = self.conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'geo_embeddings' AND column_name IN ('tile_id', 'id')"
+        ).fetchall()
+        columns = {row[0] for row in result}
+        self._id_column = "tile_id" if "tile_id" in columns else "id"
+        return self._id_column
 
     def fetch_detection_metadata(
         self,
@@ -80,10 +88,11 @@ class OutputGenerator:
             ids = chunk["id"].tolist()
 
             ids_str = ",".join(str(id_val) for id_val in ids)
+            id_col = self._get_id_column()
             query = f"""
                 SELECT
                     id,
-                    tile_id,
+                    {id_col} as tile_id,
                     ST_AsText(geometry) as geometry_wkt
                 FROM geo_embeddings
                 WHERE id IN ({ids_str})
@@ -125,10 +134,10 @@ class OutputGenerator:
         """
         start = time.perf_counter()
 
-        detections_gdf["utm_crs"] = detections_gdf["tile_id"].apply(self._get_utm_crs)
+        detections_gdf["utm_crs"] = detections_gdf.geometry.apply(self._get_utm_crs_from_point)
 
         all_tiles = []
-        for utm_crs, group in detections_gdf.groupby("utm_crs"):
+        for utm_crs, group in detections_gdf.groupby("utm_crs", sort=False):
             group_utm = group.to_crs(utm_crs)
 
             tiles = []
@@ -237,17 +246,14 @@ class OutputGenerator:
             "union": union_path,
         }, elapsed
 
-    def _get_utm_crs(self, tile_id: str) -> pyproj.CRS:
-        """Parse MGRS tile_id to get UTM CRS."""
-        zone_str = tile_id[:2]
-        band = tile_id[2]
-        zone = int(zone_str)
-
-        if band >= "N":
+    def _get_utm_crs_from_point(self, point) -> pyproj.CRS:
+        """Compute UTM CRS from a point geometry."""
+        lon, lat = point.x, point.y
+        zone = int(((lon + 180) / 6) + 1)
+        if lat >= 0:
             epsg_code = 32600 + zone
         else:
             epsg_code = 32700 + zone
-
         return pyproj.CRS.from_epsg(epsg_code)
 
     def generate_output(

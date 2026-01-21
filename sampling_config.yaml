@@ -1,0 +1,18 @@
+aoi_path: geometries/sumatra.geojson
+
+# Number of samples per ESRI LULC class (remapped class IDs)
+# Classes: 1=water, 2=trees, 3=flooded_vegetation, 4=crops, 
+#          5=built_area, 6=bare_ground, 7=snow_ice, 8=clouds, 9=rangeland
+samples_per_class:
+  1: 500
+  2: 500
+  3: 500
+  4: 500 
+  5: 500
+  6: 500
+  9: 500
+
+scale: 80
+
+buffer_meters: 500.0
+seed: 42

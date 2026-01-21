@@ -7,7 +7,12 @@ import pandas as pd
 import geopandas as gpd
 from shapely.ops import unary_union
 
-from geovibes.classification.classifier import EmbeddingClassifier, EvaluationMetrics
+from geovibes.classification.classifier import (
+    EmbeddingClassifier,
+    LinearSVMClassifier,
+    EvaluationMetrics,
+    ClassifierType,
+)
 
 
 @dataclass
@@ -205,6 +210,7 @@ def cross_validate(
     n_folds: int = 5,
     n_clusters: int = 0,
     cluster_distribution: Optional[Dict[int, int]] = None,
+    classifier_type: str = "xgboost",
     **xgb_params,
 ) -> CVResult:
     """
@@ -226,8 +232,10 @@ def cross_validate(
         Number of spatial clusters (for reporting)
     cluster_distribution : Dict[int, int], optional
         Clusters per fold (for reporting)
+    classifier_type : str
+        Type of classifier: 'xgboost' or 'linear-svm'
     **xgb_params
-        XGBoost hyperparameters
+        XGBoost hyperparameters (only used if classifier_type='xgboost')
 
     Returns
     -------
@@ -261,7 +269,13 @@ def cross_validate(
         if sample_weights is not None:
             weights = sample_weights[train_mask]
 
-        classifier = EmbeddingClassifier(**xgb_params)
+        classifier: ClassifierType
+        if classifier_type == "linear-svm":
+            random_state = xgb_params.get("random_state", 42)
+            classifier = LinearSVMClassifier(random_state=random_state)
+        else:
+            classifier = EmbeddingClassifier(**xgb_params)
+
         classifier.fit(X_train, y_train, sample_weight=weights)
         metrics, _ = classifier.evaluate(X_test, y_test)
 

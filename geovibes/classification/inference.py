@@ -145,7 +145,10 @@ class BatchInference:
 
     def _iterate_batches_fast(self) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
         """
-        Generator yielding (ids, embeddings) batches using fetchdf().
+        Generator yielding (ids, embeddings) batches using cursor-based pagination.
+
+        Uses WHERE id > last_id instead of OFFSET/LIMIT for O(1) performance
+        per batch regardless of position in the table.
 
         Yields
         ------
@@ -154,16 +157,17 @@ class BatchInference:
         embeddings : np.ndarray
             Array of embeddings (float32), shape (batch_size, embedding_dim)
         """
-        offset = 0
+        last_id = -1
         query = """
             SELECT id, CAST(embedding AS FLOAT[]) as embedding
             FROM geo_embeddings
+            WHERE id > ?
             ORDER BY id
-            LIMIT ? OFFSET ?
+            LIMIT ?
         """
 
         while True:
-            df = self.conn.execute(query, [self.batch_size, offset]).fetchdf()
+            df = self.conn.execute(query, [last_id, self.batch_size]).fetchdf()
 
             if len(df) == 0:
                 break
@@ -173,7 +177,7 @@ class BatchInference:
 
             yield ids, embeddings
 
-            offset += self.batch_size
+            last_id = int(ids[-1])
 
     def _score_batch(self, embeddings: np.ndarray) -> np.ndarray:
         """
@@ -195,17 +199,18 @@ class BatchInference:
         return proba
 
     def _iterate_batches(self) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
-        """Legacy method using fetchall()."""
-        offset = 0
+        """Legacy method using fetchall() with cursor-based pagination."""
+        last_id = -1
         query = """
             SELECT id, CAST(embedding AS FLOAT[]) as embedding
             FROM geo_embeddings
+            WHERE id > ?
             ORDER BY id
-            LIMIT ? OFFSET ?
+            LIMIT ?
         """
 
         while True:
-            result = self.conn.execute(query, [self.batch_size, offset]).fetchall()
+            result = self.conn.execute(query, [last_id, self.batch_size]).fetchall()
 
             if not result:
                 break
@@ -216,4 +221,4 @@ class BatchInference:
             )
 
             yield ids, embeddings
-            offset += self.batch_size
+            last_id = int(ids[-1])

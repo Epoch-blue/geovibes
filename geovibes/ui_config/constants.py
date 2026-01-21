@@ -40,6 +40,10 @@ class UIConstants:
     MAX_NEIGHBORS = 25000
     NEIGHBORS_STEP = 100
 
+    # Large file handling
+    MAX_MAP_FEATURES = 10000
+    LARGE_FILE_THRESHOLD_MB = 50
+
     # Point styles
     POINT_RADIUS = 4
     SEARCH_POINT_RADIUS = 3

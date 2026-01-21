@@ -182,6 +182,8 @@ cython_debug/
 notebooks/*.ipynb
 labeled_dataset_*.geojson
 labeled_dataset_*_labels.csv
+augmented_dataset_*.geojson
+classification_output*/
 
 # UI Testing artifacts
 test_tile_panel.ipynb
@@ -193,3 +195,5 @@ alabama_aquaculture/
 
 # UI dev testing artifacts
 claude_ui_dev/
+
+sumatra_db/

@@ -217,6 +217,30 @@ class NegativeSampler:
         self.lulc_config = lulc_config or LULCConfig()
         self.sampling_config = sampling_config or SamplingConfig()
         self._ee_initialized = False
+        self._id_column: Optional[str] = None
+
+    def _get_id_column(self, conn: Optional[duckdb.DuckDBPyConnection] = None) -> str:
+        """Detect which ID column exists in the geo_embeddings table."""
+        if self._id_column is not None:
+            return self._id_column
+
+        close_conn = False
+        if conn is None:
+            conn = duckdb.connect(self.duckdb_path, read_only=True)
+            close_conn = True
+
+        try:
+            result = conn.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'geo_embeddings' AND column_name IN ('tile_id', 'id')"
+            ).fetchall()
+            columns = {row[0] for row in result}
+            self._id_column = "tile_id" if "tile_id" in columns else "id"
+        finally:
+            if close_conn:
+                conn.close()
+
+        return self._id_column
 
     @classmethod
     def from_config(cls, config: NegativeSamplingConfig) -> "NegativeSampler":
@@ -504,6 +528,7 @@ class NegativeSampler:
         conn = duckdb.connect(self.duckdb_path, read_only=True)
         conn.execute("LOAD spatial;")
 
+        id_col = self._get_id_column(conn)
         results = []
 
         # Process in batches for efficient querying
@@ -538,7 +563,7 @@ class NegativeSampler:
                 candidates AS (
                     SELECT
                         p.idx,
-                        g.tile_id,
+                        g.{id_col} as tile_id,
                         ST_Distance(
                             ST_Transform(g.geometry, 'EPSG:4326', 'EPSG:{utm_epsg}'),
                             ST_Transform(ST_Point(p.lon, p.lat), 'EPSG:4326', 'EPSG:{utm_epsg}')
@@ -576,7 +601,7 @@ class NegativeSampler:
 
                         retry_query = f"""
                             SELECT
-                                tile_id,
+                                {id_col} as tile_id,
                                 ST_Distance(
                                     ST_Transform(geometry, 'EPSG:4326', 'EPSG:{utm_epsg}'),
                                     ST_Transform(ST_Point({lon}, {lat}), 'EPSG:4326', 'EPSG:{utm_epsg}')
@@ -612,7 +637,7 @@ class NegativeSampler:
                     lon, lat = row["_lon"], row["_lat"]
 
                     query = f"""
-                        SELECT tile_id,
+                        SELECT {id_col} as tile_id,
                             ST_Distance(
                                 ST_Transform(geometry, 'EPSG:4326', 'EPSG:{utm_epsg}'),
                                 ST_Transform(ST_Point({lon}, {lat}), 'EPSG:4326', 'EPSG:{utm_epsg}')
@@ -811,6 +836,16 @@ def sample_negatives_cli(
     return negatives
 
 
+def _detect_id_column(conn: duckdb.DuckDBPyConnection) -> str:
+    """Detect which ID column exists in the geo_embeddings table."""
+    result = conn.execute(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name = 'geo_embeddings' AND column_name IN ('tile_id', 'id')"
+    ).fetchall()
+    columns = {row[0] for row in result}
+    return "tile_id" if "tile_id" in columns else "id"
+
+
 def sample_random_negatives(
     duckdb_path: str,
     positive_tile_ids: List[str],
@@ -857,12 +892,15 @@ def sample_random_negatives(
     conn.execute("LOAD spatial;")
 
     try:
+        id_col = _detect_id_column(conn)
         if buffer_meters > 0 and positive_tile_ids:
             samples = _sample_with_buffer(
-                conn, positive_tile_ids, num_samples, buffer_meters, seed
+                conn, positive_tile_ids, num_samples, buffer_meters, seed, id_col
             )
         else:
-            samples = _sample_without_buffer(conn, positive_tile_ids, num_samples, seed)
+            samples = _sample_without_buffer(
+                conn, positive_tile_ids, num_samples, seed, id_col
+            )
     finally:
         conn.close()
 
@@ -878,19 +916,20 @@ def _sample_without_buffer(
     positive_tile_ids: List[str],
     num_samples: int,
     seed: int,
+    id_col: str = "tile_id",
 ) -> gpd.GeoDataFrame:
     """Sample random rows excluding positive tile_ids."""
     conn.execute(f"SELECT setseed({seed / 2**31})")
 
     if positive_tile_ids:
         escaped_ids = ",".join(f"'{tid}'" for tid in positive_tile_ids)
-        exclude_clause = f"WHERE tile_id NOT IN ({escaped_ids})"
+        exclude_clause = f"WHERE {id_col} NOT IN ({escaped_ids})"
     else:
         exclude_clause = ""
 
     query = f"""
         SELECT
-            tile_id,
+            {id_col} as tile_id,
             ST_AsText(geometry) as geometry_wkt
         FROM geo_embeddings
         {exclude_clause}
@@ -918,6 +957,7 @@ def _sample_with_buffer(
     num_samples: int,
     buffer_meters: float,
     seed: int,
+    id_col: str = "tile_id",
 ) -> gpd.GeoDataFrame:
     """Sample random rows excluding buffer zone around positives."""
     conn.execute(f"SELECT setseed({seed / 2**31})")
@@ -928,13 +968,15 @@ def _sample_with_buffer(
     pos_query = f"""
         SELECT ST_X(geometry) as lon, ST_Y(geometry) as lat
         FROM geo_embeddings
-        WHERE tile_id IN ({escaped_ids})
+        WHERE {id_col} IN ({escaped_ids})
         LIMIT 1
     """
     pos_result = conn.execute(pos_query).fetchone()
 
     if pos_result is None:
-        return _sample_without_buffer(conn, positive_tile_ids, num_samples, seed)
+        return _sample_without_buffer(
+            conn, positive_tile_ids, num_samples, seed, id_col
+        )
 
     lon, lat = pos_result
     utm_zone = int(((lon + 180) / 6) + 1)
@@ -946,7 +988,7 @@ def _sample_with_buffer(
         WITH positive_geoms AS (
             SELECT geometry
             FROM geo_embeddings
-            WHERE tile_id IN ({escaped_ids})
+            WHERE {id_col} IN ({escaped_ids})
         ),
         buffered AS (
             SELECT ST_Union_Agg(
@@ -962,10 +1004,10 @@ def _sample_with_buffer(
             FROM buffered
         )
         SELECT
-            g.tile_id,
+            g.{id_col} as tile_id,
             ST_AsText(g.geometry) as geometry_wkt
         FROM geo_embeddings g, buffer_4326 b
-        WHERE g.tile_id NOT IN ({escaped_ids})
+        WHERE g.{id_col} NOT IN ({escaped_ids})
           AND NOT ST_Intersects(g.geometry, b.buffer_geom)
         ORDER BY RANDOM()
         LIMIT {num_samples}
@@ -977,7 +1019,9 @@ def _sample_with_buffer(
         logging.warning(
             f"No samples found outside {buffer_meters}m buffer, falling back to simple exclusion"
         )
-        return _sample_without_buffer(conn, positive_tile_ids, num_samples, seed)
+        return _sample_without_buffer(
+            conn, positive_tile_ids, num_samples, seed, id_col
+        )
 
     result["geometry"] = gpd.GeoSeries.from_wkt(result["geometry_wkt"])
     gdf = gpd.GeoDataFrame(

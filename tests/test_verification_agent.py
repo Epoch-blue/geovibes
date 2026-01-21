@@ -1,13 +1,12 @@
 """Tests for the verification agent using known true/false positive locations."""
 
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from geovibes.agents.clustering import create_single_cluster, cluster_detections
 from geovibes.agents.schemas import (
-    ClusterInfo,
     PlaceInfo,
     VerificationDecision,
     VerificationResult,

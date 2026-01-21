@@ -539,6 +539,24 @@ class GeoVibes:
             layout=Layout(width="100%", padding="0 12px", margin="0"),
         )
 
+        # Loading indicator for file uploads
+        self.loading_progress = v.ProgressLinear(
+            indeterminate=True,
+            color="primary",
+            height=4,
+            style_="display: none;",
+        )
+        self.loading_label = v.Html(
+            tag="div",
+            children=["Loading..."],
+            class_="text-caption text-center mt-1",
+            style_="display: none; color: #1976D2;",
+        )
+        self.loading_container = VBox(
+            [self.loading_progress, self.loading_label],
+            layout=Layout(width="100%", padding="0 12px", margin="4px 0"),
+        )
+
         # Keep accordion_container reference for compatibility but not used
         self.accordion_container = VBox(
             [
@@ -548,6 +566,7 @@ class GeoVibes:
                     basemaps_card,
                     export_card,
                     self.upload_container,
+                    self.loading_container,
                 ]
                 if w is not None
             ],
@@ -699,6 +718,8 @@ class GeoVibes:
             "collapse_btn": self.collapse_btn,
             "tiles_button": self.tiles_button,
             "database_dropdown": self.database_dropdown,
+            "loading_progress": self.loading_progress,
+            "loading_label": self.loading_label,
         }
         return panel, ui_widgets
 
@@ -875,17 +896,26 @@ class GeoVibes:
         if not change["new"]:
             return
         file_info = change["new"][0]
-        content = DatasetManager.read_upload_content(file_info["content"])
+        filename = file_info["name"]
+        file_size_kb = len(file_info["content"]) / 1024
+
+        self._show_loading(f"Reading {filename} ({file_size_kb:.0f} KB)...")
+
         try:
+            content = DatasetManager.read_upload_content(file_info["content"])
+
+            self._show_loading("Resetting state...")
             self.reset_all()
-            self.dataset_manager.load_from_content(content, file_info["name"])
+
+            self._show_loading(f"Parsing {filename}...")
+            self.dataset_manager.load_from_content(content, filename)
+
             if self.state.detection_mode:
-                # Show detection controls
+                self._show_loading("Processing detections...")
                 self.detection_controls.style_ = ""
                 features = self.state.detection_data.get("features", [])
                 num_detections = len(features)
 
-                # Set slider min/max based on dataset probability range
                 if features:
                     probs = [
                         f.get("properties", {}).get("probability", 0.5)
@@ -900,19 +930,24 @@ class GeoVibes:
                     self.detection_threshold_slider.v_model = min_prob
                     self.detection_threshold_label.children = [f"{min_prob:.2f}"]
 
+                self._show_loading("Rendering detection layer...")
+                self._filter_detection_layer(self.detection_threshold_slider.v_model)
+                self._update_detection_tiles()
+
+                self._hide_loading()
                 self._show_operation_status(
                     f"🔍 Detection mode: {num_detections} detections loaded. "
                     "Click to label as negative/positive."
                 )
-                # Apply initial filtering and populate tile panel
-                self._filter_detection_layer(self.detection_threshold_slider.v_model)
-                self._update_detection_tiles()
             else:
                 self.detection_controls.style_ = "display: none;"
+                self._show_loading("Updating map layers...")
                 self._update_layers()
                 self._update_query_vector()
+                self._hide_loading()
                 self._show_operation_status("✅ Dataset loaded")
         except Exception as exc:
+            self._hide_loading()
             self._show_operation_status(f"❌ Error loading file: {exc}")
             if self.verbose:
                 print(f"❌ Error loading file: {exc}")
@@ -924,19 +959,113 @@ class GeoVibes:
                 " Load",
             ]
 
+    def load_file(self, path: str, mode: str = "auto") -> None:
+        """Load a dataset file directly from the filesystem.
+
+        Use this method for large files (100K+ features) that exceed browser
+        upload limits. The file is read directly from disk, bypassing the
+        browser widget.
+
+        Args:
+            path: Path to a .geojson or .parquet file
+            mode: One of "auto", "detections", "labeled", or "vector".
+                  "auto" detects based on properties (requires 'probability' for detections).
+                  "detections" forces detection review mode for labeling.
+        """
+        from pathlib import Path
+
+        filepath = Path(path)
+        if not filepath.exists():
+            raise FileNotFoundError(f"File not found: {path}")
+
+        filename = filepath.name
+        file_size_mb = filepath.stat().st_size / (1024 * 1024)
+
+        self._show_loading(f"Reading {filename} ({file_size_mb:.1f} MB)...")
+
+        try:
+            with open(filepath, "rb") as f:
+                content = f.read()
+
+            self._show_loading("Resetting state...")
+            self.reset_all()
+
+            self._show_loading(f"Parsing {filename}...")
+
+            if mode == "detections":
+                geojson_data = json.loads(content.decode("utf-8"))
+                self.state.detection_mode = True
+                self.state.detection_data = geojson_data
+            else:
+                self.dataset_manager.load_from_content(content, filename)
+
+            if self.state.detection_mode:
+                self._show_loading("Processing detections...")
+                self.detection_controls.style_ = ""
+                features = self.state.detection_data.get("features", [])
+                num_detections = len(features)
+
+                if features:
+                    probs = [
+                        f.get("properties", {}).get("probability", 0.5)
+                        for f in features
+                    ]
+                    min_prob = min(probs)
+                    max_prob = max(probs)
+                    self._detection_prob_min = min_prob
+                    self._detection_prob_max = max_prob
+                    self.detection_threshold_slider.min = min_prob
+                    self.detection_threshold_slider.max = max_prob
+                    self.detection_threshold_slider.v_model = min_prob
+                    self.detection_threshold_label.children = [f"{min_prob:.2f}"]
+
+                self._show_loading("Rendering detection layer...")
+                self._filter_detection_layer(self.detection_threshold_slider.v_model)
+                self._update_detection_tiles()
+
+                self._hide_loading()
+                self._show_operation_status(
+                    f"🔍 Detection mode: {num_detections} detections loaded. "
+                    "Click to label as negative/positive."
+                )
+            else:
+                self.detection_controls.style_ = "display: none;"
+                self._show_loading("Updating map layers...")
+                self._update_layers()
+                self._update_query_vector()
+                self._hide_loading()
+                self._show_operation_status("✅ Dataset loaded")
+        except Exception as exc:
+            self._hide_loading()
+            self._show_operation_status(f"❌ Error loading file: {exc}")
+            if self.verbose:
+                print(f"❌ Error loading file: {exc}")
+                import traceback
+
+                traceback.print_exc()
+
     def _on_vector_upload(self, change) -> None:
         if not change["new"]:
             return
         file_info = change["new"][0]
-        content = DatasetManager.read_upload_content(file_info["content"])
+        filename = file_info["name"]
+        file_size_kb = len(file_info["content"]) / 1024
+
+        self._show_loading(f"Reading {filename} ({file_size_kb:.0f} KB)...")
+
         try:
-            self.dataset_manager.add_vector_from_content(content, file_info["name"])
+            content = DatasetManager.read_upload_content(file_info["content"])
 
-            # Auto-label points that intersect with uploaded geometries
-            self._auto_label_from_vector_layer(content, file_info["name"])
+            self._show_loading("Adding vector layer...")
+            self.dataset_manager.add_vector_from_content(content, filename)
 
+            self._show_loading("Auto-labeling points from geometries...")
+            self._auto_label_from_vector_layer(content, filename)
+
+            self._hide_loading()
             self._show_operation_status("✅ Vector layer added")
         except Exception as exc:
+            self._hide_loading()
             self._show_operation_status(f"❌ Error loading vector: {exc}")
             if self.verbose:
                 print(f"❌ Error loading vector: {exc}")
@@ -1054,6 +1183,7 @@ class GeoVibes:
                     gdf.geom_type.isin(["Polygon", "MultiPolygon"])
                 ].copy()
 
+                self._show_loading(f"Processing {len(polygons_gdf)} polygon(s)...")
                 print(
                     f"[AUTO-LABEL] Processing {len(polygons_gdf)} polygon(s) (within boundary)"
                 )
@@ -1172,8 +1302,18 @@ class GeoVibes:
 
                     all_results = []
                     seen_point_ids = set()
+                    total_polygons = len(polygons_gdf)
+                    processed_count = 0
 
                     for idx, row in polygons_gdf.iterrows():
+                        processed_count += 1
+                        if (
+                            processed_count % 10 == 0
+                            or processed_count == total_polygons
+                        ):
+                            self._show_loading(
+                                f"Querying polygon {processed_count}/{total_polygons}..."
+                            )
                         geom = row.geometry
                         if not geom.is_valid:
                             try:
@@ -1258,6 +1398,9 @@ class GeoVibes:
                     sys.stdout.flush()
 
                 t2 = time.time()
+                total_results = len(results)
+                if total_results > 0:
+                    self._show_loading(f"Labeling {total_results} points...")
                 for point_id, wkt_geom, embedding in results:
                     point_id = str(point_id)
                     if point_id not in self.state.pos_ids:
@@ -1312,9 +1455,13 @@ class GeoVibes:
                             labeled_count += 1
 
             if labeled_count > 0:
+                self._show_loading(
+                    f"Updating map with {labeled_count} labeled points..."
+                )
                 t4 = time.time()
                 self._update_layers()
                 t5 = time.time()
+                self._show_loading("Computing query vector...")
                 self._update_query_vector()
                 t6 = time.time()
                 layers_ms = (t5 - t4) * 1000
@@ -2130,16 +2277,35 @@ class GeoVibes:
             for f in features
             if f.get("properties", {}).get("probability", 0.0) >= threshold
         ]
+
+        num_filtered = len(filtered_features)
+        max_features = UIConstants.MAX_MAP_FEATURES
+        sampled = False
+
+        if num_filtered > max_features:
+            filtered_features = sorted(
+                filtered_features,
+                key=lambda f: f.get("properties", {}).get("probability", 0.0),
+                reverse=True,
+            )[:max_features]
+            sampled = True
+
         filtered_geojson = {"type": "FeatureCollection", "features": filtered_features}
         self.map_manager.update_detection_layer(
             filtered_geojson, style_callback=self._detection_style_callback
         )
-        num_shown = len(filtered_features)
+
         num_total = len(features)
         num_labeled = len(self.state.detection_labels)
-        self._show_operation_status(
-            f"🔍 {num_shown}/{num_total} detections | {num_labeled} labeled"
-        )
+
+        if sampled:
+            self._show_operation_status(
+                f"🔍 {num_filtered}/{num_total} detections (showing top {max_features} on map) | {num_labeled} labeled"
+            )
+        else:
+            self._show_operation_status(
+                f"🔍 {num_filtered}/{num_total} detections | {num_labeled} labeled"
+            )
 
     def _refresh_detection_layer(self) -> None:
         """Refresh detection layer with current threshold and labels."""
@@ -2300,6 +2466,15 @@ class GeoVibes:
     @staticmethod
     def _empty_collection() -> Dict:
         return {"type": "FeatureCollection", "features": []}
+
+    def _show_loading(self, message: str = "Loading...") -> None:
+        self.loading_progress.style_ = ""
+        self.loading_label.style_ = "color: #1976D2;"
+        self.loading_label.children = [message]
+
+    def _hide_loading(self) -> None:
+        self.loading_progress.style_ = "display: none;"
+        self.loading_label.style_ = "display: none;"
 
     # ------------------------------------------------------------------
     # Overlay tile layer API

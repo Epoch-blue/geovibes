@@ -1,14 +1,12 @@
 """LangGraph-based verification agent for validating detections."""
 
 import os
-from typing import Annotated, Optional, TypedDict
+from typing import Optional, TypedDict
 
 from geovibes.agents.clustering import create_single_cluster
 from geovibes.agents.places import PlacesClient, format_places_for_prompt
 from geovibes.agents.schemas import (
     ClusterInfo,
-    EnrichmentOutput,
-    InitialVerificationOutput,
     PlaceInfo,
     VerificationDecision,
     VerificationResult,
@@ -22,10 +20,13 @@ from geovibes.agents.thumbnail import (
 
 try:
     from google import genai
+    from google.genai import types as genai_types
+    import base64
 
     GENAI_AVAILABLE = True
 except ImportError:
     genai = None
+    genai_types = None
     GENAI_AVAILABLE = False
 
 try:
@@ -36,6 +37,21 @@ except ImportError:
     StateGraph = None
     END = None
     LANGGRAPH_AVAILABLE = False
+
+
+# Pricing per million tokens (USD) - from https://ai.google.dev/gemini-api/docs/pricing
+MODEL_PRICING = {
+    # Gemini 3 series
+    "gemini-3-flash-preview": {"input": 0.50, "output": 3.00},
+    "gemini-3-pro-preview": {"input": 2.00, "output": 12.00},
+    # Gemini 2.5 series
+    "gemini-2.5-pro": {"input": 1.25, "output": 10.00},
+    "gemini-2.5-flash": {"input": 0.30, "output": 2.50},
+    "gemini-2.5-flash-lite": {"input": 0.10, "output": 0.40},
+    # Gemini 2.0 series
+    "gemini-2.0-flash": {"input": 0.10, "output": 0.40},
+    "gemini-2.0-flash-lite": {"input": 0.075, "output": 0.30},
+}
 
 
 DEFAULT_TARGET_PROMPT = """You are analyzing satellite imagery to identify palm oil processing mills.
@@ -85,6 +101,9 @@ class VerificationAgent:
         google_maps_api_key: Optional[str] = None,
         confidence_threshold: float = 0.7,
         enable_places: bool = True,
+        verbose: bool = False,
+        model_name: str = "gemini-3-flash-preview",
+        enable_search: bool = False,
     ):
         """
         Initialize the verification agent.
@@ -105,11 +124,22 @@ class VerificationAgent:
             Minimum confidence to accept without additional context
         enable_places : bool
             Whether to use Google Places API for context
+        verbose : bool
+            Print prompts and responses during execution
+        model_name : str
+            Gemini model to use (e.g., "gemini-2.0-flash", "gemini-1.5-pro", "gemini-2.0-flash-lite")
+        enable_search : bool
+            Enable Google Search grounding for enrichment queries
         """
         self.target_type = target_type
         self.target_prompt = target_prompt or DEFAULT_TARGET_PROMPT
         self.confidence_threshold = confidence_threshold
         self.enable_places = enable_places
+        self.verbose = verbose
+        self.model_name = model_name
+        self.enable_search = enable_search
+
+        self._reset_usage_tracking()
 
         self.reference_image_b64 = None
         if reference_image_path:
@@ -136,6 +166,55 @@ class VerificationAgent:
 
         self._graph = self._build_graph() if LANGGRAPH_AVAILABLE else None
 
+    def _reset_usage_tracking(self):
+        """Reset token and cost tracking for a new verification."""
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+        self.total_cost_usd = 0.0
+        self.api_calls = 0
+
+    def _log_usage(self, response, step_name: str):
+        """Log token usage and cost from an API response."""
+        if not hasattr(response, "usage_metadata") or response.usage_metadata is None:
+            return
+
+        usage = response.usage_metadata
+        input_tokens = getattr(usage, "prompt_token_count", 0) or 0
+        output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+
+        pricing = MODEL_PRICING.get(self.model_name, {"input": 0.10, "output": 0.40})
+        input_cost = (input_tokens / 1_000_000) * pricing["input"]
+        output_cost = (output_tokens / 1_000_000) * pricing["output"]
+        step_cost = input_cost + output_cost
+
+        self.total_input_tokens += input_tokens
+        self.total_output_tokens += output_tokens
+        self.total_cost_usd += step_cost
+        self.api_calls += 1
+
+        if self.verbose:
+            print(f"\n[USAGE] {step_name}")
+            print(
+                f"  Tokens: {input_tokens:,} input + {output_tokens:,} output = {input_tokens + output_tokens:,} total"
+            )
+            print(
+                f"  Cost: ${step_cost:.6f} (${input_cost:.6f} input + ${output_cost:.6f} output)"
+            )
+            print(
+                f"  Running total: ${self.total_cost_usd:.6f} ({self.api_calls} API calls)"
+            )
+
+    def get_usage_summary(self) -> dict:
+        """Get a summary of token usage and costs for the last verification."""
+        return {
+            "input_tokens": self.total_input_tokens,
+            "output_tokens": self.total_output_tokens,
+            "total_tokens": self.total_input_tokens + self.total_output_tokens,
+            "total_cost_usd": self.total_cost_usd,
+            "api_calls": self.api_calls,
+            "model": self.model_name,
+        }
+
     def _build_graph(self) -> "StateGraph":
         """Build the LangGraph state machine."""
         graph = StateGraph(AgentState)
@@ -152,13 +231,19 @@ class VerificationAgent:
             "initial_verification",
             self._route_after_initial,
             {
-                "enrich_facility": "enrich_facility",
                 "gather_context": "gather_context",
                 "reject_cluster": "reject_cluster",
             },
         )
 
-        graph.add_edge("gather_context", "second_verification")
+        graph.add_conditional_edges(
+            "gather_context",
+            self._route_after_context,
+            {
+                "second_verification": "second_verification",
+                "enrich_facility": "enrich_facility",
+            },
+        )
 
         graph.add_conditional_edges(
             "second_verification",
@@ -179,16 +264,24 @@ class VerificationAgent:
         decision = state.get("initial_decision")
         confidence = state.get("initial_confidence", 0)
 
-        if decision == VerificationDecision.VALID and confidence >= self.confidence_threshold:
-            return "enrich_facility"
-        elif decision == VerificationDecision.INVALID and confidence >= self.confidence_threshold:
+        if (
+            decision == VerificationDecision.INVALID
+            and confidence >= self.confidence_threshold
+        ):
             return "reject_cluster"
-        elif decision == VerificationDecision.NEEDS_CONTEXT:
-            return "gather_context"
-        elif decision == VerificationDecision.VALID:
-            return "gather_context"
-        else:
-            return "gather_context"
+        return "gather_context"
+
+    def _route_after_context(self, state: AgentState) -> str:
+        """Route after gathering context - skip second verification if already confident."""
+        decision = state.get("initial_decision")
+        confidence = state.get("initial_confidence", 0)
+
+        if (
+            decision == VerificationDecision.VALID
+            and confidence >= self.confidence_threshold
+        ):
+            return "enrich_facility"
+        return "second_verification"
 
     def _route_after_second(self, state: AgentState) -> str:
         """Route after second verification with context."""
@@ -199,7 +292,14 @@ class VerificationAgent:
 
     def _initial_verification_node(self, state: AgentState) -> dict:
         """Perform initial verification using satellite imagery."""
+        if self.verbose:
+            print("\n" + "=" * 50)
+            print("=== INITIAL VERIFICATION ===")
+            print("=" * 50)
+
         if not self.genai_client:
+            if self.verbose:
+                print("[INFO] Model not available")
             return {
                 "initial_decision": VerificationDecision.NEEDS_CONTEXT,
                 "initial_confidence": 0.0,
@@ -228,14 +328,23 @@ Average model probability: {cluster.avg_probability:.2f}
 
 Respond ONLY with valid JSON."""
 
+        if self.verbose:
+            print("\n[PROMPT]")
+            print(prompt)
+
         try:
-            image_part = {"mime_type": "image/png", "data": satellite_b64}
+            image_bytes = base64.b64decode(satellite_b64)
+            image_part = genai_types.Part.from_bytes(
+                data=image_bytes, mime_type="image/png"
+            )
 
             response = self.genai_client.models.generate_content(
-                model="gemini-2.0-flash",
+                model=self.model_name,
                 contents=[prompt, image_part],
                 config={"response_mime_type": "application/json"},
             )
+
+            self._log_usage(response, "Initial Verification")
 
             import json
 
@@ -249,6 +358,14 @@ Respond ONLY with valid JSON."""
             else:
                 decision = VerificationDecision.NEEDS_CONTEXT
 
+            if self.verbose:
+                print("\n[RESPONSE]")
+                print(f"Decision: {decision.value}")
+                print(f"Confidence: {result.get('confidence', 0.5):.2f}")
+                print(f"Reasoning: {result.get('reasoning', '')}")
+                print(f"Observed features: {result.get('observed_features', [])}")
+                print(f"Facility type guess: {result.get('facility_type_guess')}")
+
             return {
                 "initial_decision": decision,
                 "initial_confidence": float(result.get("confidence", 0.5)),
@@ -258,6 +375,8 @@ Respond ONLY with valid JSON."""
             }
 
         except Exception as e:
+            if self.verbose:
+                print(f"\n[ERROR] {str(e)}")
             return {
                 "initial_decision": VerificationDecision.NEEDS_CONTEXT,
                 "initial_confidence": 0.0,
@@ -268,6 +387,11 @@ Respond ONLY with valid JSON."""
 
     def _gather_context_node(self, state: AgentState) -> dict:
         """Gather additional context from Google Places."""
+        if self.verbose:
+            print("\n" + "=" * 50)
+            print("=== GATHERING CONTEXT ===")
+            print("=" * 50)
+
         cluster = state["cluster"]
         places = []
 
@@ -278,6 +402,12 @@ Respond ONLY with valid JSON."""
                 radius_m=1000,
                 limit=10,
             )
+            if self.verbose:
+                print(f"\n[PLACES API] Found {len(places)} nearby places:")
+                for place in places:
+                    print(f"  - {place.name} ({place.distance_m:.0f}m)")
+        elif self.verbose:
+            print("\n[INFO] Places API not available")
 
         return {
             "places_context": places,
@@ -286,7 +416,14 @@ Respond ONLY with valid JSON."""
 
     def _second_verification_node(self, state: AgentState) -> dict:
         """Re-verify with additional context."""
+        if self.verbose:
+            print("\n" + "=" * 50)
+            print("=== SECOND VERIFICATION (with context) ===")
+            print("=" * 50)
+
         if not self.genai_client:
+            if self.verbose:
+                print("[INFO] Model not available")
             initial = state.get("initial_decision", VerificationDecision.INVALID)
             return {"final_decision": initial}
 
@@ -304,7 +441,7 @@ You are re-evaluating this location with additional context.
 
 Previous analysis:
 - Initial reasoning: {initial_reasoning}
-- Observed features: {', '.join(observed_features) if observed_features else 'None noted'}
+- Observed features: {", ".join(observed_features) if observed_features else "None noted"}
 
 {places_text}
 
@@ -321,14 +458,23 @@ Location: {cluster.centroid_lat:.6f}, {cluster.centroid_lon:.6f}
 
 Respond ONLY with valid JSON."""
 
+        if self.verbose:
+            print("\n[PROMPT]")
+            print(prompt)
+
         try:
-            image_part = {"mime_type": "image/png", "data": satellite_b64}
+            image_bytes = base64.b64decode(satellite_b64)
+            image_part = genai_types.Part.from_bytes(
+                data=image_bytes, mime_type="image/png"
+            )
 
             response = self.genai_client.models.generate_content(
-                model="gemini-2.0-flash",
+                model=self.model_name,
                 contents=[prompt, image_part],
                 config={"response_mime_type": "application/json"},
             )
+
+            self._log_usage(response, "Second Verification")
 
             import json
 
@@ -340,6 +486,13 @@ Respond ONLY with valid JSON."""
             else:
                 decision = VerificationDecision.INVALID
 
+            if self.verbose:
+                print("\n[RESPONSE]")
+                print(f"Decision: {decision.value}")
+                print(f"Confidence: {result.get('confidence', 0.5):.2f}")
+                print(f"Reasoning: {result.get('reasoning', '')}")
+                print(f"Facility type: {result.get('facility_type')}")
+
             return {
                 "final_decision": decision,
                 "initial_confidence": float(result.get("confidence", 0.5)),
@@ -347,14 +500,25 @@ Respond ONLY with valid JSON."""
                 "alternative_facility_type": result.get("facility_type"),
             }
 
-        except Exception:
+        except Exception as e:
+            if self.verbose:
+                print(f"\n[ERROR] {str(e)}")
             return {
-                "final_decision": state.get("initial_decision", VerificationDecision.INVALID),
+                "final_decision": state.get(
+                    "initial_decision", VerificationDecision.INVALID
+                ),
             }
 
     def _enrich_facility_node(self, state: AgentState) -> dict:
         """Extract facility details for valid detections."""
+        if self.verbose:
+            print("\n" + "=" * 50)
+            print("=== ENRICHING FACILITY DETAILS ===")
+            print("=" * 50)
+
         if not self.genai_client:
+            if self.verbose:
+                print("[INFO] Model not available, using basic facility info")
             cluster = state["cluster"]
             return {
                 "facility": VerifiedFacility(
@@ -375,7 +539,7 @@ Respond ONLY with valid JSON."""
         prompt = f"""Based on the analysis of this location, extract facility details.
 
 Location: {cluster.centroid_lat:.6f}, {cluster.centroid_lon:.6f}
-Observed features: {', '.join(observed_features) if observed_features else 'Industrial facility'}
+Observed features: {", ".join(observed_features) if observed_features else "Industrial facility"}
 
 {places_text}
 
@@ -390,12 +554,26 @@ Extract the following information if available:
 Respond with a JSON object containing these fields.
 Respond ONLY with valid JSON."""
 
+        if self.verbose:
+            print("\n[PROMPT]")
+            print(prompt)
+            if self.enable_search:
+                print("\n[SEARCH GROUNDING ENABLED]")
+
         try:
+            config = {"response_mime_type": "application/json"}
+            if self.enable_search and GENAI_AVAILABLE:
+                config["tools"] = [
+                    genai_types.Tool(google_search=genai_types.GoogleSearch())
+                ]
+
             response = self.genai_client.models.generate_content(
-                model="gemini-2.0-flash",
+                model=self.model_name,
                 contents=[prompt],
-                config={"response_mime_type": "application/json"},
+                config=config,
             )
+
+            self._log_usage(response, "Facility Enrichment")
 
             import json
 
@@ -409,15 +587,28 @@ Respond ONLY with valid JSON."""
                 lat=cluster.centroid_lat,
                 lon=cluster.centroid_lon,
                 confidence=float(result.get("confidence", 0.7)),
-                notes="; ".join(result.get("evidence", [])) if result.get("evidence") else None,
+                notes="; ".join(result.get("evidence", []))
+                if result.get("evidence")
+                else None,
             )
+
+            if self.verbose:
+                print("\n[RESPONSE]")
+                print(f"Company name: {facility.company_name}")
+                print(f"Facility name: {facility.facility_name}")
+                print(f"Facility type: {facility.facility_type}")
+                print(f"Address: {facility.address}")
+                print(f"Confidence: {facility.confidence:.2f}")
+                print(f"Evidence: {result.get('evidence', [])}")
 
             return {
                 "facility": facility,
                 "final_decision": VerificationDecision.VALID,
             }
 
-        except Exception:
+        except Exception as e:
+            if self.verbose:
+                print(f"\n[ERROR] {str(e)}")
             return {
                 "facility": VerifiedFacility(
                     facility_type=self.target_type,
@@ -430,10 +621,26 @@ Respond ONLY with valid JSON."""
 
     def _reject_cluster_node(self, state: AgentState) -> dict:
         """Record rejection details."""
+        if self.verbose:
+            print("\n" + "=" * 50)
+            print("=== REJECTING CLUSTER ===")
+            print("=" * 50)
+            print(
+                f"Reason: {state.get('initial_reasoning', 'Did not match target facility type')}"
+            )
+            alt_type = state.get("facility_type_guess") or state.get(
+                "alternative_facility_type"
+            )
+            if alt_type:
+                print(f"Alternative facility type: {alt_type}")
+
         return {
             "final_decision": VerificationDecision.INVALID,
-            "rejection_reason": state.get("initial_reasoning", "Did not match target facility type"),
-            "alternative_facility_type": state.get("facility_type_guess") or state.get("alternative_facility_type"),
+            "rejection_reason": state.get(
+                "initial_reasoning", "Did not match target facility type"
+            ),
+            "alternative_facility_type": state.get("facility_type_guess")
+            or state.get("alternative_facility_type"),
         }
 
     def verify_cluster(self, cluster: ClusterInfo) -> VerificationResult:
@@ -450,6 +657,8 @@ Respond ONLY with valid JSON."""
         VerificationResult
             Verification result with decision and details
         """
+        self._reset_usage_tracking()
+
         try:
             thumbnail_bytes = generate_cluster_thumbnail(cluster)
             satellite_b64 = thumbnail_to_base64(thumbnail_bytes)
@@ -482,6 +691,17 @@ Respond ONLY with valid JSON."""
             final_state = self._graph.invoke(initial_state)
         else:
             final_state = self._run_without_langgraph(initial_state)
+
+        if self.verbose and self.api_calls > 0:
+            print("\n" + "=" * 50)
+            print("=== COST SUMMARY ===")
+            print("=" * 50)
+            print(f"Model: {self.model_name}")
+            print(f"API calls: {self.api_calls}")
+            print(
+                f"Total tokens: {self.total_input_tokens:,} input + {self.total_output_tokens:,} output"
+            )
+            print(f"Total cost: ${self.total_cost_usd:.6f}")
 
         return VerificationResult(
             cluster=cluster,

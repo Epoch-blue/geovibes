@@ -1,6 +1,46 @@
 # GeoVibes Configuration File
-# Minimal settings for basemap date range
 
+# Basemap settings
 start_date: "2024-01-01"
 end_date: "2025-01-01"
-enable_ee: true  # Uncomment to opt in to Earth Engine basemaps
+enable_ee: true  # Enable Earth Engine basemaps
+
+# Classification pipeline settings
+# tile_size_m: Size of output detection polygons in meters
+# Should match your embedding grid resolution (e.g., 80 for 80m embeddings)
+tile_size_m: 80.0
+
+# Verification agent settings
+# Used to validate classification detections using satellite imagery and contextual data
+verification_agent:
+  # Type of facility being verified (used for logging and output)
+  target_type: "palm_oil_mill"
+
+  # Description of the target facility for the LLM prompt
+  # If not provided, uses default palm oil mill description
+  target_description: |
+    Palm oil processing mills typically have these characteristics:
+    - Large industrial buildings/warehouses with metal roofs
+    - Tall smokestacks or chimneys (often visible as shadows)
+    - Settling ponds (rectangular or circular water features, often brown/orange colored)
+    - Storage tanks (cylindrical structures)
+    - Truck loading areas and access roads
+    - Located in rural/agricultural areas surrounded by palm oil plantations
+
+  # Path to reference image of a known target facility (optional)
+  # reference_image_path: "reference_images/palm_oil_mill.png"
+
+  # DBSCAN clustering parameters
+  cluster_eps_m: 500  # Maximum distance between detections to form cluster (meters)
+  cluster_min_samples: 2  # Minimum detections to form a cluster
+
+  # Verification thresholds
+  confidence_threshold: 0.7  # Minimum confidence to accept without additional context
+  min_probability: 0.5  # Minimum detection probability to include in clustering
+
+  # Context gathering options
+  enable_places: true  # Use Google Places API for additional context
+  enable_web_search: false  # Use web search for facility identification (not yet implemented)
+
+  # Processing options
+  max_workers: 4  # Number of parallel workers for batch processing

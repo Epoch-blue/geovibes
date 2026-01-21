@@ -50,11 +50,14 @@ import tempfile
 import numpy as np
 import time
 import duckdb
+import yaml
 
 from geovibes.classification.data_loader import ClassificationDataLoader, LoaderTiming
 from geovibes.classification.classifier import (
     EmbeddingClassifier,
+    LinearSVMClassifier,
     EvaluationMetrics,
+    ClassifierType,
 )
 from geovibes.classification.inference import BatchInference, InferenceTiming
 from geovibes.classification.output import OutputGenerator, OutputTiming
@@ -172,11 +175,13 @@ class ClassificationPipeline:
         geojson_path: str,
         output_dir: str,
         test_fraction: float = 0.2,
-        probability_threshold: float = 0.5,
+        probability_threshold: Optional[float] = None,
         xgb_params: Optional[Dict[str, Any]] = None,
         batch_size: int = 100_000,
         progress_callback: Optional[Callable[[str, float], None]] = None,
         correction_weight: float = 1.0,
+        tile_size_m: float = 320.0,
+        classifier_type: str = "xgboost",
     ) -> PipelineResult:
         """
         Run the full classification pipeline.
@@ -185,11 +190,15 @@ class ClassificationPipeline:
             geojson_path: Path to training GeoJSON with tile_id, label, class
             output_dir: Directory for output files
             test_fraction: Fraction of data for test set (default 0.2)
-            probability_threshold: Threshold for positive classification (default 0.5)
+            probability_threshold: Threshold for positive classification. If None,
+                uses the optimal F1 threshold from test set evaluation.
             xgb_params: Optional XGBoost hyperparameters
             batch_size: Batch size for inference (default 100K)
             progress_callback: Optional callback for progress updates
             correction_weight: Weight multiplier for relabel_pos/relabel_neg samples (default 1.0)
+            tile_size_m: Size of output tile polygons in meters (default 320.0)
+            classifier_type: Type of classifier to use: 'xgboost' (non-linear) or
+                'linear-svm' (linear probe for embedding analysis)
 
         Returns:
             PipelineResult with metrics, detections, output paths, and timing
@@ -237,7 +246,14 @@ class ClassificationPipeline:
 
         self._report_progress(progress_callback, "Training classifier", 0.15)
 
-        classifier = EmbeddingClassifier(**default_params)
+        classifier: ClassifierType
+        if classifier_type == "linear-svm":
+            print("Using Linear SVM classifier (linear probe)")
+            classifier = LinearSVMClassifier(random_state=default_params["random_state"])
+        else:
+            print("Using XGBoost classifier")
+            classifier = EmbeddingClassifier(**default_params)
+
         training_time = classifier.fit(X_train, y_train, sample_weight=sample_weights)
 
         self._report_progress(progress_callback, "Classifier trained", 0.25)
@@ -248,7 +264,18 @@ class ClassificationPipeline:
         metrics, eval_time = classifier.evaluate(X_test, y_test)
 
         self._report_progress(progress_callback, "Evaluation complete", 0.35)
-        print(f"Test metrics: F1={metrics.f1:.3f}, AUC={metrics.auc_roc:.3f}")
+        print(
+            f"Test metrics: F1={metrics.f1:.3f}, AUC={metrics.auc_roc:.3f}, "
+            f"P={metrics.precision:.3f}, R={metrics.recall:.3f}"
+        )
+        print(f"Optimal threshold (maximizes F1): {metrics.optimal_threshold:.4f}")
+
+        # Use optimal threshold if user specified auto (None), otherwise use their value
+        if probability_threshold is None:
+            probability_threshold = metrics.optimal_threshold
+            print(f"Using optimal threshold: {probability_threshold:.4f}")
+        else:
+            print(f"Using user threshold: {probability_threshold:.4f}")
 
         self._report_progress(progress_callback, "Running inference", 0.4)
 
@@ -281,9 +308,7 @@ class ClassificationPipeline:
 
         output_generator = OutputGenerator(
             duckdb_connection=self.conn,
-            tile_size_px=32,
-            tile_overlap_px=16,
-            resolution_m=10.0,
+            tile_size_m=tile_size_m,
         )
 
         output_paths, output_timing = output_generator.generate_output(
@@ -292,10 +317,34 @@ class ClassificationPipeline:
             name="classification",
         )
 
-        # Save model
-        model_path = os.path.join(output_dir, "model.json")
+        # Save model (XGBoost uses .json, Linear SVM uses .joblib)
+        model_ext = ".joblib" if classifier_type == "linear-svm" else ".json"
+        model_path = os.path.join(output_dir, f"model{model_ext}")
         classifier.save(model_path)
         output_paths["model"] = model_path
+
+        # For Linear SVM, also save the learned direction vector
+        if classifier_type == "linear-svm" and isinstance(classifier, LinearSVMClassifier):
+            coef, intercept = classifier.get_coefficients()
+            direction = classifier.get_normalized_direction()
+
+            coefficients_path = os.path.join(output_dir, "linear_direction.npz")
+            np.savez(
+                coefficients_path,
+                coefficients=coef,
+                intercept=intercept,
+                direction=direction,
+            )
+            output_paths["linear_direction"] = coefficients_path
+
+            print("\n" + "=" * 60)
+            print("LINEAR SVM DIRECTION VECTOR")
+            print("=" * 60)
+            print(f"Embedding dimension:    {len(coef)}")
+            print(f"Coefficient norm:       {np.linalg.norm(coef):.4f}")
+            print(f"Intercept:              {intercept:.4f}")
+            print(f"Saved to:               {coefficients_path}")
+            print("=" * 60)
 
         self._report_progress(progress_callback, "Pipeline complete", 1.0)
 
@@ -406,6 +455,7 @@ def run_cross_validation(
     correction_weight: float = 1.0,
     buffer_m: float = 500.0,
     n_folds: int = 5,
+    classifier_type: str = "xgboost",
 ) -> CVResult:
     """
     Run spatial 5-fold cross-validation.
@@ -424,14 +474,17 @@ def run_cross_validation(
         Buffer distance for spatial clustering
     n_folds : int
         Number of folds
+    classifier_type : str
+        Type of classifier: 'xgboost' or 'linear-svm'
 
     Returns
     -------
     CVResult
         Cross-validation results
     """
+    classifier_name = "Linear SVM" if classifier_type == "linear-svm" else "XGBoost"
     print("=" * 65)
-    print("SPATIAL CROSS-VALIDATION MODE")
+    print(f"SPATIAL CROSS-VALIDATION MODE ({classifier_name})")
     print("=" * 65)
 
     conn = duckdb.connect(duckdb_path, read_only=True)
@@ -478,6 +531,7 @@ def run_cross_validation(
             n_folds=n_folds,
             n_clusters=n_clusters,
             cluster_distribution=cluster_dist,
+            classifier_type=classifier_type,
             n_estimators=100,
             max_depth=6,
             learning_rate=0.1,
@@ -525,9 +579,10 @@ def main():
 
     parser.add_argument(
         "--threshold",
-        type=float,
-        default=0.5,
-        help="Probability threshold for detection (default: 0.5)",
+        type=str,
+        default="auto",
+        help="Probability threshold for detection. Use 'auto' to use optimal F1 threshold "
+        "from test set evaluation, or specify a float value (default: auto)",
     )
     parser.add_argument(
         "--test-fraction",
@@ -578,8 +633,36 @@ def main():
         help="Buffer distance in meters around positives when sampling random negatives. "
         "Points within this distance of positives will be excluded. Default: 0 (no buffer).",
     )
+    parser.add_argument(
+        "--tile-size",
+        type=float,
+        default=None,
+        help="Size of output tile polygons in meters. Should match your embedding resolution. "
+        "Default: 320.0 (32px at 10m resolution). For 80m embeddings, use 80.",
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Path to YAML config file. CLI arguments override config file values.",
+    )
+    parser.add_argument(
+        "--classifier",
+        choices=["xgboost", "linear-svm"],
+        default="xgboost",
+        help="Classifier type: 'xgboost' (non-linear, default) or 'linear-svm' "
+        "(linear probe for understanding embedding structure)",
+    )
 
     args = parser.parse_args()
+
+    config = {}
+    if args.config:
+        with open(args.config) as f:
+            config = yaml.safe_load(f) or {}
+        print(f"Loaded config from {args.config}")
+
+    tile_size_m = args.tile_size or config.get("tile_size_m", 320.0)
 
     # Validate input arguments
     if args.geojson and (args.positives or args.negatives):
@@ -638,6 +721,15 @@ def main():
 
     Path(args.output).mkdir(parents=True, exist_ok=True)
 
+    # Parse threshold argument
+    if args.threshold.lower() == "auto":
+        probability_threshold = None
+    else:
+        try:
+            probability_threshold = float(args.threshold)
+        except ValueError:
+            parser.error(f"Invalid threshold value: {args.threshold}. Use 'auto' or a float.")
+
     if args.cv:
         # Run spatial cross-validation
         run_cross_validation(
@@ -646,6 +738,7 @@ def main():
             memory_limit=args.memory_limit,
             correction_weight=args.correction_weight,
             buffer_m=args.cv_buffer,
+            classifier_type=args.classifier,
         )
     else:
         # Run full pipeline with inference
@@ -656,15 +749,18 @@ def main():
             result = pipeline.run(
                 geojson_path=geojson_path,
                 output_dir=args.output,
-                probability_threshold=args.threshold,
+                probability_threshold=probability_threshold,
                 test_fraction=args.test_fraction,
                 correction_weight=args.correction_weight,
                 batch_size=args.batch_size,
+                tile_size_m=tile_size_m,
+                classifier_type=args.classifier,
             )
 
         print(f"\nDetections: {result.num_detections}")
         print(f"F1: {result.metrics.f1:.3f}, AUC: {result.metrics.auc_roc:.3f}")
         print(f"Output files: {result.output_files}")
+        print(f"Tile size: {tile_size_m}m")
 
 
 if __name__ == "__main__":
